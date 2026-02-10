@@ -1,0 +1,21 @@
+name: personal-brain
+version: 1.0.0
+description: TheBrain MCP Server - FastMCP Python implementation
+
+# Tell FastMCP to work from the python subdirectory
+workdir: python
+
+# Installation command
+install: pip install -e .
+
+# Command to run the server
+command: python -m thebrain_mcp.server
+
+# Environment variables (these should be set in FastMCP Cloud UI)
+environment:
+  THEBRAIN_API_KEY: ${THEBRAIN_API_KEY}
+  THEBRAIN_DEFAULT_BRAIN_ID: ${THEBRAIN_DEFAULT_BRAIN_ID}
+
+# Python version
+runtime:
+  python: "3.12"
