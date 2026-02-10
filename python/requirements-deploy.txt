@@ -1,0 +1,2 @@
+# For local development, install in editable mode
+-e .
