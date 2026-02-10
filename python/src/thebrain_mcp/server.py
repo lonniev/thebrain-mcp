@@ -9,26 +9,35 @@ from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.tools import attachments, brains, links, notes, stats, thoughts
 
-# Initialize settings
-try:
-    settings = get_settings()
-except Exception as e:
-    print(f"Error: Failed to load settings: {e}", file=sys.stderr)
-    print("Please ensure THEBRAIN_API_KEY is set in environment or .env file", file=sys.stderr)
-    sys.exit(1)
-
-# Initialize FastMCP server
+# Initialize FastMCP server (don't load settings yet - wait until runtime)
 mcp = FastMCP("thebrain-mcp")
 
-# Global API client and active brain state
+# Global API client and active brain state (initialized at runtime)
 api_client: TheBrainAPI | None = None
-active_brain_id: str | None = settings.thebrain_default_brain_id
+active_brain_id: str | None = None
+_settings_loaded = False
+
+
+def _ensure_settings_loaded() -> None:
+    """Ensure settings are loaded (called at runtime, not import time)."""
+    global active_brain_id, _settings_loaded
+    if not _settings_loaded:
+        try:
+            settings = get_settings()
+            active_brain_id = settings.thebrain_default_brain_id
+            _settings_loaded = True
+        except Exception as e:
+            print(f"Error: Failed to load settings: {e}", file=sys.stderr)
+            print("Please ensure THEBRAIN_API_KEY is set in environment or .env file", file=sys.stderr)
+            sys.exit(1)
 
 
 def get_api() -> TheBrainAPI:
     """Get or create API client."""
     global api_client
+    _ensure_settings_loaded()
     if api_client is None:
+        settings = get_settings()
         api_client = TheBrainAPI(settings.thebrain_api_key, settings.thebrain_api_url)
     return api_client
 
