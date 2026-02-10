@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "thebrain": {
+      "command": "python",
+      "args": ["-m", "thebrain_mcp.server"],
+      "cwd": "/absolute/path/to/thebrain-mcp/python",
+      "env": {
+        "THEBRAIN_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
