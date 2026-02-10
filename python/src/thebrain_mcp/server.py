@@ -44,6 +44,7 @@ def get_api() -> TheBrainAPI:
 
 def get_brain_id(brain_id: str | None = None) -> str:
     """Get brain ID from argument or active brain."""
+    _ensure_settings_loaded()  # Ensure settings loaded to get active_brain_id
     if brain_id:
         return brain_id
     if active_brain_id:
