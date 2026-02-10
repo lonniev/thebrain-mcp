@@ -4,6 +4,7 @@ import sys
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_access_token
 
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
@@ -50,6 +51,27 @@ def get_brain_id(brain_id: str | None = None) -> str:
     if active_brain_id:
         return active_brain_id
     raise ValueError("Brain ID is required. Use set_active_brain first or provide brainId.")
+
+
+# Authentication Diagnostics
+
+
+@mcp.tool()
+async def whoami(token=get_access_token()) -> dict[str, Any]:
+    """Return the authenticated user's identity and token claims.
+
+    This is a diagnostic tool to inspect what OAuth claims are available
+    from the FastMCP Cloud authentication layer.
+    """
+    if token is None:
+        return {"error": "No authentication token available (STDIO mode or unauthenticated)"}
+
+    return {
+        "client_id": token.client_id,
+        "scopes": token.scopes,
+        "expires_at": str(token.expires_at) if token.expires_at else None,
+        "claims": dict(token.claims) if token.claims else {},
+    }
 
 
 # Brain Management Tools
