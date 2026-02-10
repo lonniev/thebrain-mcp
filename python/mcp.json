@@ -1,0 +1,13 @@
+{
+  "name": "thebrain-mcp",
+  "version": "1.0.0",
+  "description": "TheBrain MCP Server - FastMCP Python implementation",
+  "command": "python -m thebrain_mcp.server",
+  "dependencies": [
+    "git+https://github.com/lonniev/thebrain-mcp.git#subdirectory=python"
+  ],
+  "environment": {
+    "THEBRAIN_API_KEY": "${THEBRAIN_API_KEY}",
+    "THEBRAIN_DEFAULT_BRAIN_ID": "${THEBRAIN_DEFAULT_BRAIN_ID}"
+  }
+}
