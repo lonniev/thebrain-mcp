@@ -1,11 +1,11 @@
 {
   "mcpServers": {
     "thebrain": {
-      "command": "python",
+      "command": "/Users/lonniev/Development/GitHubPersonal/thebrain-mcp/python/venv/bin/python",
       "args": ["-m", "thebrain_mcp.server"],
-      "cwd": "/absolute/path/to/thebrain-mcp/python",
       "env": {
-        "THEBRAIN_API_KEY": "your_api_key_here"
+        "THEBRAIN_API_KEY": "fb760a1b1fd86bd787d7e622b11b7908941210452014e8aea0f2127e9242024b",
+        "THEBRAIN_DEFAULT_BRAIN_ID": "50817ae2-2c99-3cb0-ebb8-b7006d2bdef6"
       }
     }
   }

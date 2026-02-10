@@ -1,0 +1,5 @@
+# Install thebrain-mcp from GitHub
+git+https://github.com/lonniev/thebrain-mcp.git#subdirectory=python
+
+# Or install from local directory during development:
+# -e .
