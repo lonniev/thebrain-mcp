@@ -2,9 +2,7 @@ name: personal-brain
 version: 1.0.0
 description: TheBrain MCP Server - FastMCP Python implementation
 
-# Tell FastMCP to work from the python subdirectory
-workdir: python
-
+# No workdir needed - we're already in the python directory
 # Installation command
 install: pip install -e .
 
