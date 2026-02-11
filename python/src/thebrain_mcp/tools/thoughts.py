@@ -94,6 +94,51 @@ async def create_thought_tool(
         return {"success": False, "error": str(e)}
 
 
+async def get_thought_by_name_tool(
+    api: TheBrainAPI, brain_id: str, name_exact: str
+) -> dict[str, Any]:
+    """Find a thought by its exact name.
+
+    Args:
+        api: TheBrain API client
+        brain_id: The ID of the brain
+        name_exact: The exact name to match (case-sensitive)
+
+    Returns:
+        Dictionary with success status and thought details, or not-found message
+    """
+    try:
+        thought = await api.get_thought_by_name(brain_id, name_exact)
+        if thought is None:
+            return {"success": False, "error": f"No thought found with exact name: {name_exact}"}
+        return {
+            "success": True,
+            "thought": {
+                "id": thought.id,
+                "brainId": thought.brain_id,
+                "name": thought.name,
+                "label": thought.label,
+                "kind": thought.kind,
+                "kindName": get_kind_name(thought.kind),
+                "typeId": thought.type_id,
+                "foregroundColor": thought.foreground_color,
+                "backgroundColor": thought.background_color,
+                "acType": thought.ac_type,
+                "acTypeName": get_access_type_name(thought.ac_type),
+                "creationDateTime": (
+                    thought.creation_date_time.isoformat() if thought.creation_date_time else None
+                ),
+                "modificationDateTime": (
+                    thought.modification_date_time.isoformat()
+                    if thought.modification_date_time
+                    else None
+                ),
+            },
+        }
+    except TheBrainAPIError as e:
+        return {"success": False, "error": str(e)}
+
+
 async def get_thought_tool(api: TheBrainAPI, brain_id: str, thought_id: str) -> dict[str, Any]:
     """Get details about a specific thought.
 
@@ -248,9 +293,9 @@ async def search_thoughts_tool(
                 {
                     "thoughtId": result.source_thought.id if result.source_thought else None,
                     "name": result.name or (result.source_thought.name if result.source_thought else None),
-                    "type": get_search_result_type_name(result.search_result_type),
-                    "snippet": result.snippet,
+                    "matchType": get_search_result_type_name(result.search_result_type),
                     "attachmentId": result.attachment_id,
+                    "linkId": result.source_link.id if result.source_link else None,
                 }
                 for result in results
             ],

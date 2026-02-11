@@ -84,8 +84,13 @@ class SearchResult(BaseModel):
     name: str | None = None
     search_result_type: int = Field(alias="searchResultType")
     source_thought: Thought | None = Field(None, alias="sourceThought")
-    snippet: str | None = None
+    source_link: Link | None = Field(None, alias="sourceLink")
     attachment_id: str | None = Field(None, alias="attachmentId")
+    is_from_other_brain: bool | None = Field(None, alias="isFromOtherBrain")
+    brain_name: str | None = Field(None, alias="brainName")
+    brain_id: str | None = Field(None, alias="brainId")
+    entity_type: int | None = Field(None, alias="entityType")
+    source_type: int | None = Field(None, alias="sourceType")
 
 
 class ThoughtGraph(BaseModel):

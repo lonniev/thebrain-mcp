@@ -260,6 +260,24 @@ async def get_thought(thought_id: str, brain_id: str | None = None) -> dict[str,
 
 
 @mcp.tool()
+async def get_thought_by_name(
+    name_exact: str, brain_id: str | None = None
+) -> dict[str, Any]:
+    """Find a thought by its exact name.
+
+    Returns the first thought matching the name exactly. Faster and more
+    precise than search when you know the exact thought name.
+
+    Args:
+        name_exact: The exact name to match
+        brain_id: The ID of the brain (uses active brain if not specified)
+    """
+    return await thoughts.get_thought_by_name_tool(
+        get_api(), get_brain_id(brain_id), name_exact
+    )
+
+
+@mcp.tool()
 async def update_thought(
     thought_id: str,
     brain_id: str | None = None,
