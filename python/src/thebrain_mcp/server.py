@@ -63,58 +63,41 @@ async def whoami() -> dict[str, Any]:
     This is a diagnostic tool to inspect what OAuth claims are available
     from the FastMCP Cloud authentication layer.
     """
+    import json
+    import base64
+
     result: dict[str, Any] = {}
 
-    # Path 1: FastMCP get_access_token (combines HTTP scope + SDK context var)
-    token = get_access_token()
-    if token is not None:
-        result["access_token"] = {
-            "client_id": token.client_id,
-            "scopes": token.scopes,
-            "expires_at": str(token.expires_at) if token.expires_at else None,
-            "claims": dict(token.claims) if token.claims else {},
-        }
-    else:
-        result["access_token"] = None
-
-    # Path 2: HTTP request details
-    try:
-        request = get_http_request()
-        result["http_request"] = {
-            "scope_type": request.scope.get("type"),
-            "scope_keys": list(request.scope.keys()),
-            "has_user_in_scope": "user" in request.scope,
-            "user_type": type(request.scope.get("user")).__name__ if "user" in request.scope else None,
-            "method": request.method,
-            "url": str(request.url),
-        }
-    except RuntimeError as e:
-        result["http_request"] = {"error": str(e)}
-
-    # Path 3: HTTP headers (may contain auth info)
+    # Path 1: FastMCP Cloud custom headers (injected by proxy)
     headers = get_http_headers(include_all=True)
-    # Redact authorization header values but show their presence
-    safe_headers = {}
-    for k, v in headers.items():
-        if "auth" in k.lower() or "token" in k.lower() or "cookie" in k.lower():
-            safe_headers[k] = f"<present, {len(v)} chars>"
-        else:
-            safe_headers[k] = v
-    result["http_headers"] = safe_headers if safe_headers else None
+    result["fastmcp_cloud"] = {
+        k: v for k, v in headers.items() if k.startswith("fastmcp-")
+    } or None
 
-    # Path 4: MCP SDK auth context var directly
-    try:
-        from mcp.server.auth.middleware.auth_context import auth_context_var
-        auth_user = auth_context_var.get()
-        result["sdk_auth_context"] = type(auth_user).__name__ if auth_user else None
-    except Exception as e:
-        result["sdk_auth_context"] = {"error": str(e)}
+    # Path 2: Decode JWT from authorization header (without verification)
+    auth_header = headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        raw_jwt = auth_header[len("Bearer "):]
+        try:
+            # Decode JWT payload without verification (diagnostic only)
+            parts = raw_jwt.split(".")
+            if len(parts) >= 2:
+                # Add padding for base64url decoding
+                payload_b64 = parts[1]
+                payload_b64 += "=" * (4 - len(payload_b64) % 4)
+                payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                # Redact the raw token but expose all claims
+                result["jwt_claims"] = payload
+            else:
+                result["jwt_claims"] = {"error": f"Malformed JWT: {len(parts)} parts"}
+        except Exception as e:
+            result["jwt_claims"] = {"error": f"JWT decode failed: {e}"}
+    else:
+        result["jwt_claims"] = None
 
-    # Path 5: Transport info
-    result["transport"] = {
-        "stdin_isatty": sys.stdin.isatty() if hasattr(sys.stdin, "isatty") else "unknown",
-        "stdout_isatty": sys.stdout.isatty() if hasattr(sys.stdout, "isatty") else "unknown",
-    }
+    # Path 3: FastMCP get_access_token (SDK middleware)
+    token = get_access_token()
+    result["sdk_access_token"] = "present" if token else None
 
     return result
 
