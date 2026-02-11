@@ -220,29 +220,28 @@ class TheBrainAPI:
         data = await self._request("GET", f"/search/{brain_id}", params=params)
         return [SearchResult.model_validate(result) for result in data]
 
-    async def get_thought_by_name(
-        self, brain_id: str, name_exact: str
-    ) -> Thought | dict[str, Any] | None:
+    async def get_thought_by_name(self, brain_id: str, name_exact: str) -> Thought | None:
         """Get the first thought matching the name exactly.
 
-        Returns a Thought if found, a diagnostic dict if response is unexpected,
-        or None if no match.
+        Returns None if no thought matches (API returns 404).
         """
         try:
-            data = await self._request(
-                "GET", f"/thoughts/{brain_id}", params={"nameExact": name_exact}
+            response = await self.client.request(
+                method="GET",
+                url=f"/thoughts/{brain_id}",
+                params={"nameExact": name_exact},
             )
-            # API might return a single object or a list
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
             if isinstance(data, list):
-                if len(data) == 0:
-                    return None
-                return Thought.model_validate(data[0])
-            if isinstance(data, dict):
-                return Thought.model_validate(data)
-            # Unexpected type — return diagnostic info
-            return {"_debug": True, "type": type(data).__name__, "value": str(data)[:500]}
-        except TheBrainAPIError as e:
-            return {"_debug": True, "error": str(e)}
+                return Thought.model_validate(data[0]) if data else None
+            return Thought.model_validate(data)
+        except httpx.HTTPStatusError as e:
+            raise TheBrainAPIError(f"HTTP {e.response.status_code}: {e.response.text}") from e
+        except Exception as e:
+            raise TheBrainAPIError(f"Request failed: {str(e)}") from e
 
     async def get_types(self, brain_id: str) -> list[Thought]:
         """Get all thought types."""
