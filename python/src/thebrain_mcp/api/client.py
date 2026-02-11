@@ -220,18 +220,29 @@ class TheBrainAPI:
         data = await self._request("GET", f"/search/{brain_id}", params=params)
         return [SearchResult.model_validate(result) for result in data]
 
-    async def get_thought_by_name(self, brain_id: str, name_exact: str) -> Thought | None:
+    async def get_thought_by_name(
+        self, brain_id: str, name_exact: str
+    ) -> Thought | dict[str, Any] | None:
         """Get the first thought matching the name exactly.
 
-        Returns None if no thought matches.
+        Returns a Thought if found, a diagnostic dict if response is unexpected,
+        or None if no match.
         """
         try:
             data = await self._request(
                 "GET", f"/thoughts/{brain_id}", params={"nameExact": name_exact}
             )
-            return Thought.model_validate(data)
-        except TheBrainAPIError:
-            return None
+            # API might return a single object or a list
+            if isinstance(data, list):
+                if len(data) == 0:
+                    return None
+                return Thought.model_validate(data[0])
+            if isinstance(data, dict):
+                return Thought.model_validate(data)
+            # Unexpected type — return diagnostic info
+            return {"_debug": True, "type": type(data).__name__, "value": str(data)[:500]}
+        except TheBrainAPIError as e:
+            return {"_debug": True, "error": str(e)}
 
     async def get_types(self, brain_id: str) -> list[Thought]:
         """Get all thought types."""

@@ -108,9 +108,13 @@ async def get_thought_by_name_tool(
         Dictionary with success status and thought details, or not-found message
     """
     try:
-        thought = await api.get_thought_by_name(brain_id, name_exact)
-        if thought is None:
+        result = await api.get_thought_by_name(brain_id, name_exact)
+        if result is None:
             return {"success": False, "error": f"No thought found with exact name: {name_exact}"}
+        # Pass through debug info if API returned unexpected data
+        if isinstance(result, dict) and result.get("_debug"):
+            return {"success": False, "debug": result}
+        thought = result
         return {
             "success": True,
             "thought": {
