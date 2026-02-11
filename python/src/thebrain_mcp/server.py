@@ -154,6 +154,54 @@ async def whoami() -> dict[str, Any]:
     return result
 
 
+@mcp.tool()
+async def debug_api_call(
+    query_text: str, brain_id: str | None = None
+) -> dict[str, Any]:
+    """Diagnostic: test search and nameExact endpoints with full request/response details.
+
+    Args:
+        query_text: The text to search for / match exactly
+        brain_id: The ID of the brain (uses active brain if not specified)
+    """
+    import httpx
+
+    api = get_api()
+    bid = get_brain_id(brain_id)
+    results: dict[str, Any] = {"brain_id": bid, "query_text": query_text}
+
+    # Test 1: nameExact endpoint
+    try:
+        url = f"{api.base_url}/thoughts/{bid}"
+        params = {"nameExact": query_text}
+        resp = await api.client.request("GET", f"/thoughts/{bid}", params=params)
+        results["nameExact"] = {
+            "url": str(resp.url),
+            "status": resp.status_code,
+            "body": resp.text[:500],
+        }
+    except Exception as e:
+        results["nameExact"] = {"error": str(e)}
+
+    # Test 2: search endpoint
+    try:
+        params2 = {
+            "queryText": query_text,
+            "maxResults": 5,
+            "onlySearchThoughtNames": "false",
+        }
+        resp2 = await api.client.request("GET", f"/search/{bid}", params=params2)
+        results["search"] = {
+            "url": str(resp2.url),
+            "status": resp2.status_code,
+            "body": resp2.text[:1000],
+        }
+    except Exception as e:
+        results["search"] = {"error": str(e)}
+
+    return results
+
+
 # Brain Management Tools
 
 
