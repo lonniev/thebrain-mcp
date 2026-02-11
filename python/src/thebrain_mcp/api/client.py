@@ -1,5 +1,6 @@
 """TheBrain API client using httpx."""
 
+import json
 import mimetypes
 from pathlib import Path
 from typing import Any
@@ -10,8 +11,6 @@ from thebrain_mcp.api.models import (
     Attachment,
     Brain,
     BrainStats,
-    JsonPatchDocument,
-    JsonPatchOperation,
     Link,
     Modification,
     Note,
@@ -109,6 +108,26 @@ class TheBrainAPI:
         except Exception as e:
             raise TheBrainAPIError(f"Request failed: {str(e)}") from e
 
+    async def _patch(self, endpoint: str, operations: list[dict[str, Any]]) -> Any:
+        """Send a JSON Patch request (bare array, application/json-patch+json)."""
+        try:
+            response = await self.client.request(
+                method="PATCH",
+                url=endpoint,
+                content=json.dumps(operations),
+                headers={"Content-Type": "application/json-patch+json"},
+            )
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "")
+            if "application/json" in content_type:
+                return response.json()
+            return response.text
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
+            raise TheBrainAPIError(error_msg) from e
+        except Exception as e:
+            raise TheBrainAPIError(f"Request failed: {str(e)}") from e
+
     # Brain Management
 
     async def list_brains(self) -> list[Brain]:
@@ -164,17 +183,12 @@ class TheBrainAPI:
     async def update_thought(
         self, brain_id: str, thought_id: str, updates: dict[str, Any]
     ) -> dict[str, Any]:
-        """Update thought using JSON Patch."""
+        """Update thought using JSON Patch (bare array format)."""
         patches = [
-            JsonPatchOperation(path=f"/{key}", value=value) for key, value in updates.items()
+            {"op": "replace", "path": f"/{key}", "value": value}
+            for key, value in updates.items()
         ]
-        patch_doc = JsonPatchDocument(patchDocument=patches)
-
-        return await self._request(
-            "PATCH",
-            f"/thoughts/{brain_id}/{thought_id}",
-            json_data=patch_doc.model_dump(by_alias=True),
-        )
+        return await self._patch(f"/thoughts/{brain_id}/{thought_id}", patches)
 
     async def delete_thought(self, brain_id: str, thought_id: str) -> dict[str, bool]:
         """Delete a thought."""
@@ -235,15 +249,12 @@ class TheBrainAPI:
     async def update_link(
         self, brain_id: str, link_id: str, updates: dict[str, Any]
     ) -> dict[str, Any]:
-        """Update link using JSON Patch."""
+        """Update link using JSON Patch (bare array format)."""
         patches = [
-            JsonPatchOperation(path=f"/{key}", value=value) for key, value in updates.items()
+            {"op": "replace", "path": f"/{key}", "value": value}
+            for key, value in updates.items()
         ]
-        patch_doc = JsonPatchDocument(patchDocument=patches)
-
-        return await self._request(
-            "PATCH", f"/links/{brain_id}/{link_id}", json_data=patch_doc.model_dump(by_alias=True)
-        )
+        return await self._patch(f"/links/{brain_id}/{link_id}", patches)
 
     async def delete_link(self, brain_id: str, link_id: str) -> dict[str, bool]:
         """Delete a link."""
