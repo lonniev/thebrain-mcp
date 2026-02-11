@@ -57,12 +57,13 @@ def get_brain_id(brain_id: str | None = None) -> str:
 
 
 @mcp.tool()
-async def whoami(token=get_access_token()) -> dict[str, Any]:
+async def whoami() -> dict[str, Any]:
     """Return the authenticated user's identity and token claims.
 
     This is a diagnostic tool to inspect what OAuth claims are available
     from the FastMCP Cloud authentication layer.
     """
+    token = get_access_token()
     if token is None:
         return {"error": "No authentication token available (STDIO mode or unauthenticated)"}
 
