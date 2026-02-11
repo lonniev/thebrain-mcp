@@ -1,6 +1,7 @@
 """TheBrain MCP server using FastMCP."""
 
 import sys
+import time
 from typing import Any
 
 from fastmcp import FastMCP
@@ -9,12 +10,20 @@ from fastmcp.server.dependencies import get_access_token, get_http_headers, get_
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.tools import attachments, brains, links, notes, stats, thoughts
+from thebrain_mcp.vault import (
+    decrypt_credentials,
+    encrypt_credentials,
+    fetch_credential_blob,
+    get_session,
+    set_session,
+    store_credential,
+)
 
 # Initialize FastMCP server (don't load settings yet - wait until runtime)
 mcp = FastMCP("thebrain-mcp")
 
 # Global API client and active brain state (initialized at runtime)
-api_client: TheBrainAPI | None = None
+_operator_api_client: TheBrainAPI | None = None
 active_brain_id: str | None = None
 _settings_loaded = False
 
@@ -33,21 +42,64 @@ def _ensure_settings_loaded() -> None:
             sys.exit(1)
 
 
-def get_api() -> TheBrainAPI:
-    """Get or create API client."""
-    global api_client
+def _get_current_user_id() -> str | None:
+    """Extract FastMCP Cloud user ID from request headers.
+
+    Returns None in STDIO mode (local dev) or when no auth headers present.
+    """
+    try:
+        headers = get_http_headers(include_all=True)
+        return headers.get("fastmcp-cloud-user")
+    except Exception:
+        return None
+
+
+def _get_operator_api() -> TheBrainAPI:
+    """Get or create the operator's API client (singleton)."""
+    global _operator_api_client
     _ensure_settings_loaded()
-    if api_client is None:
+    if _operator_api_client is None:
         settings = get_settings()
-        api_client = TheBrainAPI(settings.thebrain_api_key, settings.thebrain_api_url)
-    return api_client
+        _operator_api_client = TheBrainAPI(settings.thebrain_api_key, settings.thebrain_api_url)
+    return _operator_api_client
+
+
+def get_api() -> TheBrainAPI:
+    """Get API client — per-user if session active, operator's for STDIO mode.
+
+    Raises ValueError for FastMCP Cloud users without an active session.
+    """
+    _ensure_settings_loaded()
+
+    user_id = _get_current_user_id()
+    if user_id:
+        # FastMCP Cloud: require per-user session
+        session = get_session(user_id)
+        if session:
+            return session.api_client
+        raise ValueError(
+            "No active session. Call register_credentials (first time) "
+            "or activate_session (returning user) to use your own TheBrain credentials."
+        )
+
+    # STDIO mode (local dev): use operator's client
+    return _get_operator_api()
 
 
 def get_brain_id(brain_id: str | None = None) -> str:
-    """Get brain ID from argument or active brain."""
-    _ensure_settings_loaded()  # Ensure settings loaded to get active_brain_id
+    """Get brain ID: explicit arg > per-user session > operator default (STDIO only)."""
+    _ensure_settings_loaded()
     if brain_id:
         return brain_id
+
+    # Try per-user session
+    user_id = _get_current_user_id()
+    if user_id:
+        session = get_session(user_id)
+        if session and session.active_brain_id:
+            return session.active_brain_id
+
+    # STDIO fallback
     if active_brain_id:
         return active_brain_id
     raise ValueError("Brain ID is required. Use set_active_brain first or provide brainId.")
@@ -131,6 +183,12 @@ async def set_active_brain(brain_id: str) -> dict[str, Any]:
     global active_brain_id
     result = await brains.set_active_brain_tool(get_api(), brain_id)
     if result.get("success"):
+        user_id = _get_current_user_id()
+        if user_id:
+            session = get_session(user_id)
+            if session:
+                session.active_brain_id = brain_id
+                return result
         active_brain_id = brain_id
     return result
 
@@ -560,6 +618,156 @@ async def get_modifications(
     return await stats.get_modifications_tool(
         get_api(), get_brain_id(brain_id), max_logs, start_time, end_time
     )
+
+
+# Credential Vault Tools
+
+
+@mcp.tool()
+async def register_credentials(
+    thebrain_api_key: str,
+    brain_id: str,
+    passphrase: str,
+) -> dict[str, Any]:
+    """Register your TheBrain credentials for multi-tenant access.
+
+    First-time setup: encrypts your API key with your passphrase and stores
+    the encrypted blob in the operator's credential vault. The passphrase is
+    never stored — you will need it each session to activate access.
+
+    Args:
+        thebrain_api_key: Your personal TheBrain API key
+        brain_id: The ID of your TheBrain brain
+        passphrase: A passphrase to encrypt your credentials (remember this!)
+    """
+    user_id = _get_current_user_id()
+    if not user_id:
+        return {
+            "success": False,
+            "error": "Cannot identify user. This tool requires FastMCP Cloud authentication.",
+        }
+
+    settings = get_settings()
+    vault_brain_id = settings.thebrain_vault_brain_id
+    if not vault_brain_id:
+        return {
+            "success": False,
+            "error": "Vault brain not configured. Operator must set THEBRAIN_VAULT_BRAIN_ID.",
+        }
+
+    # Validate the provided API key by attempting to access the brain
+    test_api = TheBrainAPI(thebrain_api_key)
+    try:
+        await test_api.get_brain(brain_id)
+    except Exception as e:
+        return {"success": False, "error": f"Invalid API key or brain ID: {e}"}
+    finally:
+        await test_api.close()
+
+    # Encrypt and store
+    blob = encrypt_credentials(thebrain_api_key, brain_id, passphrase)
+    vault_api = _get_operator_api()
+    home_thought_id = _get_vault_home_thought_id()
+    thought_id = await store_credential(
+        vault_api, vault_brain_id, home_thought_id, user_id, blob
+    )
+
+    # Activate session immediately
+    set_session(user_id, thebrain_api_key, brain_id)
+
+    return {
+        "success": True,
+        "message": "Credentials registered and session activated.",
+        "userId": user_id,
+        "brainId": brain_id,
+        "vaultThoughtId": thought_id,
+    }
+
+
+@mcp.tool()
+async def activate_session(passphrase: str) -> dict[str, Any]:
+    """Activate your personal TheBrain session by decrypting stored credentials.
+
+    Call this at the start of each session. Provide the same passphrase you
+    used during register_credentials.
+
+    Args:
+        passphrase: The passphrase you used when registering credentials
+    """
+    user_id = _get_current_user_id()
+    if not user_id:
+        return {
+            "success": False,
+            "error": "Cannot identify user. This tool requires FastMCP Cloud authentication.",
+        }
+
+    settings = get_settings()
+    vault_brain_id = settings.thebrain_vault_brain_id
+    if not vault_brain_id:
+        return {"success": False, "error": "Vault brain not configured."}
+
+    vault_api = _get_operator_api()
+    home_thought_id = _get_vault_home_thought_id()
+    blob = await fetch_credential_blob(vault_api, vault_brain_id, home_thought_id, user_id)
+    if not blob:
+        return {
+            "success": False,
+            "error": "No credentials found for your account. Use register_credentials first.",
+        }
+
+    try:
+        creds = decrypt_credentials(blob, passphrase)
+    except Exception:
+        return {"success": False, "error": "Decryption failed. Wrong passphrase?"}
+
+    set_session(user_id, creds["api_key"], creds["brain_id"])
+
+    return {
+        "success": True,
+        "message": "Session activated. All tools now use your personal credentials.",
+        "brainId": creds["brain_id"],
+    }
+
+
+@mcp.tool()
+async def session_status() -> dict[str, Any]:
+    """Check the status of your current session.
+
+    Shows whether you have an active personal session or are using
+    the operator's default credentials.
+    """
+    user_id = _get_current_user_id()
+
+    result: dict[str, Any] = {
+        "userId": user_id,
+        "mode": "single-tenant (operator default, STDIO)",
+        "hasPersonalSession": False,
+    }
+
+    if user_id:
+        session = get_session(user_id)
+        if session:
+            result["mode"] = "multi-tenant (personal credentials)"
+            result["hasPersonalSession"] = True
+            result["brainId"] = session.active_brain_id
+            result["sessionAge"] = f"{int(time.time() - session.created_at)}s"
+        else:
+            result["mode"] = "not activated"
+            result["message"] = (
+                "Call register_credentials (first time) "
+                "or activate_session (returning user)."
+            )
+
+    return result
+
+
+def _get_vault_home_thought_id() -> str:
+    """Get the vault brain's home thought ID.
+
+    For now this is hardcoded to match the vault brain created by the operator.
+    Could be made configurable via env var if needed.
+    """
+    return "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
 
 
 def main() -> None:
