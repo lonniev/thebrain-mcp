@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from fastmcp import FastMCP
-from fastmcp.server.dependencies import get_access_token, get_http_headers, get_http_request
+from fastmcp.server.dependencies import get_http_headers
 
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
@@ -115,31 +115,27 @@ async def whoami() -> dict[str, Any]:
     This is a diagnostic tool to inspect what OAuth claims are available
     from the FastMCP Cloud authentication layer.
     """
-    import json
     import base64
+    import json
 
     result: dict[str, Any] = {}
 
-    # Path 1: FastMCP Cloud custom headers (injected by proxy)
+    # FastMCP Cloud custom headers (injected by proxy)
     headers = get_http_headers(include_all=True)
     result["fastmcp_cloud"] = {
         k: v for k, v in headers.items() if k.startswith("fastmcp-")
     } or None
 
-    # Path 2: Decode JWT from authorization header (without verification)
+    # Decode JWT from authorization header (without verification)
     auth_header = headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         raw_jwt = auth_header[len("Bearer "):]
         try:
-            # Decode JWT payload without verification (diagnostic only)
             parts = raw_jwt.split(".")
             if len(parts) >= 2:
-                # Add padding for base64url decoding
                 payload_b64 = parts[1]
                 payload_b64 += "=" * (4 - len(payload_b64) % 4)
-                payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-                # Redact the raw token but expose all claims
-                result["jwt_claims"] = payload
+                result["jwt_claims"] = json.loads(base64.urlsafe_b64decode(payload_b64))
             else:
                 result["jwt_claims"] = {"error": f"Malformed JWT: {len(parts)} parts"}
         except Exception as e:
@@ -147,59 +143,7 @@ async def whoami() -> dict[str, Any]:
     else:
         result["jwt_claims"] = None
 
-    # Path 3: FastMCP get_access_token (SDK middleware)
-    token = get_access_token()
-    result["sdk_access_token"] = "present" if token else None
-
     return result
-
-
-@mcp.tool()
-async def debug_api_call(
-    query_text: str, brain_id: str | None = None
-) -> dict[str, Any]:
-    """Diagnostic: test search and nameExact endpoints with full request/response details.
-
-    Args:
-        query_text: The text to search for / match exactly
-        brain_id: The ID of the brain (uses active brain if not specified)
-    """
-    import httpx
-
-    api = get_api()
-    bid = get_brain_id(brain_id)
-    results: dict[str, Any] = {"brain_id": bid, "query_text": query_text}
-
-    # Test 1: nameExact endpoint
-    try:
-        url = f"{api.base_url}/thoughts/{bid}"
-        params = {"nameExact": query_text}
-        resp = await api.client.request("GET", f"/thoughts/{bid}", params=params)
-        results["nameExact"] = {
-            "url": str(resp.url),
-            "status": resp.status_code,
-            "body": resp.text[:500],
-        }
-    except Exception as e:
-        results["nameExact"] = {"error": str(e)}
-
-    # Test 2: search endpoint
-    try:
-        params2 = {
-            "queryText": query_text,
-            "maxResults": 5,
-            "onlySearchThoughtNames": "false",
-        }
-        resp2 = await api.client.request("GET", f"/search/{bid}", params=params2)
-        results["search"] = {
-            "url": str(resp2.url),
-            "status": resp2.status_code,
-            "body": resp2.text[:1000],
-        }
-    except Exception as e:
-        results["search"] = {"error": str(e)}
-
-    return results
 
 
 # Brain Management Tools
@@ -313,11 +257,12 @@ async def get_thought_by_name(
 ) -> dict[str, Any]:
     """Find a thought by its exact name.
 
-    Returns the first thought matching the name exactly. Faster and more
-    precise than search when you know the exact thought name.
+    Returns the first thought matching the name exactly. Depends on TheBrain's
+    cloud search index — may return not-found for thoughts that exist but
+    aren't indexed. Use get_thought_graph for reliable traversal.
 
     Args:
-        name_exact: The exact name to match
+        name_exact: The exact name to match (case-sensitive)
         brain_id: The ID of the brain (uses active brain if not specified)
     """
     return await thoughts.get_thought_by_name_tool(
@@ -383,6 +328,10 @@ async def search_thoughts(
     only_search_thought_names: bool = False,
 ) -> dict[str, Any]:
     """Search for thoughts in a brain.
+
+    Note: Search depends on TheBrain's cloud index, which may not cover all
+    thoughts. For reliable lookup, use get_thought_graph to traverse connections,
+    or get_thought_by_name for exact name matches on indexed thoughts.
 
     Args:
         query_text: Search query text
