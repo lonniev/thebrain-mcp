@@ -56,7 +56,7 @@ class Attachment(BaseModel):
     brain_id: str = Field(alias="brainId")
     source_id: str = Field(alias="sourceId")
     source_type: int = Field(alias="sourceType")
-    name: str
+    name: str | None = None
     type: int
     location: str | None = None
     data_length: int | None = Field(None, alias="dataLength")
