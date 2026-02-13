@@ -185,16 +185,21 @@ class _BrainQueryTransformer(Transformer):
         nodes = []
         rels = []
         seen_vars = set()
+        match_variables: set[str] = set()
 
-        def process_patterns(patterns):
+        def process_patterns(patterns, *, is_match: bool = False):
             for node_a, rel_type, node_b in patterns:
                 if node_a.variable not in seen_vars:
                     nodes.append(node_a)
                     seen_vars.add(node_a.variable)
+                if is_match:
+                    match_variables.add(node_a.variable)
                 if rel_type and node_b:
                     if node_b.variable not in seen_vars:
                         nodes.append(node_b)
                         seen_vars.add(node_b.variable)
+                    if is_match:
+                        match_variables.add(node_b.variable)
                     rels.append(RelPattern(
                         rel_type=rel_type,
                         source=node_a.variable,
@@ -202,9 +207,9 @@ class _BrainQueryTransformer(Transformer):
                     ))
 
         if match_patterns:
-            process_patterns(match_patterns)
+            process_patterns(match_patterns, is_match=True)
         if create_patterns:
-            process_patterns(create_patterns)
+            process_patterns(create_patterns, is_match=False)
 
         return BrainQuery(
             action=action,
@@ -212,6 +217,7 @@ class _BrainQueryTransformer(Transformer):
             relationships=rels,
             where_clauses=[where] if where else [],
             return_fields=returns or [],
+            match_variables=match_variables,
         )
 
     def match_query(self, match, where_or_ret=None, ret=None):
