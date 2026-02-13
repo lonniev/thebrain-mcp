@@ -41,6 +41,9 @@ _GRAMMAR = r"""
     where_expr: VARIABLE "." "name"i where_op STRING
     where_op: "=" -> eq_op
             | "CONTAINS"i -> contains_op
+            | "STARTS"i "WITH"i -> starts_with_op
+            | "ENDS"i "WITH"i -> ends_with_op
+            | "=~" -> similar_op
 
     return_clause: "RETURN"i return_item ("," return_item)*
     return_item: VARIABLE ("." FIELD_NAME)?
@@ -80,6 +83,11 @@ def _check_unsupported(query: str) -> None:
     upper = query.upper().split()
     for keyword, suggestion in _UNSUPPORTED.items():
         if keyword in upper:
+            # "WITH" is valid inside "STARTS WITH" and "ENDS WITH"
+            if keyword == "WITH":
+                idx = upper.index("WITH")
+                if idx > 0 and upper[idx - 1] in ("STARTS", "ENDS"):
+                    continue
             raise BrainQuerySyntaxError(
                 f"'{keyword}' is not supported in BrainQuery. {suggestion}"
             )
@@ -165,6 +173,15 @@ class _BrainQueryTransformer(Transformer):
 
     def contains_op(self):
         return "CONTAINS"
+
+    def starts_with_op(self):
+        return "STARTS WITH"
+
+    def ends_with_op(self):
+        return "ENDS WITH"
+
+    def similar_op(self):
+        return "=~"
 
     def where_expr(self, variable, op, value):
         return WhereClause(variable=variable, field="name", operator=op, value=value)

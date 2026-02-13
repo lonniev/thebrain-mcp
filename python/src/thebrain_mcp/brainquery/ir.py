@@ -30,7 +30,7 @@ class WhereClause:
 
     variable: str
     field: str  # currently always "name"
-    operator: Literal["=", "CONTAINS"]
+    operator: Literal["=", "CONTAINS", "STARTS WITH", "ENDS WITH", "=~"]
     value: str
 
 

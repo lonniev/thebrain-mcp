@@ -86,18 +86,18 @@ class TestMatchByName:
         api.get_thought_by_name.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_fallback_to_search(self) -> None:
+    async def test_exact_name_no_fallback(self) -> None:
+        """Inline {name: ...} is strict — no search fallback."""
         api = _mock_api()
-        t = _thought("t1", "Claude Thoughts")
         api.get_thought_by_name = AsyncMock(return_value=None)
-        api.search_thoughts = AsyncMock(return_value=[_search_result(t)])
+        api.search_thoughts = AsyncMock(return_value=[_search_result(_thought("t1", "Claude Thoughts"))])
 
         q = parse('MATCH (n {name: "Claude Thoughts"}) RETURN n')
         result = await execute(api, "brain", q)
 
         assert result.success
-        assert len(result.results["n"]) == 1
-        api.search_thoughts.assert_called_once()
+        assert result.results["n"] == []
+        api.search_thoughts.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_results(self) -> None:
@@ -136,6 +136,125 @@ class TestMatchWithWhere:
         assert result.success
         assert len(result.results["n"]) == 1
         api.search_thoughts.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# MATCH: name matching modes
+# ---------------------------------------------------------------------------
+
+
+class TestMatchingModes:
+    @pytest.mark.asyncio
+    async def test_where_equals_strict(self) -> None:
+        """WHERE = is strict exact match, no fallback."""
+        api = _mock_api()
+        api.get_thought_by_name = AsyncMock(return_value=None)
+
+        q = parse('MATCH (n) WHERE n.name = "Missing" RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert result.results["n"] == []
+        api.search_thoughts.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_starts_with(self) -> None:
+        api = _mock_api()
+        t1 = _thought("t1", "MCP Server")
+        t2 = _thought("t2", "MCP Client")
+        t3 = _thought("t3", "Other Thing")
+        api.search_thoughts = AsyncMock(return_value=[
+            _search_result(t1), _search_result(t2), _search_result(t3),
+        ])
+
+        q = parse('MATCH (n) WHERE n.name STARTS WITH "MCP" RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["n"]) == 2
+        names = {r.name for r in result.results["n"]}
+        assert names == {"MCP Server", "MCP Client"}
+
+    @pytest.mark.asyncio
+    async def test_ends_with(self) -> None:
+        api = _mock_api()
+        t1 = _thought("t1", "MCP Server")
+        t2 = _thought("t2", "Web Server")
+        t3 = _thought("t3", "MCP Client")
+        api.search_thoughts = AsyncMock(return_value=[
+            _search_result(t1), _search_result(t2), _search_result(t3),
+        ])
+
+        q = parse('MATCH (n) WHERE n.name ENDS WITH "Server" RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["n"]) == 2
+        names = {r.name for r in result.results["n"]}
+        assert names == {"MCP Server", "Web Server"}
+
+    @pytest.mark.asyncio
+    async def test_contains_filters(self) -> None:
+        """CONTAINS post-filters search results by substring."""
+        api = _mock_api()
+        t1 = _thought("t1", "MCP Server")
+        t2 = _thought("t2", "Other Thing")
+        api.search_thoughts = AsyncMock(return_value=[
+            _search_result(t1), _search_result(t2),
+        ])
+
+        q = parse('MATCH (n) WHERE n.name CONTAINS "MCP" RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["n"]) == 1
+        assert result.results["n"][0].name == "MCP Server"
+
+    @pytest.mark.asyncio
+    async def test_similar_exact_hit(self) -> None:
+        """=~ returns exact match when available."""
+        api = _mock_api()
+        t = _thought("t1", "Claude Thoughts")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse('MATCH (n) WHERE n.name =~ "Claude Thoughts" RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["n"]) == 1
+        assert result.results["n"][0].id == "t1"
+        api.search_thoughts.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_similar_fallback_to_search(self) -> None:
+        """=~ falls back to search and ranks results."""
+        api = _mock_api()
+        t1 = _thought("t1", "Claude Thoughts")
+        t2 = _thought("t2", "Claude Code Extensions")
+        api.get_thought_by_name = AsyncMock(return_value=None)
+        api.search_thoughts = AsyncMock(return_value=[
+            _search_result(t2), _search_result(t1),
+        ])
+
+        q = parse('MATCH (n) WHERE n.name =~ "Claude" RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["n"]) == 2
+        api.search_thoughts.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive_matching(self) -> None:
+        """String matching is case-insensitive."""
+        api = _mock_api()
+        t = _thought("t1", "MCP Server")
+        api.search_thoughts = AsyncMock(return_value=[_search_result(t)])
+
+        q = parse('MATCH (n) WHERE n.name STARTS WITH "mcp" RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["n"]) == 1
 
 
 # ---------------------------------------------------------------------------
