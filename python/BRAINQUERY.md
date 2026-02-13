@@ -1,0 +1,241 @@
+# BrainQuery — A Cypher Subset for TheBrain
+
+BrainQuery is a minimal, Cypher-inspired query language for searching and creating thoughts in TheBrain. It provides a shared formalism between humans and AI agents for expressing graph operations unambiguously.
+
+BrainQuery is **not** a full graph query language. It covers the practical subset needed for everyday brain operations. Advanced graph features (variable-length paths, aggregations, etc.) are deferred to TheBrain v15's native capabilities.
+
+## Quick Examples
+
+```cypher
+-- Find a thought by name
+MATCH (n {name: "Claude Thoughts"}) RETURN n
+
+-- Find all Person-typed thoughts
+MATCH (n:Person) RETURN n
+
+-- Find children of a specific thought
+MATCH (n {name: "My Thoughts"})-[:CHILD]->(m) RETURN m
+
+-- Search by substring
+MATCH (n) WHERE n.name CONTAINS "MCP" RETURN n
+
+-- Create a new thought under an existing parent
+MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n {name: "New Project"})
+
+-- Link two existing thoughts
+MATCH (a {name: "Alice"}), (b {name: "Bob"}) CREATE (a)-[:JUMP]->(b)
+```
+
+## Supported Grammar
+
+### Node Patterns
+
+A node pattern matches or creates a thought. It consists of an optional variable, optional type label, and optional property map.
+
+```
+(variable)                          -- any thought
+(variable:TypeName)                 -- thought with a specific type
+(variable {name: "value"})          -- thought with specific properties
+(variable:TypeName {name: "value"}) -- typed thought with properties
+```
+
+**Variable**: A lowercase identifier (e.g., `n`, `person`, `src`) used to reference the node elsewhere in the query. Required in all patterns.
+
+**Type label**: Maps to a TheBrain thought type. Case-sensitive, must match an existing type name (e.g., `Person`, `Company`, `Event`).
+
+**Properties**: Key-value pairs in curly braces. Currently only `name` is supported as a property key.
+
+### Relationship Patterns
+
+Relationships connect two node patterns with a direction and type.
+
+```
+(a)-[:REL_TYPE]->(b)    -- directed relationship from a to b
+```
+
+Supported relationship types and their TheBrain API mappings:
+
+| BrainQuery | TheBrain `relation` | Meaning |
+|------------|---------------------|---------|
+| `:CHILD`   | 1                   | `b` is a child of `a` |
+| `:PARENT`  | 2                   | `b` is a parent of `a` |
+| `:JUMP`    | 3                   | Jump link between `a` and `b` |
+| `:SIBLING` | 4                   | `b` is a sibling of `a` |
+
+### READ Queries (MATCH)
+
+Read queries search for existing thoughts and their connections.
+
+#### Simple node match
+
+```cypher
+-- Find by exact name
+MATCH (n {name: "Lonnie VanZandt"}) RETURN n
+
+-- Find by type
+MATCH (n:Person) RETURN n
+
+-- Find by type and name
+MATCH (p:Person {name: "Lonnie VanZandt"}) RETURN p
+```
+
+#### Relationship traversal
+
+```cypher
+-- Find children of a thought
+MATCH (n {name: "My Thoughts"})-[:CHILD]->(m) RETURN m
+
+-- Find parents
+MATCH (n {name: "Some Thought"})-[:PARENT]->(p) RETURN p
+
+-- Find jump-linked thoughts
+MATCH (n {name: "Concept A"})-[:JUMP]->(j) RETURN j
+
+-- Find siblings
+MATCH (n {name: "Task 1"})-[:SIBLING]->(s) RETURN s
+```
+
+#### WHERE clause
+
+Adds filters beyond what the node pattern expresses.
+
+```cypher
+-- Exact name match (equivalent to property syntax)
+MATCH (n) WHERE n.name = "Claude Thoughts" RETURN n
+
+-- Substring search
+MATCH (n) WHERE n.name CONTAINS "MCP" RETURN n
+
+-- Combine with type
+MATCH (n:Person) WHERE n.name CONTAINS "Van" RETURN n
+```
+
+#### RETURN clause
+
+Specifies what to return. Supported forms:
+
+```cypher
+RETURN n              -- full thought details
+RETURN n.name         -- just the name
+RETURN n.id           -- just the thought ID
+RETURN n, m           -- multiple variables
+RETURN n.name, n.id   -- multiple fields
+```
+
+### WRITE Queries (CREATE)
+
+Write queries create new thoughts and links.
+
+#### Create a standalone thought
+
+```cypher
+-- Untyped
+CREATE (n {name: "New Idea"})
+
+-- Typed
+CREATE (n:Concept {name: "New Idea"})
+```
+
+#### Create a thought linked to an existing parent
+
+```cypher
+-- Create as child of an existing thought
+MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n {name: "New Project"})
+
+-- Create with type
+MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n:Concept {name: "New Idea"})
+```
+
+#### Create a link between existing thoughts
+
+```cypher
+-- Add a jump link
+MATCH (a {name: "Alice"}), (b {name: "Bob"}) CREATE (a)-[:JUMP]->(b)
+
+-- Add a sibling link
+MATCH (a {name: "Task 1"}), (b {name: "Task 2"}) CREATE (a)-[:SIBLING]->(b)
+```
+
+## Resolution Strategy
+
+When executing a MATCH, the query planner resolves nodes using this priority order:
+
+1. **Exact name** (`name` property) — `get_thought_by_name()`, cheapest call
+2. **Search fallback** — `search_thoughts()` if exact match returns nothing
+3. **Type filtering** (lazy) — only resolved if candidates exist and a type label is specified; never used as a starting traversal point
+
+**Critical rule**: Type thoughts are uber-nodes in personal brains (e.g., Person may have 1,000+ children). The planner never traverses down from a Type to find matches. Type is always a deferred filter, not a starting point. The only exception is when the user explicitly requests all thoughts of a type (`MATCH (n:Person) RETURN n`).
+
+## What's NOT Supported
+
+The following Cypher features are explicitly out of scope. BrainQuery will return a helpful error if you attempt them, suggesting the supported alternative.
+
+| Feature | Why excluded | Alternative |
+|---------|-------------|-------------|
+| Variable-length paths `*1..3` | TheBrain API doesn't support multi-hop queries | Chain multiple MATCH clauses |
+| `DELETE` / `DETACH DELETE` | Destructive — use dedicated `delete_thought` tool | `delete_thought` tool |
+| `SET` for property updates | Use dedicated tool | `update_thought` tool |
+| `MERGE` (upsert) | Complex semantics, risk of silent duplicates | MATCH first, then CREATE if not found |
+| Aggregations (`COUNT`, `COLLECT`) | Not a reporting tool | Use `get_brain_stats` for counts |
+| `OPTIONAL MATCH` | Adds null-handling complexity | Run two separate queries |
+| `UNION` | Use separate queries | Run queries independently |
+| Path variables `p = (a)-[*]->(b)` | No multi-hop support | Step-by-step traversal |
+| `WHERE` with `AND`/`OR` | Keep filtering simple for v1 | Multiple queries |
+| Numeric/boolean properties | Only `name` is queryable via TheBrain API | Use notes for rich metadata |
+
+## Formal Grammar (EBNF)
+
+```ebnf
+query           = match_query | create_query | match_create_query ;
+
+match_query     = "MATCH" , match_pattern , { "," , match_pattern } ,
+                  [ where_clause ] , return_clause ;
+
+create_query    = "CREATE" , create_pattern , { "," , create_pattern } ;
+
+match_create_query = "MATCH" , match_pattern , { "," , match_pattern } ,
+                     "CREATE" , create_pattern , { "," , create_pattern } ;
+
+match_pattern   = node_pattern , [ rel_pattern , node_pattern ] ;
+
+create_pattern  = node_pattern , [ rel_pattern , node_pattern ] ;
+
+node_pattern    = "(" , variable , [ ":" , type_label ] ,
+                  [ "{" , property_map , "}" ] , ")" ;
+
+rel_pattern     = "-[" , ":" , rel_type , "]->" ;
+
+variable        = identifier ;
+type_label      = identifier ;
+identifier      = letter , { letter | digit | "_" } ;
+
+property_map    = property , { "," , property } ;
+property        = "name" , ":" , string_literal ;
+
+string_literal  = '"' , { any_char - '"' } , '"' ;
+
+where_clause    = "WHERE" , where_expr ;
+where_expr      = variable , "." , "name" , ( "=" , string_literal
+                                             | "CONTAINS" , string_literal ) ;
+
+return_clause   = "RETURN" , return_item , { "," , return_item } ;
+return_item     = variable , [ "." , field_name ] ;
+field_name      = "name" | "id" ;
+
+rel_type        = "CHILD" | "PARENT" | "JUMP" | "SIBLING" ;
+```
+
+## TheBrain Mapping Reference
+
+| BrainQuery Concept | TheBrain Equivalent |
+|--------------------|---------------------|
+| Node label (`:Person`) | Thought type (`typeId`) |
+| Node property `name` | Thought `name` field |
+| `:CHILD` relationship | `relation: 1` in link/graph API |
+| `:PARENT` relationship | `relation: 2` |
+| `:JUMP` relationship | `relation: 3` |
+| `:SIBLING` relationship | `relation: 4` |
+| `MATCH` | `get_thought_by_name`, `search_thoughts`, `get_thought_graph` |
+| `CREATE` node | `create_thought` API |
+| `CREATE` relationship | `create_link` API |
+| `RETURN` | Response formatting (thought ID, name, type) |
