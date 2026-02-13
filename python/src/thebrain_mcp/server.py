@@ -9,6 +9,7 @@ from fastmcp.server.dependencies import get_http_headers
 
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
+from thebrain_mcp.brainquery import BrainQuerySyntaxError, execute, parse
 from thebrain_mcp.tools import attachments, brains, links, notes, stats, thoughts
 from thebrain_mcp.vault import (
     CredentialNotFoundError,
@@ -664,6 +665,43 @@ async def get_modifications(
     return await stats.get_modifications_tool(
         get_api(), get_brain_id(brain_id), max_logs, start_time, end_time
     )
+
+
+# BrainQuery Tool
+
+
+@mcp.tool()
+async def brain_query(
+    query: str,
+    brain_id: str | None = None,
+) -> dict[str, Any]:
+    """Execute a BrainQuery (Cypher subset) against TheBrain.
+
+    Supports MATCH for searching and CREATE for adding thoughts in context.
+    Uses name-first resolution with lazy type filtering.
+
+    Examples:
+        Find by name:    MATCH (n {name: "Claude Thoughts"}) RETURN n
+        Find by type:    MATCH (p:Person {name: "Alice"}) RETURN p
+        Get children:    MATCH (n {name: "Projects"})-[:CHILD]->(m) RETURN m
+        Create child:    MATCH (p {name: "Ideas"}) CREATE (p)-[:CHILD]->(n {name: "New Idea"})
+        Link existing:   MATCH (a {name: "A"}), (b {name: "B"}) CREATE (a)-[:JUMP]->(b)
+        Substring search: MATCH (n) WHERE n.name CONTAINS "MCP" RETURN n
+
+    Args:
+        query: A BrainQuery string (Cypher subset). See examples above.
+        brain_id: The ID of the brain (uses active brain if not specified)
+    """
+    try:
+        parsed = parse(query)
+    except BrainQuerySyntaxError as e:
+        return {"success": False, "error": str(e)}
+
+    api = get_api()
+    bid = get_brain_id(brain_id)
+
+    result = await execute(api, bid, parsed)
+    return result.to_dict()
 
 
 # Credential Vault Tools
