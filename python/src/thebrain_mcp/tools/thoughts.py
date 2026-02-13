@@ -1,11 +1,13 @@
 """Thought operation tools for TheBrain MCP server."""
 
+from datetime import datetime, timezone
 from typing import Any
 
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.utils.formatters import (
     get_access_type_name,
     get_kind_name,
+    get_relation_name,
     get_search_result_type_name,
 )
 
@@ -436,5 +438,205 @@ async def get_tags_tool(api: TheBrainAPI, brain_id: str) -> dict[str, Any]:
                 for t in tags
             ],
         }
+    except TheBrainAPIError as e:
+        return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Paginated graph traversal
+# ---------------------------------------------------------------------------
+
+_RELATION_FILTER_MAP = {
+    "child": "children",
+    "children": "children",
+    "parent": "parents",
+    "parents": "parents",
+    "jump": "jumps",
+    "jumps": "jumps",
+    "sibling": "siblings",
+    "siblings": "siblings",
+}
+
+
+def _collect_related_thoughts(graph: Any, relation_filter: str | None) -> list[dict[str, Any]]:
+    """Flatten graph relations into a list of dicts with relation labels.
+
+    Each entry includes the thought data and which relation bucket it came from.
+    """
+    buckets: dict[str, str] = {
+        "children": "child",
+        "parents": "parent",
+        "jumps": "jump",
+        "siblings": "sibling",
+    }
+
+    items: list[dict[str, Any]] = []
+    for attr, relation_label in buckets.items():
+        thoughts = getattr(graph, attr, None) or []
+        for t in thoughts:
+            items.append({
+                "id": t.id,
+                "name": t.name,
+                "label": t.label,
+                "kind": t.kind,
+                "kindName": get_kind_name(t.kind),
+                "relation": relation_label,
+                "modificationDateTime": (
+                    t.modification_date_time.isoformat()
+                    if t.modification_date_time
+                    else None
+                ),
+                "_sort_dt": t.modification_date_time,
+            })
+
+    return items
+
+
+def _count_relations(all_items: list[dict[str, Any]]) -> dict[str, int]:
+    """Count items per relation type (always computed from full unfiltered set)."""
+    counts: dict[str, int] = {"children": 0, "parents": 0, "jumps": 0, "siblings": 0}
+    relation_to_bucket = {"child": "children", "parent": "parents", "jump": "jumps", "sibling": "siblings"}
+    for item in all_items:
+        bucket = relation_to_bucket.get(item["relation"], "")
+        if bucket in counts:
+            counts[bucket] += 1
+    return counts
+
+
+def _parse_cursor(cursor: str) -> tuple[datetime, str]:
+    """Parse a composite cursor 'ISO_TIMESTAMP|THOUGHT_ID' into its parts."""
+    parts = cursor.split("|", 1)
+    cursor_dt = datetime.fromisoformat(parts[0])
+    cursor_id = parts[1] if len(parts) > 1 else ""
+    return cursor_dt, cursor_id
+
+
+def paginate_graph(
+    all_items: list[dict[str, Any]],
+    page_size: int,
+    cursor: str | None,
+    direction: str,
+    relation_filter: str | None,
+) -> dict[str, Any]:
+    """Sort, filter, and paginate a flat list of related thoughts.
+
+    Args:
+        all_items: Full list from _collect_related_thoughts
+        page_size: Number of items per page
+        cursor: Composite cursor 'ISO_TIMESTAMP|THOUGHT_ID' (None for first page)
+        direction: "older" or "newer"
+        relation_filter: Optional relation type to filter by
+
+    Returns:
+        Dict with page, next_cursor, total_count, relation_counts, has_more
+    """
+    # Global counts before filtering
+    relation_counts = _count_relations(all_items)
+
+    # Apply relation filter
+    if relation_filter:
+        normalized = _RELATION_FILTER_MAP.get(relation_filter.lower())
+        if normalized:
+            bucket_to_label = {"children": "child", "parents": "parent", "jumps": "jump", "siblings": "sibling"}
+            target_label = bucket_to_label[normalized]
+            filtered = [i for i in all_items if i["relation"] == target_label]
+        else:
+            filtered = all_items
+    else:
+        filtered = all_items
+
+    total_count = len(filtered)
+
+    # Sentinel for thoughts without modification dates
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+    def sort_key(item: dict[str, Any]) -> tuple[datetime, str]:
+        return (item["_sort_dt"] or epoch, item["id"])
+
+    # Sort: newest first for "older", oldest first for "newer"
+    descending = direction != "newer"
+    filtered.sort(key=sort_key, reverse=descending)
+
+    # Apply cursor — exclude items at or before the cursor position
+    if cursor:
+        cursor_dt, cursor_id = _parse_cursor(cursor)
+        cursor_key = (cursor_dt, cursor_id)
+        if descending:
+            # "older": items are sorted newest→oldest, skip everything >= cursor
+            filtered = [i for i in filtered if sort_key(i) < cursor_key]
+        else:
+            # "newer": items are sorted oldest→newest, skip everything <= cursor
+            filtered = [i for i in filtered if sort_key(i) > cursor_key]
+
+    # Slice page
+    page = filtered[:page_size]
+    has_more = len(filtered) > page_size
+
+    # Build next cursor from last item in page
+    next_cursor = None
+    if has_more and page:
+        last = page[-1]
+        last_dt = last["_sort_dt"] or epoch
+        next_cursor = f"{last_dt.isoformat()}|{last['id']}"
+
+    # Strip internal sort key from output
+    clean_page = [{k: v for k, v in item.items() if k != "_sort_dt"} for item in page]
+
+    return {
+        "page": clean_page,
+        "next_cursor": next_cursor,
+        "total_count": total_count,
+        "relation_counts": relation_counts,
+        "page_size": page_size,
+        "direction": direction,
+        "has_more": has_more,
+    }
+
+
+async def get_thought_graph_paginated_tool(
+    api: TheBrainAPI,
+    brain_id: str,
+    thought_id: str,
+    page_size: int = 10,
+    cursor: str | None = None,
+    direction: str = "older",
+    relation_filter: str | None = None,
+) -> dict[str, Any]:
+    """Get a thought's connections with cursor-based pagination.
+
+    Fetches the full graph from TheBrain on each call, sorts by
+    modificationDateTime (desc for "older", asc for "newer"), and returns
+    a page slice with cursor for the next page.
+
+    Args:
+        api: TheBrain API client
+        brain_id: The ID of the brain
+        thought_id: The ID of the thought
+        page_size: Number of results per page (default 10)
+        cursor: Pagination cursor from a previous response (None for first page)
+        direction: "older" (newest first, default) or "newer" (oldest first)
+        relation_filter: Filter by relation type: "child", "parent", "jump", "sibling", or None for all
+
+    Returns:
+        Dictionary with paginated results, cursor, counts, and has_more flag
+    """
+    try:
+        graph = await api.get_thought_graph(brain_id, thought_id, include_siblings=True)
+
+        # Collect all related thoughts with relation labels
+        all_items = _collect_related_thoughts(graph, relation_filter=None)
+
+        # Paginate
+        result = paginate_graph(all_items, page_size, cursor, direction, relation_filter)
+
+        # Add the active thought info
+        result["thought"] = {
+            "id": graph.active_thought.id,
+            "name": graph.active_thought.name,
+        }
+        result["success"] = True
+
+        return result
+
     except TheBrainAPIError as e:
         return {"success": False, "error": str(e)}
