@@ -11,12 +11,15 @@ from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.tools import attachments, brains, links, notes, stats, thoughts
 from thebrain_mcp.vault import (
+    CredentialNotFoundError,
+    CredentialVault,
+    CredentialValidationError,
+    DecryptionError,
+    VaultNotConfiguredError,
     decrypt_credentials,
     encrypt_credentials,
-    fetch_credential_blob,
     get_session,
     set_session,
-    store_credential,
 )
 
 # Initialize FastMCP server (don't load settings yet - wait until runtime)
@@ -655,37 +658,24 @@ async def register_credentials(
         brain_id: The ID of your TheBrain brain
         passphrase: A passphrase to encrypt your credentials (remember this!)
     """
-    user_id = _get_current_user_id()
-    if not user_id:
-        return {
-            "success": False,
-            "error": "Cannot identify user. This tool requires FastMCP Cloud authentication.",
-        }
-
-    settings = get_settings()
-    vault_brain_id = settings.thebrain_vault_brain_id
-    if not vault_brain_id:
-        return {
-            "success": False,
-            "error": "Vault brain not configured. Operator must set THEBRAIN_VAULT_BRAIN_ID.",
-        }
+    try:
+        user_id = _require_user_id()
+        vault = _get_vault()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
 
     # Validate the provided API key by attempting to access the brain
     test_api = TheBrainAPI(thebrain_api_key)
     try:
         await test_api.get_brain(brain_id)
-    except Exception as e:
-        return {"success": False, "error": f"Invalid API key or brain ID: {e}"}
+    except Exception:
+        return {"success": False, "error": "Invalid API key or brain ID."}
     finally:
         await test_api.close()
 
     # Encrypt and store
     blob = encrypt_credentials(thebrain_api_key, brain_id, passphrase)
-    vault_api = _get_operator_api()
-    home_thought_id = _get_vault_home_thought_id()
-    thought_id = await store_credential(
-        vault_api, vault_brain_id, home_thought_id, user_id, blob
-    )
+    thought_id = await vault.store(user_id, blob)
 
     # Activate session immediately
     set_session(user_id, thebrain_api_key, brain_id)
@@ -709,31 +699,19 @@ async def activate_session(passphrase: str) -> dict[str, Any]:
     Args:
         passphrase: The passphrase you used when registering credentials
     """
-    user_id = _get_current_user_id()
-    if not user_id:
-        return {
-            "success": False,
-            "error": "Cannot identify user. This tool requires FastMCP Cloud authentication.",
-        }
-
-    settings = get_settings()
-    vault_brain_id = settings.thebrain_vault_brain_id
-    if not vault_brain_id:
-        return {"success": False, "error": "Vault brain not configured."}
-
-    vault_api = _get_operator_api()
-    home_thought_id = _get_vault_home_thought_id()
-    blob = await fetch_credential_blob(vault_api, vault_brain_id, home_thought_id, user_id)
-    if not blob:
-        return {
-            "success": False,
-            "error": "No credentials found for your account. Use register_credentials first.",
-        }
-
     try:
+        user_id = _require_user_id()
+        vault = _get_vault()
+        blob = await vault.fetch(user_id)
         creds = decrypt_credentials(blob, passphrase)
-    except Exception:
-        return {"success": False, "error": "Decryption failed. Wrong passphrase?"}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+    except VaultNotConfiguredError as e:
+        return {"success": False, "error": str(e)}
+    except CredentialNotFoundError as e:
+        return {"success": False, "error": str(e)}
+    except DecryptionError as e:
+        return {"success": False, "error": str(e)}
 
     set_session(user_id, creds["api_key"], creds["brain_id"])
 
@@ -765,7 +743,7 @@ async def session_status() -> dict[str, Any]:
             result["mode"] = "multi-tenant (personal credentials)"
             result["hasPersonalSession"] = True
             result["brainId"] = session.active_brain_id
-            result["sessionAge"] = f"{int(time.time() - session.created_at)}s"
+            result["sessionAge"] = f"{session.age_seconds}s"
         else:
             result["mode"] = "not activated"
             result["message"] = (
@@ -776,13 +754,35 @@ async def session_status() -> dict[str, Any]:
     return result
 
 
-def _get_vault_home_thought_id() -> str:
-    """Get the vault brain's home thought ID.
+_VAULT_HOME_THOUGHT_ID = "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
 
-    For now this is hardcoded to match the vault brain created by the operator.
-    Could be made configurable via env var if needed.
+
+def _require_user_id() -> str:
+    """Get the current user ID, raising ValueError if not available."""
+    user_id = _get_current_user_id()
+    if not user_id:
+        raise ValueError(
+            "Cannot identify user. This tool requires FastMCP Cloud authentication."
+        )
+    return user_id
+
+
+def _get_vault() -> CredentialVault:
+    """Get a configured CredentialVault instance.
+
+    Raises VaultNotConfiguredError if the operator hasn't set THEBRAIN_VAULT_BRAIN_ID.
     """
-    return "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
+    settings = get_settings()
+    vault_brain_id = settings.thebrain_vault_brain_id
+    if not vault_brain_id:
+        raise VaultNotConfiguredError(
+            "Vault brain not configured. Operator must set THEBRAIN_VAULT_BRAIN_ID."
+        )
+    return CredentialVault(
+        vault_api=_get_operator_api(),
+        vault_brain_id=vault_brain_id,
+        home_thought_id=_VAULT_HOME_THOUGHT_ID,
+    )
 
 
 def main() -> None:
