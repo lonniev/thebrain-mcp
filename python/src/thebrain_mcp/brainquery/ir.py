@@ -51,3 +51,4 @@ class BrainQuery:
     relationships: list[RelPattern] = field(default_factory=list)
     where_clauses: list[WhereClause] = field(default_factory=list)
     return_fields: list[ReturnField] = field(default_factory=list)
+    match_variables: set[str] = field(default_factory=set)
