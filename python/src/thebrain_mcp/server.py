@@ -364,6 +364,34 @@ async def get_thought_graph(
 
 
 @mcp.tool()
+async def get_thought_graph_paginated(
+    thought_id: str,
+    page_size: int = 10,
+    cursor: str | None = None,
+    direction: str = "older",
+    relation_filter: str | None = None,
+    brain_id: str | None = None,
+) -> dict[str, Any]:
+    """Get a thought's connections with cursor-based pagination.
+
+    Fetches the full graph, sorts by modification date, and returns a page.
+    Use this instead of get_thought_graph when a thought has many connections.
+
+    Args:
+        thought_id: The ID of the thought
+        page_size: Number of results per page (default 10)
+        cursor: Pagination cursor from a previous response (omit for first page)
+        direction: "older" (newest first, default) or "newer" (oldest first)
+        relation_filter: Filter by relation: "child", "parent", "jump", "sibling", or omit for all
+        brain_id: The ID of the brain (uses active brain if not specified)
+    """
+    return await thoughts.get_thought_graph_paginated_tool(
+        get_api(), get_brain_id(brain_id), thought_id,
+        page_size, cursor, direction, relation_filter,
+    )
+
+
+@mcp.tool()
 async def get_types(brain_id: str | None = None) -> dict[str, Any]:
     """Get all thought types in a brain.
 
