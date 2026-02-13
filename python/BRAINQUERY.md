@@ -19,6 +19,12 @@ MATCH (n {name: "My Thoughts"})-[:CHILD]->(m) RETURN m
 -- Search by substring
 MATCH (n) WHERE n.name CONTAINS "MCP" RETURN n
 
+-- Search by prefix
+MATCH (n) WHERE n.name STARTS WITH "MCP" RETURN n
+
+-- Fuzzy/similarity search (exact first, then ranked search)
+MATCH (n) WHERE n.name =~ "Claude" RETURN n
+
 -- Create a new thought under an existing parent
 MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n {name: "New Project"})
 
@@ -97,18 +103,37 @@ MATCH (n {name: "Task 1"})-[:SIBLING]->(s) RETURN s
 
 #### WHERE clause
 
-Adds filters beyond what the node pattern expresses.
+Adds filters beyond what the node pattern expresses. Five matching modes are available:
 
 ```cypher
--- Exact name match (equivalent to property syntax)
+-- Exact name match (strict, no search fallback)
 MATCH (n) WHERE n.name = "Claude Thoughts" RETURN n
 
--- Substring search
+-- Substring search (case-insensitive)
 MATCH (n) WHERE n.name CONTAINS "MCP" RETURN n
+
+-- Prefix match (case-insensitive)
+MATCH (n) WHERE n.name STARTS WITH "MCP" RETURN n
+
+-- Suffix match (case-insensitive)
+MATCH (n) WHERE n.name ENDS WITH "Server" RETURN n
+
+-- Similarity search (exact first, then search with ranking)
+MATCH (n) WHERE n.name =~ "Claude" RETURN n
 
 -- Combine with type
 MATCH (n:Person) WHERE n.name CONTAINS "Van" RETURN n
 ```
+
+| Operator | Behavior | Use when |
+|----------|----------|----------|
+| `=` | Strict exact name via `get_thought_by_name`. No fallback. | You know the exact name |
+| `CONTAINS` | Search API + substring filter | Partial name recall |
+| `STARTS WITH` | Search API + prefix filter | You know how a name begins |
+| `ENDS WITH` | Search API + suffix filter | You know how a name ends |
+| `=~` | Exact name first, then search with similarity ranking | Fuzzy/approximate lookup |
+
+**Note**: Inline property syntax `{name: "value"}` behaves identically to `WHERE n.name = "value"` — strict exact match with no search fallback. Use `=~` if you want the old fuzzy behavior.
 
 #### RETURN clause
 
@@ -158,11 +183,18 @@ MATCH (a {name: "Task 1"}), (b {name: "Task 2"}) CREATE (a)-[:SIBLING]->(b)
 
 ## Resolution Strategy
 
-When executing a MATCH, the query planner resolves nodes using this priority order:
+When executing a MATCH, the query planner resolves nodes by operator:
 
-1. **Exact name** (`name` property) — `get_thought_by_name()`, cheapest call
-2. **Search fallback** — `search_thoughts()` if exact match returns nothing
-3. **Type filtering** (lazy) — only resolved if candidates exist and a type label is specified; never used as a starting traversal point
+| Operator | Resolution path |
+|----------|-----------------|
+| `=` or `{name: ...}` | `get_thought_by_name()` only. Strict. |
+| `CONTAINS` | `search_thoughts()` → post-filter by substring |
+| `STARTS WITH` | `search_thoughts()` → post-filter by prefix |
+| `ENDS WITH` | `search_thoughts()` → post-filter by suffix |
+| `=~` | `get_thought_by_name()` first, then `search_thoughts()` fallback with similarity ranking |
+| Type label only | `get_types()` → return the type thought itself |
+
+After candidate resolution, **type filtering** is applied lazily — only if candidates exist and a type label is specified.
 
 **Critical rule**: Type thoughts are uber-nodes in personal brains (e.g., Person may have 1,000+ children). The planner never traverses down from a Type to find matches. Type is always a deferred filter, not a starting point. The only exception is when the user explicitly requests all thoughts of a type (`MATCH (n:Person) RETURN n`).
 
@@ -215,8 +247,9 @@ property        = "name" , ":" , string_literal ;
 string_literal  = '"' , { any_char - '"' } , '"' ;
 
 where_clause    = "WHERE" , where_expr ;
-where_expr      = variable , "." , "name" , ( "=" , string_literal
-                                             | "CONTAINS" , string_literal ) ;
+where_expr      = variable , "." , "name" , where_op , string_literal ;
+where_op        = "=" | "CONTAINS" | "STARTS" , "WITH"
+                | "ENDS" , "WITH" | "=~" ;
 
 return_clause   = "RETURN" , return_item , { "," , return_item } ;
 return_item     = variable , [ "." , field_name ] ;

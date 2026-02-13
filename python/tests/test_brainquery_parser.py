@@ -111,6 +111,32 @@ class TestWhereClause:
         q = parse('MATCH (n) WHERE n.name contains "test" RETURN n')
         assert q.where_clauses[0].operator == "CONTAINS"
 
+    def test_starts_with(self) -> None:
+        q = parse('MATCH (n) WHERE n.name STARTS WITH "MCP" RETURN n')
+        w = q.where_clauses[0]
+        assert w.operator == "STARTS WITH"
+        assert w.value == "MCP"
+
+    def test_ends_with(self) -> None:
+        q = parse('MATCH (n) WHERE n.name ENDS WITH "Server" RETURN n')
+        w = q.where_clauses[0]
+        assert w.operator == "ENDS WITH"
+        assert w.value == "Server"
+
+    def test_similar(self) -> None:
+        q = parse('MATCH (n) WHERE n.name =~ "Claude" RETURN n')
+        w = q.where_clauses[0]
+        assert w.operator == "=~"
+        assert w.value == "Claude"
+
+    def test_case_insensitive_starts_with(self) -> None:
+        q = parse('MATCH (n) WHERE n.name starts with "X" RETURN n')
+        assert q.where_clauses[0].operator == "STARTS WITH"
+
+    def test_case_insensitive_ends_with(self) -> None:
+        q = parse('MATCH (n) WHERE n.name ends with "X" RETURN n')
+        assert q.where_clauses[0].operator == "ENDS WITH"
+
 
 # ---------------------------------------------------------------------------
 # RETURN clause

@@ -115,40 +115,60 @@ class _TypeCache:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_by_name(
+async def _resolve_exact(
     api: TheBrainAPI, brain_id: str, name: str
 ) -> list[Thought]:
-    """Resolve thoughts by exact name, falling back to search."""
-    # Step 1: exact name lookup
+    """Resolve thoughts by strict exact name. No search fallback."""
+    thought = await api.get_thought_by_name(brain_id, name)
+    if thought:
+        return [thought]
+    return []
+
+
+async def _resolve_by_search(
+    api: TheBrainAPI, brain_id: str, query: str, max_results: int = 30
+) -> list[Thought]:
+    """Resolve thoughts via search API."""
+    try:
+        results = await api.search_thoughts(brain_id, query, max_results=max_results)
+        thoughts = []
+        for r in results:
+            if r.source_thought:
+                thoughts.append(r.source_thought)
+        return thoughts
+    except TheBrainAPIError:
+        return []
+
+
+async def _resolve_similar(
+    api: TheBrainAPI, brain_id: str, name: str
+) -> list[Thought]:
+    """Resolve thoughts by similarity: exact name first, then search fallback.
+
+    Results are ranked by similarity — shorter, closer matches first.
+    """
+    # Step 1: exact name lookup (cheap)
     thought = await api.get_thought_by_name(brain_id, name)
     if thought:
         return [thought]
 
     # Step 2: search fallback
-    try:
-        results = await api.search_thoughts(brain_id, name, max_results=10, only_search_thought_names=True)
-        thoughts = []
-        for r in results:
-            if r.source_thought:
-                thoughts.append(r.source_thought)
-        return thoughts
-    except TheBrainAPIError:
-        return []
+    candidates = await _resolve_by_search(api, brain_id, name, max_results=10)
 
+    # Rank by similarity: prefer shorter names and those containing the query
+    name_lower = name.lower()
 
-async def _resolve_by_search(
-    api: TheBrainAPI, brain_id: str, substring: str
-) -> list[Thought]:
-    """Resolve thoughts by substring search."""
-    try:
-        results = await api.search_thoughts(brain_id, substring, max_results=30)
-        thoughts = []
-        for r in results:
-            if r.source_thought:
-                thoughts.append(r.source_thought)
-        return thoughts
-    except TheBrainAPIError:
-        return []
+    def _similarity_key(t: Thought) -> tuple[int, int, str]:
+        t_lower = t.name.lower()
+        # Exact match first (distance 0), then by edit distance proxy
+        if t_lower == name_lower:
+            return (0, 0, t_lower)
+        # Starts-with gets priority
+        starts = 0 if t_lower.startswith(name_lower) else 1
+        return (1, starts, t_lower)
+
+    candidates.sort(key=_similarity_key)
+    return candidates
 
 
 async def _filter_by_type(
@@ -189,34 +209,51 @@ async def _resolve_node(
     where_clauses: list[WhereClause],
     type_cache: _TypeCache,
 ) -> list[Thought]:
-    """Resolve a node pattern to concrete thoughts using name-first strategy.
+    """Resolve a node pattern to concrete thoughts.
 
-    Resolution order:
-    1. name property or WHERE n.name = -> exact name lookup, then search
-    2. WHERE n.name CONTAINS -> search directly
-    3. Type label only (no name) -> get_types to find the type thought itself
-    4. Type filtering is lazy — only if candidates exist
+    Dispatch by operator:
+    - {name: "value"} or WHERE = → strict exact match (no fallback)
+    - WHERE CONTAINS  → search + substring filter
+    - WHERE STARTS WITH → search + prefix filter
+    - WHERE ENDS WITH → search + suffix filter
+    - WHERE =~ → similarity (exact → search → rank)
+    - Type label only → resolve the type thought itself
     """
     # Gather constraints for this node
     name_exact = node.properties.get("name")
-    contains_value = None
+    where_clause: WhereClause | None = None
     for w in where_clauses:
         if w.variable == node.variable and w.field == "name":
-            if w.operator == "=":
-                name_exact = name_exact or w.value
-            elif w.operator == "CONTAINS":
-                contains_value = w.value
+            where_clause = w
+            break
 
-    # Step 1: Resolve candidates
+    # Step 1: Resolve candidates by operator
     candidates: list[Thought] = []
 
-    if name_exact:
-        candidates = await _resolve_by_name(api, brain_id, name_exact)
-    elif contains_value:
-        candidates = await _resolve_by_search(api, brain_id, contains_value)
-    elif node.label and not name_exact and not contains_value:
+    if where_clause:
+        op = where_clause.operator
+        val = where_clause.value
+
+        if op == "=":
+            # WHERE = is strict exact match, same as inline property
+            candidates = await _resolve_exact(api, brain_id, val)
+        elif op == "=~":
+            candidates = await _resolve_similar(api, brain_id, val)
+        elif op in ("CONTAINS", "STARTS WITH", "ENDS WITH"):
+            candidates = await _resolve_by_search(api, brain_id, val)
+            # Post-filter by the specific string operation
+            val_lower = val.lower()
+            if op == "CONTAINS":
+                candidates = [t for t in candidates if val_lower in t.name.lower()]
+            elif op == "STARTS WITH":
+                candidates = [t for t in candidates if t.name.lower().startswith(val_lower)]
+            elif op == "ENDS WITH":
+                candidates = [t for t in candidates if t.name.lower().endswith(val_lower)]
+    elif name_exact:
+        # Inline property {name: "value"} → strict exact match
+        candidates = await _resolve_exact(api, brain_id, name_exact)
+    elif node.label:
         # Type-only query: return the type thought itself as anchor
-        # The planner will handle "show all of type" via graph traversal
         type_id = await type_cache.resolve(node.label)
         if type_id:
             try:
