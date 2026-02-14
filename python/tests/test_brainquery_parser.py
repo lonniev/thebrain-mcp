@@ -610,9 +610,10 @@ class TestErrorHandling:
         q = parse('MATCH (n {name: "X"}) SET n.name = "Y" RETURN n')
         assert q.set_clause is not None
 
-    def test_unsupported_merge(self) -> None:
-        with pytest.raises(BrainQuerySyntaxError, match="MERGE.*not supported"):
-            parse('MERGE (n {name: "X"})')
+    def test_merge_is_supported(self) -> None:
+        """MERGE is now supported — should parse successfully."""
+        q = parse('MERGE (n {name: "X"}) RETURN n')
+        assert q.action == "merge"
 
     def test_unsupported_optional(self) -> None:
         with pytest.raises(BrainQuerySyntaxError, match="OPTIONAL.*not supported"):
@@ -728,3 +729,75 @@ class TestSetClause:
         q = parse('MATCH (p {name: "X"}) set p.Label = "test" RETURN p')
         assert q.set_clause is not None
         assert q.set_clause.assignments[0].property == "label"
+
+
+# ---------------------------------------------------------------------------
+# MERGE parsing
+# ---------------------------------------------------------------------------
+
+
+class TestMergeParsing:
+    def test_basic_merge(self) -> None:
+        q = parse('MERGE (p {name: "Test"}) RETURN p')
+        assert q.action == "merge"
+        assert q.nodes[0].properties["name"] == "Test"
+        assert "p" in q.merge_variables
+
+    def test_typed_merge(self) -> None:
+        q = parse('MERGE (p:Person {name: "Alice"}) RETURN p')
+        assert q.action == "merge"
+        assert q.nodes[0].label == "Person"
+
+    def test_merge_on_create_set(self) -> None:
+        q = parse(
+            'MERGE (p {name: "Test"}) '
+            'ON CREATE SET p.label = "Created" RETURN p'
+        )
+        assert q.on_create_set is not None
+        assert len(q.on_create_set.assignments) == 1
+        assert q.on_create_set.assignments[0].value == "Created"
+
+    def test_merge_on_match_set(self) -> None:
+        q = parse(
+            'MERGE (p {name: "Test"}) '
+            'ON MATCH SET p.label = "Matched" RETURN p'
+        )
+        assert q.on_match_set is not None
+        assert q.on_match_set.assignments[0].value == "Matched"
+
+    def test_merge_both_on_clauses(self) -> None:
+        q = parse(
+            'MERGE (p {name: "Test"}) '
+            'ON CREATE SET p.label = "New" '
+            'ON MATCH SET p.label = "Existing" '
+            'RETURN p'
+        )
+        assert q.on_create_set is not None
+        assert q.on_match_set is not None
+        assert q.on_create_set.assignments[0].value == "New"
+        assert q.on_match_set.assignments[0].value == "Existing"
+
+    def test_match_merge(self) -> None:
+        q = parse(
+            'MATCH (a {name: "Alice"}), (b {name: "Bob"}) '
+            'MERGE (a)-[:JUMP]->(b)'
+        )
+        assert q.action == "match_merge"
+        assert {"a", "b"} == q.match_variables
+        assert len(q.relationships) == 1
+
+    def test_match_merge_with_new_node(self) -> None:
+        q = parse(
+            'MATCH (parent {name: "Projects"}) '
+            'MERGE (parent)-[:CHILD]->(c {name: "new-project"}) '
+            'ON CREATE SET c.label = "Created" '
+            'RETURN c'
+        )
+        assert q.action == "match_merge"
+        assert "parent" in q.match_variables
+        assert "c" in q.merge_variables
+
+    def test_merge_no_return(self) -> None:
+        q = parse('MERGE (p {name: "Test"})')
+        assert q.action == "merge"
+        assert q.return_fields == []

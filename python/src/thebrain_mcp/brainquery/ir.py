@@ -186,10 +186,14 @@ class ReturnField:
 class BrainQuery:
     """Parsed BrainQuery ready for the planner."""
 
-    action: Literal["match", "create", "match_create"]
+    action: Literal["match", "create", "match_create", "merge", "match_merge"]
     nodes: list[NodePattern] = field(default_factory=list)
     relationships: list[RelPattern] = field(default_factory=list)
     where_expr: WhereExpression | None = None
     set_clause: SetClause | None = None
+    on_create_set: SetClause | None = None
+    on_match_set: SetClause | None = None
     return_fields: list[ReturnField] = field(default_factory=list)
     match_variables: set[str] = field(default_factory=set)
+    # For MERGE: which variables are in the MERGE pattern (vs MATCH)
+    merge_variables: set[str] = field(default_factory=set)

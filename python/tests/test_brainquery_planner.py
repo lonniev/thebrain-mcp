@@ -1294,3 +1294,148 @@ class TestSetExecution:
 
         assert result.success is True
         api.update_thought.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# MERGE execution
+# ---------------------------------------------------------------------------
+
+
+class TestMergeExecution:
+    @pytest.mark.asyncio
+    async def test_merge_existing_thought(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Test")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse('MERGE (p {name: "Test"}) RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert result.action == "merge"
+        api.create_thought.assert_not_called()
+        assert any(c["type"] == "merge_match" for c in result.created)
+
+    @pytest.mark.asyncio
+    async def test_merge_new_thought(self) -> None:
+        api = _mock_api()
+        api.get_thought_by_name = AsyncMock(return_value=None)
+
+        q = parse('MERGE (p {name: "New Thing"}) RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.create_thought.assert_called_once()
+        assert any(c["type"] == "merge_create" for c in result.created)
+
+    @pytest.mark.asyncio
+    async def test_merge_on_create_set(self) -> None:
+        api = _mock_api()
+        api.get_thought_by_name = AsyncMock(return_value=None)
+
+        q = parse(
+            'MERGE (p {name: "New"}) '
+            'ON CREATE SET p.label = "Created" RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_called_once()
+        call_args = api.update_thought.call_args
+        assert call_args[0][2] == {"label": "Created"}
+
+    @pytest.mark.asyncio
+    async def test_merge_on_match_set(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Existing")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse(
+            'MERGE (p {name: "Existing"}) '
+            'ON MATCH SET p.label = "Updated" RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_called_once()
+        call_args = api.update_thought.call_args
+        assert call_args[0][2] == {"label": "Updated"}
+
+    @pytest.mark.asyncio
+    async def test_merge_on_create_not_called_when_match(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Existing")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse(
+            'MERGE (p {name: "Existing"}) '
+            'ON CREATE SET p.label = "Should not happen" RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_merge_relationship_existing(self) -> None:
+        api = _mock_api()
+        alice = _thought("a1", "Alice")
+        bob = _thought("b1", "Bob")
+
+        async def name_lookup(brain_id, name):
+            if name == "Alice":
+                return alice
+            if name == "Bob":
+                return bob
+            return None
+        api.get_thought_by_name = AsyncMock(side_effect=name_lookup)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(alice, jumps=[bob])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Alice"}), (b {name: "Bob"}) '
+            'MERGE (a)-[:JUMP]->(b)'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.create_link.assert_not_called()
+        assert any(c["type"] == "merge_match_link" for c in result.created)
+
+    @pytest.mark.asyncio
+    async def test_merge_relationship_new(self) -> None:
+        api = _mock_api()
+        alice = _thought("a1", "Alice")
+        bob = _thought("b1", "Bob")
+
+        async def name_lookup(brain_id, name):
+            if name == "Alice":
+                return alice
+            if name == "Bob":
+                return bob
+            return None
+        api.get_thought_by_name = AsyncMock(side_effect=name_lookup)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(alice)  # no jumps
+        )
+
+        q = parse(
+            'MATCH (a {name: "Alice"}), (b {name: "Bob"}) '
+            'MERGE (a)-[:JUMP]->(b)'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.create_link.assert_called_once()
+        assert any(c["type"] == "merge_create_link" for c in result.created)
+
+    @pytest.mark.asyncio
+    async def test_merge_no_name_rejected(self) -> None:
+        api = _mock_api()
+
+        q = parse('MERGE (p:Person) RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is False
+        assert "name constraint" in result.errors[0]

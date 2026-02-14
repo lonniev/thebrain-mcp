@@ -49,6 +49,18 @@ MATCH (p {name: "Untyped"}) SET p:Person RETURN p
 -- Clear a property
 MATCH (p {name: "Projects"}) SET p.label = NULL RETURN p
 
+-- Upsert: create if not exists, match if exists
+MERGE (p {name: "Meeting Notes"}) RETURN p
+
+-- MERGE with conditional SET
+MERGE (p {name: "Test"})
+ON CREATE SET p.label = "New"
+ON MATCH SET p.label = "Existing"
+RETURN p
+
+-- MERGE a relationship (idempotent link)
+MATCH (a {name: "Alice"}), (b {name: "Bob"}) MERGE (a)-[:JUMP]->(b)
+
 -- Create a new thought under an existing parent
 MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n {name: "New Project"})
 
@@ -377,6 +389,50 @@ Settable properties:
 - SET has a batch limit of 10 thoughts. If MATCH resolves more, an error is returned.
 - `id`, `typeId`, and `kind` cannot be SET via property assignment. Use `SET p:TypeName` for type changes.
 
+### UPSERT Queries (MERGE)
+
+MERGE provides "match or create" semantics for idempotent operations. If a thought matching the pattern exists, it's returned; if not, it's created.
+
+#### Basic MERGE
+
+```cypher
+-- Find or create
+MERGE (p {name: "Meeting Notes"}) RETURN p
+
+-- Typed MERGE
+MERGE (p:Person {name: "New Contact"}) RETURN p
+```
+
+#### Conditional SET (ON CREATE / ON MATCH)
+
+```cypher
+MERGE (p {name: "Weekly Review"})
+ON CREATE SET p.label = "Created by agent"
+ON MATCH SET p.label = "Updated by agent"
+RETURN p
+```
+
+#### MERGE relationship (idempotent link)
+
+```cypher
+-- Create link only if it doesn't exist
+MATCH (a {name: "Alice"}), (b {name: "Bob"})
+MERGE (a)-[:JUMP]->(b)
+
+-- MERGE child with conditional SET
+MATCH (parent {name: "Projects"})
+MERGE (parent)-[:CHILD]->(c {name: "new-project"})
+ON CREATE SET c.label = "Created via BrainQuery"
+RETURN c
+```
+
+**Rules:**
+- MERGE requires a `{name: "..."}` constraint. `MERGE (p:Person)` without a name is rejected.
+- MERGE uses strict exact match (`get_thought_by_name`).
+- If multiple thoughts match, the first is used and a warning is returned.
+- ON CREATE SET is applied only when creating a new thought.
+- ON MATCH SET is applied only when matching an existing thought.
+
 ## Resolution Strategy
 
 When executing a MATCH, the query planner resolves nodes by operator:
@@ -401,7 +457,6 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 | Feature | Why excluded | Alternative |
 |---------|-------------|-------------|
 | `DELETE` / `DETACH DELETE` | Destructive — use dedicated `delete_thought` tool | `delete_thought` tool |
-| `MERGE` (upsert) | Complex semantics, risk of silent duplicates | MATCH first, then CREATE if not found |
 | Aggregations (`COUNT`, `COLLECT`) | Not a reporting tool | Use `get_brain_stats` for counts |
 | `OPTIONAL MATCH` | Adds null-handling complexity | Run two separate queries |
 | `UNION` | Use separate queries | Run queries independently |
@@ -412,7 +467,8 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 ## Formal Grammar (EBNF)
 
 ```ebnf
-query           = match_query | create_query | match_create_query ;
+query           = match_query | create_query | match_create_query
+                | merge_query | match_merge_query ;
 
 match_query     = "MATCH" , match_pattern , { "," , match_pattern } ,
                   [ where_clause ] , [ set_clause ] , return_clause ;
@@ -421,6 +477,20 @@ create_query    = "CREATE" , create_pattern , { "," , create_pattern } ;
 
 match_create_query = "MATCH" , match_pattern , { "," , match_pattern } ,
                      "CREATE" , create_pattern , { "," , create_pattern } ;
+
+merge_query     = "MERGE" , merge_pattern , { "," , merge_pattern } ,
+                  [ on_create_clause ] , [ on_match_clause ] ,
+                  [ return_clause ] ;
+
+match_merge_query = "MATCH" , match_pattern , { "," , match_pattern } ,
+                    "MERGE" , merge_pattern , { "," , merge_pattern } ,
+                    [ on_create_clause ] , [ on_match_clause ] ,
+                    [ return_clause ] ;
+
+merge_pattern   = node_pattern , { rel_pattern , node_pattern } ;
+
+on_create_clause = "ON" , "CREATE" , "SET" , set_item , { "," , set_item } ;
+on_match_clause  = "ON" , "MATCH" , "SET" , set_item , { "," , set_item } ;
 
 match_pattern   = node_pattern , { rel_pattern , node_pattern } ;
 

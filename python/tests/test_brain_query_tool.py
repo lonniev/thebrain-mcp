@@ -448,6 +448,40 @@ class TestSetE2E:
 
 
 # ---------------------------------------------------------------------------
+# MERGE (end-to-end)
+# ---------------------------------------------------------------------------
+
+
+class TestMergeE2E:
+    @pytest.mark.asyncio
+    async def test_merge_existing_e2e(self) -> None:
+        """MERGE existing thought: parse → execute → to_dict."""
+        api = _mock_api()
+        t = _thought("t1", "Existing")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        result = await _run_query(api, 'MERGE (p {name: "Existing"}) RETURN p')
+
+        assert result["success"] is True
+        assert result["action"] == "merge"
+        assert any(c["type"] == "merge_match" for c in result["created"])
+        api.create_thought.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_merge_new_e2e(self) -> None:
+        """MERGE new thought: parse → execute → to_dict."""
+        api = _mock_api()
+        api.get_thought_by_name = AsyncMock(return_value=None)
+
+        result = await _run_query(api, 'MERGE (p {name: "New Thing"}) RETURN p')
+
+        assert result["success"] is True
+        assert result["action"] == "merge"
+        assert any(c["type"] == "merge_create" for c in result["created"])
+        api.create_thought.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # Tool registration check
 # ---------------------------------------------------------------------------
 

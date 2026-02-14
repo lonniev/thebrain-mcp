@@ -681,6 +681,8 @@ async def execute(
         elif query.action == "match_create":
             await _execute_match(api, brain_id, query, type_cache, resolved)
             await _execute_create(api, brain_id, query, type_cache, resolved, result)
+        elif query.action in ("merge", "match_merge"):
+            await _execute_merge(api, brain_id, query, type_cache, resolved, result)
     except Exception as e:
         result.success = False
         result.errors.append(str(e))
@@ -712,7 +714,7 @@ async def _execute_match(
 
     # For match_create queries, only resolve MATCH-phase variables.
     # CREATE-only variables are handled by _execute_create.
-    match_vars = query.match_variables if query.action == "match_create" else None
+    match_vars = query.match_variables if query.action in ("match_create", "match_merge") else None
 
     # Determine which target vars can be resolved via traversal vs need direct resolution.
     # A target var needs direct resolution if it has its own name/label/where constraints.
@@ -1002,3 +1004,142 @@ async def _execute_set(
                     "name": thought.name,
                     "updates": updates,
                 })
+
+
+async def _execute_merge(
+    api: TheBrainAPI,
+    brain_id: str,
+    query: BrainQuery,
+    type_cache: _TypeCache,
+    resolved: dict[str, list[Thought]],
+    result: QueryResult,
+) -> None:
+    """Execute MERGE — match or create with idempotent semantics."""
+    result.action = "merge"
+
+    # If match_merge, resolve MATCH variables first
+    if query.action == "match_merge":
+        await _execute_match(api, brain_id, query, type_cache, resolved)
+
+    # Process each MERGE node
+    for node in query.nodes:
+        if node.variable not in query.merge_variables:
+            continue
+        if node.variable in resolved:
+            continue  # Already resolved by MATCH phase
+
+        name = node.properties.get("name")
+        if not name:
+            raise ValueError(
+                f"MERGE requires a name constraint for '{node.variable}'. "
+                f"Use MERGE (n {{name: \"value\"}})."
+            )
+
+        # Try to find existing thought
+        existing = await _resolve_exact(api, brain_id, name)
+
+        # Filter by type if specified
+        if existing and node.label:
+            existing = await _filter_by_type(
+                api, brain_id, existing, type_cache, node.label
+            )
+
+        if existing:
+            # MATCH path — thought exists
+            resolved[node.variable] = existing
+            if len(existing) > 1:
+                result.errors.append(
+                    f"MERGE matched {len(existing)} thoughts named '{name}'. "
+                    f"Using the first match."
+                )
+            result.created.append({
+                "type": "merge_match",
+                "thoughtId": existing[0].id,
+                "name": existing[0].name,
+            })
+            # Apply ON MATCH SET
+            if query.on_match_set:
+                await _execute_set(
+                    api, brain_id, query.on_match_set, type_cache, resolved, result
+                )
+        else:
+            # CREATE path — thought doesn't exist
+            type_id = None
+            if node.label:
+                type_id = await type_cache.resolve(node.label)
+
+            thought_data: dict[str, Any] = {
+                "name": name,
+                "kind": 1,
+                "acType": 0,
+            }
+            if type_id:
+                thought_data["typeId"] = type_id
+
+            created = await api.create_thought(brain_id, thought_data)
+            thought_id = created.get("id")
+            new_thought = Thought.model_validate({
+                "id": thought_id,
+                "brainId": brain_id,
+                "name": name,
+                "kind": 1,
+                "acType": 0,
+                "typeId": type_id,
+            })
+            resolved[node.variable] = [new_thought]
+            result.created.append({
+                "type": "merge_create",
+                "thoughtId": thought_id,
+                "name": name,
+            })
+            # Apply ON CREATE SET
+            if query.on_create_set:
+                await _execute_set(
+                    api, brain_id, query.on_create_set, type_cache, resolved, result
+                )
+
+    # Process MERGE relationships
+    for rel in query.relationships:
+        if rel.source not in query.merge_variables and rel.target not in query.merge_variables:
+            continue
+
+        source_thoughts = resolved.get(rel.source, [])
+        target_thoughts = resolved.get(rel.target, [])
+
+        if not source_thoughts or not target_thoughts:
+            continue
+
+        src = source_thoughts[0]
+        tgt = target_thoughts[0]
+
+        # Check if link already exists
+        try:
+            attr = _GRAPH_RELATION_ATTR.get(rel.rel_type)
+            graph = await api.get_thought_graph(brain_id, src.id)
+            existing_targets = getattr(graph, attr, None) or []
+            link_exists = any(t.id == tgt.id for t in existing_targets)
+        except TheBrainAPIError:
+            link_exists = False
+
+        if not link_exists:
+            relation = _RELATION_MAP.get(rel.rel_type, 1)
+            link_data = {
+                "thoughtIdA": src.id,
+                "thoughtIdB": tgt.id,
+                "relation": relation,
+            }
+            link_result = await api.create_link(brain_id, link_data)
+            result.created.append({
+                "type": "merge_create_link",
+                "linkId": link_result.get("id"),
+                "from": src.name,
+                "to": tgt.name,
+                "relation": rel.rel_type,
+            })
+        else:
+            result.created.append({
+                "type": "merge_match_link",
+                "from": src.name,
+                "to": tgt.name,
+                "relation": rel.rel_type,
+            })
