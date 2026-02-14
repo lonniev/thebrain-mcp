@@ -37,6 +37,18 @@ MATCH (a {name: "Root"})-[:CHILD]->(c) WHERE c.label IS NOT NULL RETURN c
 -- Find untyped descendants (IS NULL)
 MATCH (a {name: "Root"})-[:CHILD*1..2]->(c) WHERE c.typeId IS NULL RETURN c
 
+-- Update a thought's label
+MATCH (p {name: "Projects"}) SET p.label = "Active Projects" RETURN p
+
+-- Rename a thought
+MATCH (p {name: "Old Name"}) SET p.name = "New Name" RETURN p
+
+-- Set a type on a thought
+MATCH (p {name: "Untyped"}) SET p:Person RETURN p
+
+-- Clear a property
+MATCH (p {name: "Projects"}) SET p.label = NULL RETURN p
+
 -- Create a new thought under an existing parent
 MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n {name: "New Project"})
 
@@ -314,6 +326,57 @@ MATCH (a {name: "Alice"}), (b {name: "Bob"}) CREATE (a)-[:JUMP]->(b)
 MATCH (a {name: "Task 1"}), (b {name: "Task 2"}) CREATE (a)-[:SIBLING]->(b)
 ```
 
+### UPDATE Queries (SET)
+
+SET modifies properties of matched thoughts. The SET clause goes between WHERE and RETURN.
+
+#### Set a property
+
+```cypher
+-- Set label
+MATCH (p {name: "Projects"}) SET p.label = "Active Projects" RETURN p
+
+-- Rename a thought
+MATCH (p {name: "Old Name"}) SET p.name = "New Name" RETURN p
+
+-- Set multiple properties
+MATCH (p {name: "X"}) SET p.label = "Sub", p.foregroundColor = "#0000ff" RETURN p
+```
+
+#### Clear a property
+
+```cypher
+MATCH (p {name: "X"}) SET p.label = NULL RETURN p
+```
+
+#### Set type
+
+```cypher
+MATCH (p {name: "Untyped Thought"}) SET p:Person RETURN p
+```
+
+#### SET in a chain context
+
+```cypher
+MATCH (a {name: "Root"})-[:CHILD]->(p:Person)
+WHERE p.name =~ "Kelsey"
+SET p.label = "Daughter"
+RETURN p
+```
+
+Settable properties:
+
+| Property | Description | Notes |
+|----------|-------------|-------|
+| `name` | Thought name | Renames the thought |
+| `label` | Subtitle text | Set NULL to clear |
+| `foregroundColor` | Text color | Hex format e.g. "#ff0000" |
+| `backgroundColor` | Background color | Hex format e.g. "#0000ff" |
+
+**Safety rules:**
+- SET has a batch limit of 10 thoughts. If MATCH resolves more, an error is returned.
+- `id`, `typeId`, and `kind` cannot be SET via property assignment. Use `SET p:TypeName` for type changes.
+
 ## Resolution Strategy
 
 When executing a MATCH, the query planner resolves nodes by operator:
@@ -338,7 +401,6 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 | Feature | Why excluded | Alternative |
 |---------|-------------|-------------|
 | `DELETE` / `DETACH DELETE` | Destructive — use dedicated `delete_thought` tool | `delete_thought` tool |
-| `SET` for property updates | Use dedicated tool | `update_thought` tool |
 | `MERGE` (upsert) | Complex semantics, risk of silent duplicates | MATCH first, then CREATE if not found |
 | Aggregations (`COUNT`, `COLLECT`) | Not a reporting tool | Use `get_brain_stats` for counts |
 | `OPTIONAL MATCH` | Adds null-handling complexity | Run two separate queries |
@@ -353,7 +415,7 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 query           = match_query | create_query | match_create_query ;
 
 match_query     = "MATCH" , match_pattern , { "," , match_pattern } ,
-                  [ where_clause ] , return_clause ;
+                  [ where_clause ] , [ set_clause ] , return_clause ;
 
 create_query    = "CREATE" , create_pattern , { "," , create_pattern } ;
 
@@ -391,6 +453,11 @@ where_op        = "=" | "CONTAINS" | "STARTS" , "WITH"
                 | "ENDS" , "WITH" | "=~" ;
 property_name   = "name" | "id" | "label" | "typeId"
                 | "foregroundColor" | "backgroundColor" | "kind" ;
+
+set_clause      = "SET" , set_item , { "," , set_item } ;
+set_item        = variable , "." , settable_prop , "=" , ( string_literal | "NULL" )
+                | variable , ":" , type_label ;
+settable_prop   = "name" | "label" | "foregroundColor" | "backgroundColor" ;
 
 return_clause   = "RETURN" , return_item , { "," , return_item } ;
 return_item     = variable , [ "." , field_name ] ;

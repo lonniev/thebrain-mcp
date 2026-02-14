@@ -9,11 +9,15 @@ import re
 from thebrain_mcp.brainquery.ir import (
     MAX_HOP_DEPTH,
     QUERYABLE_PROPERTIES,
+    SETTABLE_PROPERTIES,
     BrainQuery,
     ExistenceCondition,
     NodePattern,
+    PropertyAssignment,
     RelPattern,
     ReturnField,
+    SetClause,
+    TypeAssignment,
     WhereAnd,
     WhereClause,
     WhereNot,
@@ -28,7 +32,7 @@ from thebrain_mcp.brainquery.ir import (
 _GRAMMAR = r"""
     start: match_query | create_query | match_create_query
 
-    match_query: match_clause where_clause? return_clause
+    match_query: match_clause where_clause? set_clause? return_clause
     create_query: create_clause
     match_create_query: match_clause create_clause
 
@@ -70,6 +74,11 @@ _GRAMMAR = r"""
     _IS: /IS/i
     _NULL: /NULL/i
 
+    set_clause: "SET"i set_item ("," set_item)*
+    set_item: VARIABLE "." VARIABLE "=" _NULL -> set_null
+            | VARIABLE "." VARIABLE "=" STRING -> set_property
+            | VARIABLE ":" VARIABLE -> set_type
+
     return_clause: "RETURN"i return_item ("," return_item)*
     return_item: VARIABLE ("." FIELD_NAME)?
 
@@ -94,7 +103,6 @@ _parser = Lark(_GRAMMAR, parser="earley", ambiguity="resolve")
 _UNSUPPORTED = {
     "DELETE": "Use the delete_thought tool instead.",
     "DETACH": "Use the delete_thought tool instead.",
-    "SET": "Use the update_thought tool instead.",
     "MERGE": "Use MATCH first, then CREATE if not found.",
     "OPTIONAL": "Run two separate queries instead.",
     "UNION": "Run queries independently.",
@@ -282,6 +290,44 @@ class _BrainQueryTransformer(Transformer):
     def where_atom(self, variable, op, value):
         return WhereClause(variable=variable, field="name", operator=op, value=value)
 
+    def _normalize_set_property(self, token: str) -> str:
+        canonical = QUERYABLE_PROPERTIES.get(token.lower())
+        if canonical is None:
+            valid = ", ".join(sorted(SETTABLE_PROPERTIES.keys()))
+            raise BrainQuerySyntaxError(
+                f"Unknown property '{token}'. "
+                f"Settable properties: {valid}"
+            )
+        if canonical not in SETTABLE_PROPERTIES:
+            raise BrainQuerySyntaxError(
+                f"Property '{canonical}' is not settable via SET. "
+                f"Settable properties: {', '.join(sorted(SETTABLE_PROPERTIES.keys()))}"
+            )
+        return canonical
+
+    def set_property(self, variable, prop_name, value):
+        return PropertyAssignment(
+            variable=variable,
+            property=self._normalize_set_property(prop_name),
+            value=value,
+        )
+
+    def set_null(self, variable, prop_name):
+        return PropertyAssignment(
+            variable=variable,
+            property=self._normalize_set_property(prop_name),
+            value=None,
+        )
+
+    def set_type(self, variable, type_name):
+        return TypeAssignment(variable=variable, type_name=type_name)
+
+    def set_item(self, item):
+        return item
+
+    def set_clause(self, *items):
+        return SetClause(assignments=list(items))
+
     def where_clause(self, expr):
         return expr
 
@@ -294,7 +340,7 @@ class _BrainQueryTransformer(Transformer):
         return list(items)
 
     def _build_query(self, action, match_patterns=None, create_patterns=None,
-                     where=None, returns=None):
+                     where=None, set_cl=None, returns=None):
         nodes = []
         rels = []
         seen_vars = set()
@@ -347,17 +393,29 @@ class _BrainQueryTransformer(Transformer):
             nodes=nodes,
             relationships=rels,
             where_expr=where,
+            set_clause=set_cl,
             return_fields=returns or [],
             match_variables=match_variables,
         )
 
-    def match_query(self, match, where_or_ret=None, ret=None):
+    def match_query(self, *args):
+        match = args[0]
         _, patterns = match
-        if ret is None:
-            # where was omitted, where_or_ret is actually return
-            return self._build_query("match", match_patterns=patterns, returns=where_or_ret)
+        # Remaining args are some combination of: where?, set?, return
+        where = None
+        set_cl = None
+        returns = None
+        for arg in args[1:]:
+            if isinstance(arg, SetClause):
+                set_cl = arg
+            elif isinstance(arg, list):
+                # return_clause returns a list of ReturnField
+                returns = arg
+            else:
+                # WhereExpression
+                where = arg
         return self._build_query("match", match_patterns=patterns,
-                                 where=where_or_ret, returns=ret)
+                                 where=where, set_cl=set_cl, returns=returns)
 
     def create_query(self, create):
         _, patterns = create
