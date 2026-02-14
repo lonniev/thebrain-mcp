@@ -12,7 +12,11 @@ from thebrain_mcp.brainquery.ir import (
     NodePattern,
     RelPattern,
     ReturnField,
+    WhereAnd,
     WhereClause,
+    WhereNot,
+    WhereOr,
+    WhereXor,
 )
 
 # ---------------------------------------------------------------------------
@@ -42,13 +46,23 @@ _GRAMMAR = r"""
     property_map: property ("," property)*
     property: "name"i ":" STRING
 
-    where_clause: "WHERE"i where_expr
-    where_expr: VARIABLE "." "name"i where_op STRING
+    where_clause: "WHERE"i or_expr
+    or_expr: xor_expr (_OR xor_expr)*
+    xor_expr: and_expr (_XOR and_expr)*
+    and_expr: not_expr (_AND not_expr)*
+    not_expr: _NOT not_expr -> where_not
+            | where_atom
+    where_atom: "(" or_expr ")" -> where_paren
+              | VARIABLE "." "name"i where_op STRING
     where_op: "=" -> eq_op
             | "CONTAINS"i -> contains_op
             | "STARTS"i "WITH"i -> starts_with_op
             | "ENDS"i "WITH"i -> ends_with_op
             | "=~" -> similar_op
+    _OR: /OR/i
+    _XOR: /XOR/i
+    _AND: /AND/i
+    _NOT: /NOT/i
 
     return_clause: "RETURN"i return_item ("," return_item)*
     return_item: VARIABLE ("." FIELD_NAME)?
@@ -210,7 +224,32 @@ class _BrainQueryTransformer(Transformer):
     def similar_op(self):
         return "=~"
 
-    def where_expr(self, variable, op, value):
+    def or_expr(self, *args):
+        if len(args) == 1:
+            return args[0]
+        return WhereOr(operands=list(args))
+
+    def xor_expr(self, *args):
+        if len(args) == 1:
+            return args[0]
+        return WhereXor(operands=list(args))
+
+    def and_expr(self, *args):
+        if len(args) == 1:
+            return args[0]
+        return WhereAnd(operands=list(args))
+
+    def not_expr(self, inner):
+        # Passthrough when not_expr matches where_atom (no NOT prefix)
+        return inner
+
+    def where_not(self, inner):
+        return WhereNot(operand=inner)
+
+    def where_paren(self, inner):
+        return inner
+
+    def where_atom(self, variable, op, value):
         return WhereClause(variable=variable, field="name", operator=op, value=value)
 
     def where_clause(self, expr):
@@ -277,7 +316,7 @@ class _BrainQueryTransformer(Transformer):
             action=action,
             nodes=nodes,
             relationships=rels,
-            where_clauses=[where] if where else [],
+            where_expr=where,
             return_fields=returns or [],
             match_variables=match_variables,
         )

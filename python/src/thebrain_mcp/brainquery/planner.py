@@ -17,7 +17,13 @@ from thebrain_mcp.brainquery.ir import (
     NodePattern,
     RelPattern,
     ReturnField,
+    WhereAnd,
     WhereClause,
+    WhereExpression,
+    WhereNot,
+    WhereOr,
+    WhereXor,
+    collect_variables,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,11 +208,255 @@ async def _filter_by_type(
     return filtered
 
 
+# ---------------------------------------------------------------------------
+# Compound WHERE helpers
+# ---------------------------------------------------------------------------
+
+
+def _validate_where_expr(expr: WhereExpression | None) -> None:
+    """Validate a WHERE expression tree.
+
+    Raises ValueError for:
+    - Cross-variable OR or XOR
+    - NOT as the sole constraint on an unconstrained node (no chain context)
+    """
+    if expr is None:
+        return
+    if isinstance(expr, WhereClause):
+        return
+    if isinstance(expr, WhereNot):
+        _validate_where_expr(expr.operand)
+        return
+    if isinstance(expr, WhereAnd):
+        for op in expr.operands:
+            _validate_where_expr(op)
+        return
+    if isinstance(expr, (WhereOr, WhereXor)):
+        variables = collect_variables(expr)
+        kind = "OR" if isinstance(expr, WhereOr) else "XOR"
+        if len(variables) > 1:
+            raise ValueError(
+                f"{kind} across different variables ({', '.join(sorted(variables))}) "
+                f"is not supported. Use separate queries instead."
+            )
+        for op in expr.operands:
+            _validate_where_expr(op)
+
+
+def _where_for_variables(
+    expr: WhereExpression | None,
+) -> dict[str, WhereExpression]:
+    """Decompose a WHERE expression into per-variable subtrees.
+
+    Top-level AND is split by variable. OR/XOR is kept as a unit (single-variable only).
+    NOT is kept with its operand's variable.
+    """
+    if expr is None:
+        return {}
+    if isinstance(expr, WhereClause):
+        return {expr.variable: expr}
+    if isinstance(expr, WhereNot):
+        variables = collect_variables(expr)
+        if len(variables) == 1:
+            var = next(iter(variables))
+            return {var: expr}
+        return {}
+    if isinstance(expr, (WhereOr, WhereXor)):
+        # Single-variable OR/XOR (validated earlier)
+        variables = collect_variables(expr)
+        if len(variables) == 1:
+            var = next(iter(variables))
+            return {var: expr}
+        return {}
+    if isinstance(expr, WhereAnd):
+        result: dict[str, list[WhereExpression]] = {}
+        for op in expr.operands:
+            op_vars = collect_variables(op)
+            if len(op_vars) == 1:
+                var = next(iter(op_vars))
+                result.setdefault(var, []).append(op)
+            else:
+                # Multi-variable operand within AND — distribute to each var
+                for var in op_vars:
+                    result.setdefault(var, []).append(op)
+        return {
+            var: ops[0] if len(ops) == 1 else WhereAnd(operands=ops)
+            for var, ops in result.items()
+        }
+    return {}
+
+
+
+def _matches_clause(thought: Thought, clause: WhereClause) -> bool:
+    """In-memory match of a thought against a single WHERE clause."""
+    if clause.field != "name":
+        return False
+    name = thought.name
+    val = clause.value
+    op = clause.operator
+    if op == "=":
+        return name == val
+    val_lower = val.lower()
+    name_lower = name.lower()
+    if op == "CONTAINS":
+        return val_lower in name_lower
+    if op == "STARTS WITH":
+        return name_lower.startswith(val_lower)
+    if op == "ENDS WITH":
+        return name_lower.endswith(val_lower)
+    if op == "=~":
+        return val_lower in name_lower
+    return False
+
+
+def _apply_filter(candidates: list[Thought], expr: WhereExpression) -> list[Thought]:
+    """In-memory filtering of candidates against a compound WHERE expression."""
+    if isinstance(expr, WhereClause):
+        return [t for t in candidates if _matches_clause(t, expr)]
+    if isinstance(expr, WhereNot):
+        excluded = _apply_filter(candidates, expr.operand)
+        excluded_ids = {t.id for t in excluded}
+        return [t for t in candidates if t.id not in excluded_ids]
+    if isinstance(expr, WhereAnd):
+        result = candidates
+        for op in expr.operands:
+            result = _apply_filter(result, op)
+        return result
+    if isinstance(expr, WhereXor):
+        # Symmetric difference: in exactly one branch but not both
+        branch_sets: list[set[str]] = []
+        branch_thoughts: dict[str, Thought] = {}
+        for op in expr.operands:
+            matched = _apply_filter(candidates, op)
+            branch_sets.append({t.id for t in matched})
+            for t in matched:
+                branch_thoughts[t.id] = t
+        # XOR: present in exactly one branch
+        all_ids = set.union(*branch_sets) if branch_sets else set()
+        xor_ids: set[str] = set()
+        for tid in all_ids:
+            count = sum(1 for bs in branch_sets if tid in bs)
+            if count == 1:
+                xor_ids.add(tid)
+        return [branch_thoughts[tid] for tid in xor_ids if tid in branch_thoughts]
+    if isinstance(expr, WhereOr):
+        seen: set[str] = set()
+        result: list[Thought] = []
+        for op in expr.operands:
+            for t in _apply_filter(candidates, op):
+                if t.id not in seen:
+                    result.append(t)
+                    seen.add(t.id)
+        return result
+    return candidates
+
+
+async def _resolve_single_clause(
+    api: TheBrainAPI, brain_id: str, clause: WhereClause,
+) -> list[Thought]:
+    """Resolve a single WHERE clause to thoughts via the API."""
+    op = clause.operator
+    val = clause.value
+    if op == "=":
+        return await _resolve_exact(api, brain_id, val)
+    if op == "=~":
+        return await _resolve_similar(api, brain_id, val)
+    if op in ("CONTAINS", "STARTS WITH", "ENDS WITH"):
+        candidates = await _resolve_by_search(api, brain_id, val)
+        val_lower = val.lower()
+        if op == "CONTAINS":
+            return [t for t in candidates if val_lower in t.name.lower()]
+        if op == "STARTS WITH":
+            return [t for t in candidates if t.name.lower().startswith(val_lower)]
+        if op == "ENDS WITH":
+            return [t for t in candidates if t.name.lower().endswith(val_lower)]
+    return []
+
+
+def _has_positive_clause(expr: WhereExpression) -> bool:
+    """Check whether an expression contains at least one positive (non-NOT) clause."""
+    if isinstance(expr, WhereClause):
+        return True
+    if isinstance(expr, WhereNot):
+        return False
+    if isinstance(expr, (WhereAnd, WhereOr, WhereXor)):
+        return any(_has_positive_clause(op) for op in expr.operands)
+    return False
+
+
+async def _evaluate_where(
+    api: TheBrainAPI, brain_id: str, expr: WhereExpression,
+) -> list[Thought]:
+    """Recursively evaluate a compound WHERE expression against the API."""
+    if isinstance(expr, WhereClause):
+        return await _resolve_single_clause(api, brain_id, expr)
+    if isinstance(expr, WhereNot):
+        # NOT cannot drive a search on its own — it needs a candidate set
+        # provided by a chain traversal or a sibling positive constraint.
+        # If we reach here, it means NOT is the sole constraint for direct
+        # resolution — reject it.
+        raise ValueError(
+            "NOT requires at least one positive constraint to filter against. "
+            "Use AND with a positive condition, or place NOT on a traversal target."
+        )
+    if isinstance(expr, WhereOr):
+        seen: set[str] = set()
+        result: list[Thought] = []
+        for op in expr.operands:
+            for t in await _evaluate_where(api, brain_id, op):
+                if t.id not in seen:
+                    result.append(t)
+                    seen.add(t.id)
+        return result
+    if isinstance(expr, WhereXor):
+        # Symmetric difference: evaluate each branch, keep results in exactly one
+        branch_sets: list[set[str]] = []
+        branch_thoughts: dict[str, Thought] = {}
+        for op in expr.operands:
+            matched = await _evaluate_where(api, brain_id, op)
+            branch_sets.append({t.id for t in matched})
+            for t in matched:
+                branch_thoughts[t.id] = t
+        all_ids = set.union(*branch_sets) if branch_sets else set()
+        xor_ids: set[str] = set()
+        for tid in all_ids:
+            count = sum(1 for bs in branch_sets if tid in bs)
+            if count == 1:
+                xor_ids.add(tid)
+        return [branch_thoughts[tid] for tid in xor_ids if tid in branch_thoughts]
+    if isinstance(expr, WhereAnd):
+        # Separate positive operands (that can drive search) from NOT operands
+        positive_ops = [op for op in expr.operands if _has_positive_clause(op)]
+        not_ops = [op for op in expr.operands if not _has_positive_clause(op)]
+
+        if not positive_ops:
+            raise ValueError(
+                "NOT requires at least one positive constraint to filter against. "
+                "Add a positive condition with AND."
+            )
+
+        # Evaluate positive operands and intersect
+        sets: list[list[Thought]] = []
+        for op in positive_ops:
+            sets.append(await _evaluate_where(api, brain_id, op))
+        if not sets:
+            return []
+        common_ids = set.intersection(*(set(t.id for t in s) for s in sets))
+        candidates = [t for t in sets[0] if t.id in common_ids]
+
+        # Apply NOT operands as post-filters
+        for not_op in not_ops:
+            candidates = _apply_filter(candidates, not_op)
+
+        return candidates
+    return []
+
+
 async def _resolve_node(
     api: TheBrainAPI,
     brain_id: str,
     node: NodePattern,
-    where_clauses: list[WhereClause],
+    var_where: WhereExpression | None,
     type_cache: _TypeCache,
 ) -> list[Thought]:
     """Resolve a node pattern to concrete thoughts.
@@ -219,36 +469,11 @@ async def _resolve_node(
     - WHERE =~ → similarity (exact → search → rank)
     - Type label only → resolve the type thought itself
     """
-    # Gather constraints for this node
     name_exact = node.properties.get("name")
-    where_clause: WhereClause | None = None
-    for w in where_clauses:
-        if w.variable == node.variable and w.field == "name":
-            where_clause = w
-            break
-
-    # Step 1: Resolve candidates by operator
     candidates: list[Thought] = []
 
-    if where_clause:
-        op = where_clause.operator
-        val = where_clause.value
-
-        if op == "=":
-            # WHERE = is strict exact match, same as inline property
-            candidates = await _resolve_exact(api, brain_id, val)
-        elif op == "=~":
-            candidates = await _resolve_similar(api, brain_id, val)
-        elif op in ("CONTAINS", "STARTS WITH", "ENDS WITH"):
-            candidates = await _resolve_by_search(api, brain_id, val)
-            # Post-filter by the specific string operation
-            val_lower = val.lower()
-            if op == "CONTAINS":
-                candidates = [t for t in candidates if val_lower in t.name.lower()]
-            elif op == "STARTS WITH":
-                candidates = [t for t in candidates if t.name.lower().startswith(val_lower)]
-            elif op == "ENDS WITH":
-                candidates = [t for t in candidates if t.name.lower().endswith(val_lower)]
+    if var_where:
+        candidates = await _evaluate_where(api, brain_id, var_where)
     elif name_exact:
         # Inline property {name: "value"} → strict exact match
         candidates = await _resolve_exact(api, brain_id, name_exact)
@@ -266,7 +491,7 @@ async def _resolve_node(
     if not candidates:
         return []
 
-    # Step 2: Lazy type filtering (only if candidates AND type label)
+    # Lazy type filtering (only if candidates AND type label)
     if node.label and candidates:
         candidates = await _filter_by_type(api, brain_id, candidates, type_cache, node.label)
 
@@ -429,6 +654,12 @@ async def _execute_match(
     resolved: dict[str, list[Thought]],
 ) -> None:
     """Execute the MATCH portion of a query."""
+    # Validate compound WHERE up front
+    _validate_where_expr(query.where_expr)
+
+    # Decompose WHERE into per-variable subtrees
+    var_wheres = _where_for_variables(query.where_expr)
+
     # For match_create queries, only resolve MATCH-phase variables.
     # CREATE-only variables are handled by _execute_create.
     match_vars = query.match_variables if query.action == "match_create" else None
@@ -440,8 +671,11 @@ async def _execute_match(
     for node in query.nodes:
         if node.properties or node.label:
             has_own_criteria.add(node.variable)
-    for w in query.where_clauses:
-        has_own_criteria.add(w.variable)
+    # WHERE on non-target variables triggers direct resolution;
+    # WHERE on target variables is applied as post-filter after traversal.
+    for var in var_wheres:
+        if var not in target_vars:
+            has_own_criteria.add(var)
 
     # Targets that have their own criteria get resolved directly, not via traversal
     skip_vars = target_vars - has_own_criteria
@@ -455,7 +689,7 @@ async def _execute_match(
             continue  # Already resolved
 
         thoughts = await _resolve_node(
-            api, brain_id, node, query.where_clauses, type_cache
+            api, brain_id, node, var_wheres.get(node.variable), type_cache
         )
         resolved[node.variable] = thoughts
 
@@ -496,6 +730,11 @@ async def _execute_match(
         if target_node and target_node.properties.get("name") and traversed:
             name = target_node.properties["name"]
             traversed = [t for t in traversed if t.name == name]
+
+        # Apply target's WHERE constraint if present
+        target_where = var_wheres.get(rel.target)
+        if target_where and traversed:
+            traversed = _apply_filter(traversed, target_where)
 
         resolved[rel.target] = traversed
 

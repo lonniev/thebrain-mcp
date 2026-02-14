@@ -270,6 +270,103 @@ class TestVariableLengthE2E:
 
 
 # ---------------------------------------------------------------------------
+# Compound WHERE (end-to-end)
+# ---------------------------------------------------------------------------
+
+
+class TestCompoundWhereE2E:
+    @pytest.mark.asyncio
+    async def test_and_across_chain_variables(self) -> None:
+        """Compound AND with chain: parse → execute → to_dict."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child1 = _thought("c1", "Alpha")
+        child2 = _thought("c2", "Beta")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2])
+        )
+
+        result = await _run_query(
+            api,
+            'MATCH (a {name: "Root"})-[:CHILD]->(b) '
+            'WHERE b.name STARTS WITH "Al" RETURN b',
+        )
+
+        assert result["success"] is True
+        assert len(result["results"]["b"]) == 1
+        assert result["results"]["b"][0]["name"] == "Alpha"
+
+    @pytest.mark.asyncio
+    async def test_or_same_variable_e2e(self) -> None:
+        """OR on same variable: parse → execute → to_dict."""
+        api = _mock_api()
+        t1 = _thought("t1", "Alice")
+        t2 = _thought("t2", "Bob")
+
+        async def name_lookup(brain_id, name):
+            if name == "Alice":
+                return t1
+            if name == "Bob":
+                return t2
+            return None
+        api.get_thought_by_name = AsyncMock(side_effect=name_lookup)
+
+        result = await _run_query(
+            api,
+            'MATCH (n) WHERE n.name = "Alice" OR n.name = "Bob" RETURN n',
+        )
+
+        assert result["success"] is True
+        assert len(result["results"]["n"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_not_in_chain_e2e(self) -> None:
+        """NOT on traversal target: parse → execute → to_dict."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child1 = _thought("c1", "Keep")
+        child2 = _thought("c2", "Remove")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2])
+        )
+
+        result = await _run_query(
+            api,
+            'MATCH (a {name: "Root"})-[:CHILD]->(b) '
+            'WHERE NOT b.name = "Remove" RETURN b',
+        )
+
+        assert result["success"] is True
+        assert len(result["results"]["b"]) == 1
+        assert result["results"]["b"][0]["name"] == "Keep"
+
+    @pytest.mark.asyncio
+    async def test_xor_e2e(self) -> None:
+        """XOR: parse → execute → to_dict."""
+        api = _mock_api()
+        t1 = _thought("t1", "Alpha")
+        t2 = _thought("t2", "Beta")
+
+        async def name_lookup(brain_id, name):
+            if name == "Alpha":
+                return t1
+            if name == "Beta":
+                return t2
+            return None
+        api.get_thought_by_name = AsyncMock(side_effect=name_lookup)
+
+        result = await _run_query(
+            api,
+            'MATCH (n) WHERE n.name = "Alpha" XOR n.name = "Beta" RETURN n',
+        )
+
+        assert result["success"] is True
+        assert len(result["results"]["n"]) == 2
+
+
+# ---------------------------------------------------------------------------
 # Tool registration check
 # ---------------------------------------------------------------------------
 
