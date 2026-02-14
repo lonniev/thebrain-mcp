@@ -15,13 +15,22 @@ class NodePattern:
     properties: dict[str, str] = field(default_factory=dict)
 
 
+MAX_HOP_DEPTH = 5
+
+
 @dataclass
 class RelPattern:
-    """A relationship pattern like -[:CHILD]->."""
+    """A relationship pattern like -[:CHILD]-> or -[:CHILD*1..3]->."""
 
     rel_type: str  # CHILD, PARENT, JUMP, SIBLING
     source: str  # variable name of source node
     target: str  # variable name of target node
+    min_hops: int = 1  # 1 = single hop (default)
+    max_hops: int = 1  # 1 = single hop (default)
+
+    @property
+    def is_variable_length(self) -> bool:
+        return self.min_hops != 1 or self.max_hops != 1
 
 
 @dataclass
