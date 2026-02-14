@@ -20,9 +20,9 @@ MAX_HOP_DEPTH = 5
 
 @dataclass
 class RelPattern:
-    """A relationship pattern like -[:CHILD]-> or -[r:CHILD*1..3]->."""
+    """A relationship pattern like -[:CHILD]->, -->, or -[:CHILD|JUMP*1..3]->."""
 
-    rel_type: str  # CHILD, PARENT, JUMP, SIBLING
+    rel_types: list[str] | None  # None = wildcard (any), ["CHILD"] = single, ["CHILD","JUMP"] = union
     source: str  # variable name of source node
     target: str  # variable name of target node
     min_hops: int = 1  # 1 = single hop (default)

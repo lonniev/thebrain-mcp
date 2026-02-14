@@ -69,25 +69,25 @@ class TestMatchRelationships:
         assert len(q.nodes) == 2
         assert len(q.relationships) == 1
         rel = q.relationships[0]
-        assert rel.rel_type == "CHILD"
+        assert rel.rel_types == ["CHILD"]
         assert rel.source == "n"
         assert rel.target == "m"
 
     def test_parent_traversal(self) -> None:
         q = parse('MATCH (n {name: "X"})-[:PARENT]->(p) RETURN p')
-        assert q.relationships[0].rel_type == "PARENT"
+        assert q.relationships[0].rel_types == ["PARENT"]
 
     def test_jump_traversal(self) -> None:
         q = parse('MATCH (n {name: "A"})-[:JUMP]->(j) RETURN j')
-        assert q.relationships[0].rel_type == "JUMP"
+        assert q.relationships[0].rel_types == ["JUMP"]
 
     def test_sibling_traversal(self) -> None:
         q = parse('MATCH (n {name: "T1"})-[:SIBLING]->(s) RETURN s')
-        assert q.relationships[0].rel_type == "SIBLING"
+        assert q.relationships[0].rel_types == ["SIBLING"]
 
     def test_case_insensitive_rel_type(self) -> None:
         q = parse('MATCH (n {name: "X"})-[:child]->(m) RETURN m')
-        assert q.relationships[0].rel_type == "CHILD"
+        assert q.relationships[0].rel_types == ["CHILD"]
 
 
 # ---------------------------------------------------------------------------
@@ -109,9 +109,9 @@ class TestMultiHopChains:
         q = parse('MATCH (a {name: "R"})-[:CHILD]->(b)-[:JUMP]->(c)-[:PARENT]->(d) RETURN d')
         assert len(q.nodes) == 4
         assert len(q.relationships) == 3
-        assert q.relationships[0].rel_type == "CHILD"
-        assert q.relationships[1].rel_type == "JUMP"
-        assert q.relationships[2].rel_type == "PARENT"
+        assert q.relationships[0].rel_types == ["CHILD"]
+        assert q.relationships[1].rel_types == ["JUMP"]
+        assert q.relationships[2].rel_types == ["PARENT"]
 
     def test_intermediate_variables_bindable(self) -> None:
         q = parse('MATCH (a {name: "R"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN b, c')
@@ -169,6 +169,148 @@ class TestVariableLengthPaths:
         assert q.relationships[0].max_hops == 2
         assert q.relationships[1].min_hops == 1
         assert q.relationships[1].max_hops == 1
+
+
+# ---------------------------------------------------------------------------
+# Wildcard & Union Relations
+# ---------------------------------------------------------------------------
+
+
+class TestWildcardUnionRelations:
+    def test_any_arrow_single_hop(self) -> None:
+        """-->: wildcard single hop, no variable."""
+        q = parse('MATCH (n {name: "X"})-->(m) RETURN m')
+        assert len(q.relationships) == 1
+        rel = q.relationships[0]
+        assert rel.rel_types is None
+        assert rel.min_hops == 1
+        assert rel.max_hops == 1
+        assert rel.variable is None
+
+    def test_empty_bracket_single_hop(self) -> None:
+        """-[]->: wildcard single hop, explicit empty brackets."""
+        q = parse('MATCH (n {name: "X"})-[]->(m) RETURN m')
+        assert q.relationships[0].rel_types is None
+        assert q.relationships[0].min_hops == 1
+        assert q.relationships[0].max_hops == 1
+
+    def test_wildcard_variable_length(self) -> None:
+        """-[*1..3]->: wildcard with variable-length hops."""
+        q = parse('MATCH (n {name: "X"})-[*1..3]->(m) RETURN m')
+        assert q.relationships[0].rel_types is None
+        assert q.relationships[0].min_hops == 1
+        assert q.relationships[0].max_hops == 3
+
+    def test_wildcard_fixed_hops(self) -> None:
+        """-[*2]->: wildcard with fixed hops."""
+        q = parse('MATCH (n {name: "X"})-[*2]->(m) RETURN m')
+        assert q.relationships[0].rel_types is None
+        assert q.relationships[0].min_hops == 2
+        assert q.relationships[0].max_hops == 2
+
+    def test_union_single_hop(self) -> None:
+        """-[:CHILD|JUMP]->: union of two types, single hop."""
+        q = parse('MATCH (n {name: "X"})-[:CHILD|JUMP]->(m) RETURN m')
+        rel = q.relationships[0]
+        assert rel.rel_types == ["CHILD", "JUMP"]
+        assert rel.min_hops == 1
+        assert rel.max_hops == 1
+
+    def test_union_variable_length(self) -> None:
+        """-[:CHILD|JUMP*1..2]->: union with variable-length."""
+        q = parse('MATCH (n {name: "X"})-[:CHILD|JUMP*1..2]->(m) RETURN m')
+        rel = q.relationships[0]
+        assert rel.rel_types == ["CHILD", "JUMP"]
+        assert rel.min_hops == 1
+        assert rel.max_hops == 2
+
+    def test_union_three_types(self) -> None:
+        """-[:CHILD|JUMP|SIBLING]->: union of three types."""
+        q = parse('MATCH (n {name: "X"})-[:CHILD|JUMP|SIBLING]->(m) RETURN m')
+        assert q.relationships[0].rel_types == ["CHILD", "JUMP", "SIBLING"]
+
+    def test_union_all_four_types(self) -> None:
+        """-[:CHILD|PARENT|JUMP|SIBLING]->: union of all four types."""
+        q = parse('MATCH (n {name: "X"})-[:CHILD|PARENT|JUMP|SIBLING]->(m) RETURN m')
+        assert q.relationships[0].rel_types == ["CHILD", "PARENT", "JUMP", "SIBLING"]
+
+    def test_union_case_insensitive(self) -> None:
+        """Union types are case-insensitive."""
+        q = parse('MATCH (n {name: "X"})-[:child|jump]->(m) RETURN m')
+        assert q.relationships[0].rel_types == ["CHILD", "JUMP"]
+
+    def test_single_type_backward_compat(self) -> None:
+        """Single type -[:CHILD]-> produces rel_types = ['CHILD']."""
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(m) RETURN m')
+        assert q.relationships[0].rel_types == ["CHILD"]
+
+    def test_named_variable_with_wildcard(self) -> None:
+        """-[r]->: named variable binding, wildcard type (MATCH context)."""
+        q = parse('MATCH (a {name: "A"})-[r]->(b) RETURN b')
+        assert q.relationships[0].variable == "r"
+        assert q.relationships[0].rel_types is None
+
+    def test_named_variable_with_wildcard_hops(self) -> None:
+        """-[r*1..2]->: named variable binding, wildcard type, var-length."""
+        q = parse('MATCH (a {name: "A"})-[r*1..2]->(b) RETURN b')
+        assert q.relationships[0].variable == "r"
+        assert q.relationships[0].rel_types is None
+        assert q.relationships[0].min_hops == 1
+        assert q.relationships[0].max_hops == 2
+
+    def test_named_variable_with_union(self) -> None:
+        """-[r:CHILD|JUMP]->: named variable binding, union types."""
+        q = parse('MATCH (a {name: "A"})-[r:CHILD|JUMP]->(b) RETURN b')
+        assert q.relationships[0].variable == "r"
+        assert q.relationships[0].rel_types == ["CHILD", "JUMP"]
+
+    def test_wildcard_in_chain(self) -> None:
+        """Wildcard in multi-hop chain."""
+        q = parse('MATCH (a {name: "R"})-->(b)-->(c) RETURN c')
+        assert len(q.relationships) == 2
+        assert q.relationships[0].rel_types is None
+        assert q.relationships[1].rel_types is None
+
+    def test_mixed_wildcard_and_typed_chain(self) -> None:
+        """Mix wildcard and specific types in a chain."""
+        q = parse('MATCH (a {name: "R"})-->(b)-[:CHILD]->(c) RETURN c')
+        assert q.relationships[0].rel_types is None
+        assert q.relationships[1].rel_types == ["CHILD"]
+
+    def test_create_rejects_wildcard(self) -> None:
+        """CREATE with wildcard relation is rejected."""
+        with pytest.raises(BrainQuerySyntaxError, match="exactly one relation type"):
+            parse('MATCH (p {name: "X"}) CREATE (p)-->(n {name: "Y"})')
+
+    def test_create_rejects_union(self) -> None:
+        """CREATE with union relation is rejected."""
+        with pytest.raises(BrainQuerySyntaxError, match="exactly one relation type"):
+            parse('MATCH (p {name: "X"}) CREATE (p)-[:CHILD|JUMP]->(n {name: "Y"})')
+
+    def test_merge_rejects_wildcard(self) -> None:
+        """MERGE with wildcard relation is rejected."""
+        with pytest.raises(BrainQuerySyntaxError, match="exactly one relation type"):
+            parse('MATCH (a {name: "X"}) MERGE (a)-->(b {name: "Y"})')
+
+    def test_delete_rel_rejects_wildcard(self) -> None:
+        """DELETE with wildcard relationship variable is rejected."""
+        with pytest.raises(BrainQuerySyntaxError, match="exactly one relation type"):
+            parse('MATCH (a {name: "A"})-[r]->(b) DELETE r')
+
+    def test_wildcard_with_where(self) -> None:
+        """Wildcard traversal combined with WHERE filter."""
+        q = parse(
+            'MATCH (n {name: "X"})-->(m) '
+            'WHERE m.name CONTAINS "Y" RETURN m'
+        )
+        assert q.relationships[0].rel_types is None
+        assert q.where_expr is not None
+
+    def test_wildcard_with_type_filter(self) -> None:
+        """Wildcard traversal combined with type label."""
+        q = parse('MATCH (n {name: "X"})-->(m:Person) RETURN m')
+        assert q.relationships[0].rel_types is None
+        assert q.nodes[1].label == "Person"
 
 
 # ---------------------------------------------------------------------------
@@ -517,7 +659,7 @@ class TestCreateQueries:
         assert q.action == "create"
         assert len(q.nodes) == 2
         assert len(q.relationships) == 1
-        assert q.relationships[0].rel_type == "CHILD"
+        assert q.relationships[0].rel_types == ["CHILD"]
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +674,7 @@ class TestMatchCreateQueries:
         assert len(q.nodes) == 2
         assert q.nodes[0].properties == {"name": "Projects"}
         assert q.nodes[1].properties == {"name": "New Project"}
-        assert q.relationships[0].rel_type == "CHILD"
+        assert q.relationships[0].rel_types == ["CHILD"]
         assert q.relationships[0].source == "p"
         assert q.relationships[0].target == "n"
 
@@ -546,11 +688,11 @@ class TestMatchCreateQueries:
         assert len(q.nodes) == 2
         assert q.nodes[0].properties == {"name": "Alice"}
         assert q.nodes[1].properties == {"name": "Bob"}
-        assert q.relationships[0].rel_type == "JUMP"
+        assert q.relationships[0].rel_types == ["JUMP"]
 
     def test_match_create_sibling(self) -> None:
         q = parse('MATCH (a {name: "T1"}), (b {name: "T2"}) CREATE (a)-[:SIBLING]->(b)')
-        assert q.relationships[0].rel_type == "SIBLING"
+        assert q.relationships[0].rel_types == ["SIBLING"]
 
 
 # ---------------------------------------------------------------------------
@@ -837,14 +979,14 @@ class TestDeleteParsing:
         assert q.action == "match_delete"
         assert q.delete_clause.variables == ["r"]
         assert "r" in q.rel_variables
-        assert q.rel_variables["r"].rel_type == "JUMP"
+        assert q.rel_variables["r"].rel_types == ["JUMP"]
         assert q.rel_variables["r"].source == "a"
         assert q.rel_variables["r"].target == "b"
 
     def test_named_rel_pattern(self) -> None:
         q = parse('MATCH (a {name: "A"})-[r:CHILD]->(b) DELETE r')
         assert q.relationships[0].variable == "r"
-        assert q.relationships[0].rel_type == "CHILD"
+        assert q.relationships[0].rel_types == ["CHILD"]
 
     def test_unnamed_rel_pattern_no_variable(self) -> None:
         q = parse('MATCH (a {name: "A"})-[:CHILD]->(b) DELETE b')

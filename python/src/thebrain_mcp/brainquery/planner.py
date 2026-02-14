@@ -52,6 +52,20 @@ _GRAPH_RELATION_ATTR = {
     "SIBLING": "siblings",
 }
 
+# Forward wildcard: all types except PARENT (which goes upward)
+_FORWARD_ATTRS = ["children", "jumps", "siblings"]
+
+
+def _get_traversal_attrs(rel_types: list[str] | None) -> list[str]:
+    """Get graph attribute names to traverse for given relation types.
+
+    None (wildcard) → forward traversal: children, jumps, siblings.
+    Explicit list → union of specified types.
+    """
+    if rel_types is None:
+        return _FORWARD_ATTRS
+    return [_GRAPH_RELATION_ATTR[rt] for rt in rel_types if rt in _GRAPH_RELATION_ATTR]
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -561,8 +575,8 @@ async def _traverse_relationship(
     rel: RelPattern,
 ) -> list[Thought]:
     """Traverse a relationship from resolved source thoughts."""
-    attr = _GRAPH_RELATION_ATTR.get(rel.rel_type)
-    if not attr:
+    attrs = _get_traversal_attrs(rel.rel_types)
+    if not attrs:
         return []
 
     results: list[Thought] = []
@@ -571,11 +585,12 @@ async def _traverse_relationship(
     for source in source_thoughts:
         try:
             graph = await api.get_thought_graph(brain_id, source.id)
-            related = getattr(graph, attr, None) or []
-            for t in related:
-                if t.id not in seen_ids:
-                    results.append(t)
-                    seen_ids.add(t.id)
+            for attr in attrs:
+                related = getattr(graph, attr, None) or []
+                for t in related:
+                    if t.id not in seen_ids:
+                        results.append(t)
+                        seen_ids.add(t.id)
         except TheBrainAPIError:
             continue
 
@@ -594,8 +609,8 @@ async def _traverse_variable_length(
     Returns thoughts reachable at depths between min_hops and max_hops.
     Deduplicates by thought ID to handle cycles.
     """
-    attr = _GRAPH_RELATION_ATTR.get(rel.rel_type)
-    if not attr:
+    attrs = _get_traversal_attrs(rel.rel_types)
+    if not attrs:
         return []
 
     visited: set[str] = {t.id for t in source_thoughts}
@@ -608,14 +623,15 @@ async def _traverse_variable_length(
         for source in frontier:
             try:
                 graph = await api.get_thought_graph(brain_id, source.id)
-                related = getattr(graph, attr, None) or []
-                for t in related:
-                    if t.id not in visited:
-                        visited.add(t.id)
-                        next_frontier.append(t)
-                        if depth >= rel.min_hops and t.id not in result_ids:
-                            results.append(t)
-                            result_ids.add(t.id)
+                for attr in attrs:
+                    related = getattr(graph, attr, None) or []
+                    for t in related:
+                        if t.id not in visited:
+                            visited.add(t.id)
+                            next_frontier.append(t)
+                            if depth >= rel.min_hops and t.id not in result_ids:
+                                results.append(t)
+                                result_ids.add(t.id)
             except TheBrainAPIError:
                 continue
         frontier = next_frontier
@@ -729,7 +745,11 @@ async def _execute_match(
     target_vars = {r.target for r in query.relationships}
     has_own_criteria = set()
     for node in query.nodes:
-        if node.properties or node.label:
+        if node.properties:
+            has_own_criteria.add(node.variable)
+        elif node.label and node.variable not in target_vars:
+            # A type label on a source node triggers direct resolution,
+            # but on a target node it's applied as a post-traversal filter.
             has_own_criteria.add(node.variable)
     # WHERE on non-target variables triggers direct resolution;
     # WHERE on target variables is applied as post-filter after traversal.
@@ -835,7 +855,7 @@ async def _execute_create(
         if source_thoughts and target_thoughts:
             for src in source_thoughts:
                 for tgt in target_thoughts:
-                    relation = _RELATION_MAP.get(rel.rel_type, 1)
+                    relation = _RELATION_MAP.get(rel.rel_types[0], 1)
                     link_data = {
                         "thoughtIdA": src.id,
                         "thoughtIdB": tgt.id,
@@ -847,7 +867,7 @@ async def _execute_create(
                         "linkId": link_result.get("id"),
                         "from": src.name,
                         "to": tgt.name,
-                        "relation": rel.rel_type,
+                        "relation": rel.rel_types[0],
                     })
             continue
 
@@ -867,7 +887,7 @@ async def _execute_create(
                 type_id = await type_cache.resolve(target_node.label)
 
             for src in source_thoughts:
-                relation = _RELATION_MAP.get(rel.rel_type, 1)
+                relation = _RELATION_MAP.get(rel.rel_types[0], 1)
                 thought_data: dict[str, Any] = {
                     "name": name,
                     "kind": 1,
@@ -885,7 +905,7 @@ async def _execute_create(
                     "thoughtId": thought_id,
                     "name": name,
                     "parent": src.name,
-                    "relation": rel.rel_type,
+                    "relation": rel.rel_types[0],
                     "typeId": type_id,
                 })
 
@@ -1122,7 +1142,7 @@ async def _execute_merge(
 
         # Check if link already exists
         try:
-            attr = _GRAPH_RELATION_ATTR.get(rel.rel_type)
+            attr = _GRAPH_RELATION_ATTR.get(rel.rel_types[0])
             graph = await api.get_thought_graph(brain_id, src.id)
             existing_targets = getattr(graph, attr, None) or []
             link_exists = any(t.id == tgt.id for t in existing_targets)
@@ -1130,7 +1150,7 @@ async def _execute_merge(
             link_exists = False
 
         if not link_exists:
-            relation = _RELATION_MAP.get(rel.rel_type, 1)
+            relation = _RELATION_MAP.get(rel.rel_types[0], 1)
             link_data = {
                 "thoughtIdA": src.id,
                 "thoughtIdB": tgt.id,
@@ -1142,14 +1162,14 @@ async def _execute_merge(
                 "linkId": link_result.get("id"),
                 "from": src.name,
                 "to": tgt.name,
-                "relation": rel.rel_type,
+                "relation": rel.rel_types[0],
             })
         else:
             result.created.append({
                 "type": "merge_match_link",
                 "from": src.name,
                 "to": tgt.name,
-                "relation": rel.rel_type,
+                "relation": rel.rel_types[0],
             })
 
 
@@ -1217,7 +1237,7 @@ async def _execute_delete(
                         "type": "link_preview",
                         "from": src.name,
                         "to": tgt.name,
-                        "relation": rel.rel_type,
+                        "relation": rel.rel_types[0],
                         "variable": var,
                     })
         return
@@ -1230,7 +1250,7 @@ async def _execute_delete(
         source_thoughts = resolved.get(rel.source, [])
         target_thoughts = resolved.get(rel.target, [])
         target_ids = {t.id for t in target_thoughts}
-        rel_int = _RELATION_MAP.get(rel.rel_type)
+        rel_int = _RELATION_MAP.get(rel.rel_types[0])
 
         for src in source_thoughts:
             try:
@@ -1255,7 +1275,7 @@ async def _execute_delete(
                                 "linkId": link.id,
                                 "from": src.name,
                                 "to": other_name,
-                                "relation": rel.rel_type,
+                                "relation": rel.rel_types[0],
                             })
             except TheBrainAPIError as e:
                 result.errors.append(
