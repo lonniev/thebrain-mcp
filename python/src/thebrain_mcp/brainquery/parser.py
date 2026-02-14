@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from lark import Lark, Transformer, v_args, exceptions as lark_exceptions
 
+import re
+
 from thebrain_mcp.brainquery.ir import (
+    MAX_HOP_DEPTH,
     BrainQuery,
     NodePattern,
     RelPattern,
@@ -28,11 +31,13 @@ _GRAMMAR = r"""
 
     pattern_list: pattern ("," pattern)*
 
-    pattern: node_pattern (rel_pattern node_pattern)?
+    pattern: node_pattern (rel_pattern node_pattern)*
 
     node_pattern: "(" VARIABLE (":" TYPE_LABEL)? ("{" property_map "}")? ")"
 
-    rel_pattern: "-[:" REL_TYPE "]->"
+    rel_pattern: "-[:" REL_TYPE hop_spec? "]->"
+    hop_spec: "*" INT ".." INT  -> hop_range
+            | "*" INT           -> hop_fixed
 
     property_map: property ("," property)*
     property: "name"i ":" STRING
@@ -55,6 +60,7 @@ _GRAMMAR = r"""
     STRING: "\"" /[^"]*/ "\""
 
     %import common.WS
+    %import common.INT
     %ignore WS
     %ignore /--[^\n]*/
 """
@@ -91,11 +97,16 @@ def _check_unsupported(query: str) -> None:
             raise BrainQuerySyntaxError(
                 f"'{keyword}' is not supported in BrainQuery. {suggestion}"
             )
-    # Variable-length paths
-    if "*" in query and (".." in query or "*]" in query):
+    # Reject unbounded variable-length paths (bare * or *N.. without upper bound)
+    if re.search(r'\*\s*\]', query):
         raise BrainQuerySyntaxError(
-            "Variable-length paths (*1..3) are not supported. "
-            "Use step-by-step traversal with chained MATCH clauses."
+            "Unbounded variable-length paths (*) are not allowed. "
+            "Use *N (fixed hops) or *N..M (range, max upper bound 5)."
+        )
+    if re.search(r'\*\s*\d+\s*\.\.\s*\]', query):
+        raise BrainQuerySyntaxError(
+            "Unbounded variable-length paths (*N..) are not allowed. "
+            "Provide an explicit upper bound: *N..M (max 5)."
         )
 
 
@@ -150,17 +161,33 @@ class _BrainQueryTransformer(Transformer):
                 properties = arg
         return NodePattern(variable=variable, label=label, properties=properties)
 
-    def rel_pattern(self, rel_type):
-        return rel_type  # Just the string, source/target added in pattern()
+    def hop_range(self, min_val, max_val):
+        return (int(min_val), int(max_val))
+
+    def hop_fixed(self, n):
+        val = int(n)
+        return (val, val)
+
+    def rel_pattern(self, rel_type, hop_spec=None):
+        if hop_spec is None:
+            return (rel_type, 1, 1)
+        min_hops, max_hops = hop_spec
+        return (rel_type, min_hops, max_hops)
 
     def pattern(self, *args):
         if len(args) == 1:
-            return (args[0], None, None)  # node only
-        # node, rel_type, node
-        return (args[0], args[1], args[2])
+            return [(args[0], None, None)]  # node only, wrapped in list
+        # Chain: node, rel_info, node [, rel_info, node]*
+        segments = []
+        for i in range(0, len(args) - 2, 2):
+            segments.append((args[i], args[i + 1], args[i + 2]))
+        return segments
 
     def pattern_list(self, *patterns):
-        return list(patterns)
+        flat = []
+        for p in patterns:
+            flat.extend(p)
+        return flat
 
     def match_clause(self, patterns):
         return ("match", patterns)
@@ -205,28 +232,46 @@ class _BrainQueryTransformer(Transformer):
         match_variables: set[str] = set()
 
         def process_patterns(patterns, *, is_match: bool = False):
-            for node_a, rel_type, node_b in patterns:
+            for node_a, rel_info, node_b in patterns:
                 if node_a.variable not in seen_vars:
                     nodes.append(node_a)
                     seen_vars.add(node_a.variable)
                 if is_match:
                     match_variables.add(node_a.variable)
-                if rel_type and node_b:
+                if rel_info and node_b:
                     if node_b.variable not in seen_vars:
                         nodes.append(node_b)
                         seen_vars.add(node_b.variable)
                     if is_match:
                         match_variables.add(node_b.variable)
+                    rel_type_str, min_hops, max_hops = rel_info
                     rels.append(RelPattern(
-                        rel_type=rel_type,
+                        rel_type=rel_type_str,
                         source=node_a.variable,
                         target=node_b.variable,
+                        min_hops=min_hops,
+                        max_hops=max_hops,
                     ))
 
         if match_patterns:
             process_patterns(match_patterns, is_match=True)
         if create_patterns:
             process_patterns(create_patterns, is_match=False)
+
+        # Validate hop bounds
+        for rel in rels:
+            if rel.min_hops < 1:
+                raise BrainQuerySyntaxError(
+                    f"Minimum hop count must be >= 1, got {rel.min_hops}."
+                )
+            if rel.max_hops < rel.min_hops:
+                raise BrainQuerySyntaxError(
+                    f"Maximum hops ({rel.max_hops}) must be >= minimum ({rel.min_hops})."
+                )
+            if rel.max_hops > MAX_HOP_DEPTH:
+                raise BrainQuerySyntaxError(
+                    f"Maximum hop depth is {MAX_HOP_DEPTH}, got {rel.max_hops}."
+                )
 
         return BrainQuery(
             action=action,

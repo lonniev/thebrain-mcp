@@ -240,6 +240,36 @@ class TestEndToEnd:
 
 
 # ---------------------------------------------------------------------------
+# Variable-length paths (end-to-end)
+# ---------------------------------------------------------------------------
+
+
+class TestVariableLengthE2E:
+    @pytest.mark.asyncio
+    async def test_variable_length_e2e(self) -> None:
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        grandchild = _thought("gc1", "Grandchild")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[child])
+            if thought_id == "c1":
+                return _graph(child, children=[grandchild])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        result = await _run_query(
+            api, 'MATCH (n {name: "Root"})-[:CHILD*1..2]->(m) RETURN m'
+        )
+
+        assert result["success"] is True
+        assert len(result["results"]["m"]) == 2
+
+
+# ---------------------------------------------------------------------------
 # Tool registration check
 # ---------------------------------------------------------------------------
 

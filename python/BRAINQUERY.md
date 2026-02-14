@@ -25,6 +25,12 @@ MATCH (n) WHERE n.name STARTS WITH "MCP" RETURN n
 -- Fuzzy/similarity search (exact first, then ranked search)
 MATCH (n) WHERE n.name =~ "Claude" RETURN n
 
+-- Multi-hop chain (grandchildren)
+MATCH (a {name: "Root"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN c
+
+-- Variable-depth traversal (1 to 3 hops)
+MATCH (n {name: "Root"})-[:CHILD*1..3]->(d) RETURN d
+
 -- Create a new thought under an existing parent
 MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n {name: "New Project"})
 
@@ -67,6 +73,39 @@ Supported relationship types and their TheBrain API mappings:
 | `:PARENT`  | 2                   | `b` is a parent of `a` |
 | `:JUMP`    | 3                   | Jump link between `a` and `b` |
 | `:SIBLING` | 4                   | `b` is a sibling of `a` |
+
+### Variable-Length Paths
+
+Specify how many hops to traverse with `*N` (fixed) or `*N..M` (range):
+
+```cypher
+-- Exactly 2 hops (grandchildren)
+MATCH (n {name: "Root"})-[:CHILD*2]->(gc) RETURN gc
+
+-- Between 1 and 3 hops deep
+MATCH (n {name: "Root"})-[:CHILD*1..3]->(desc) RETURN desc
+```
+
+Rules:
+- An **explicit upper bound** is always required (max 5).
+- `*N` is shorthand for `*N..N`.
+- Bare `*` and `*N..` (no upper) are rejected.
+- BFS traversal with cycle detection (thoughts are never visited twice).
+
+### Multi-Hop Chains
+
+Chain multiple relationship segments in a single pattern:
+
+```cypher
+-- Two-hop chain (find grandchildren via intermediate)
+MATCH (a {name: "Root"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN c
+
+-- Intermediate variables are bindable and returnable
+MATCH (a {name: "Root"})-[:CHILD]->(b)-[:JUMP]->(c) RETURN b, c
+
+-- Mixed relation types
+MATCH (a {name: "Root"})-[:CHILD]->(b)-[:JUMP]->(c)-[:PARENT]->(d) RETURN d
+```
 
 ### READ Queries (MATCH)
 
@@ -204,7 +243,6 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 
 | Feature | Why excluded | Alternative |
 |---------|-------------|-------------|
-| Variable-length paths `*1..3` | TheBrain API doesn't support multi-hop queries | Chain multiple MATCH clauses |
 | `DELETE` / `DETACH DELETE` | Destructive — use dedicated `delete_thought` tool | `delete_thought` tool |
 | `SET` for property updates | Use dedicated tool | `update_thought` tool |
 | `MERGE` (upsert) | Complex semantics, risk of silent duplicates | MATCH first, then CREATE if not found |
@@ -228,14 +266,16 @@ create_query    = "CREATE" , create_pattern , { "," , create_pattern } ;
 match_create_query = "MATCH" , match_pattern , { "," , match_pattern } ,
                      "CREATE" , create_pattern , { "," , create_pattern } ;
 
-match_pattern   = node_pattern , [ rel_pattern , node_pattern ] ;
+match_pattern   = node_pattern , { rel_pattern , node_pattern } ;
 
-create_pattern  = node_pattern , [ rel_pattern , node_pattern ] ;
+create_pattern  = node_pattern , { rel_pattern , node_pattern } ;
 
 node_pattern    = "(" , variable , [ ":" , type_label ] ,
                   [ "{" , property_map , "}" ] , ")" ;
 
-rel_pattern     = "-[" , ":" , rel_type , "]->" ;
+rel_pattern     = "-[" , ":" , rel_type , [ hop_spec ] , "]->" ;
+hop_spec        = "*" , int , ".." , int
+                | "*" , int ;
 
 variable        = identifier ;
 type_label      = identifier ;

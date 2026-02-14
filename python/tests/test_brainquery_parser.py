@@ -82,6 +82,87 @@ class TestMatchRelationships:
 
 
 # ---------------------------------------------------------------------------
+# Multi-hop chains
+# ---------------------------------------------------------------------------
+
+
+class TestMultiHopChains:
+    def test_two_hop_chain(self) -> None:
+        q = parse('MATCH (a {name: "Root"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN c')
+        assert len(q.nodes) == 3
+        assert len(q.relationships) == 2
+        assert q.relationships[0].source == "a"
+        assert q.relationships[0].target == "b"
+        assert q.relationships[1].source == "b"
+        assert q.relationships[1].target == "c"
+
+    def test_three_hop_chain(self) -> None:
+        q = parse('MATCH (a {name: "R"})-[:CHILD]->(b)-[:JUMP]->(c)-[:PARENT]->(d) RETURN d')
+        assert len(q.nodes) == 4
+        assert len(q.relationships) == 3
+        assert q.relationships[0].rel_type == "CHILD"
+        assert q.relationships[1].rel_type == "JUMP"
+        assert q.relationships[2].rel_type == "PARENT"
+
+    def test_intermediate_variables_bindable(self) -> None:
+        q = parse('MATCH (a {name: "R"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN b, c')
+        assert len(q.return_fields) == 2
+        assert q.return_fields[0].variable == "b"
+        assert q.return_fields[1].variable == "c"
+
+    def test_chain_no_duplicate_nodes(self) -> None:
+        q = parse('MATCH (a {name: "R"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN c')
+        var_names = [n.variable for n in q.nodes]
+        assert var_names == ["a", "b", "c"]
+
+
+# ---------------------------------------------------------------------------
+# Variable-length paths
+# ---------------------------------------------------------------------------
+
+
+class TestVariableLengthPaths:
+    def test_fixed_hops(self) -> None:
+        q = parse('MATCH (n {name: "Root"})-[:CHILD*2]->(m) RETURN m')
+        assert len(q.relationships) == 1
+        assert q.relationships[0].min_hops == 2
+        assert q.relationships[0].max_hops == 2
+
+    def test_range_hops(self) -> None:
+        q = parse('MATCH (n {name: "Root"})-[:CHILD*1..3]->(m) RETURN m')
+        assert q.relationships[0].min_hops == 1
+        assert q.relationships[0].max_hops == 3
+
+    def test_single_hop_default(self) -> None:
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(m) RETURN m')
+        assert q.relationships[0].min_hops == 1
+        assert q.relationships[0].max_hops == 1
+
+    def test_rejects_unbounded_star(self) -> None:
+        with pytest.raises(BrainQuerySyntaxError, match="Unbounded"):
+            parse('MATCH (n)-[:CHILD*]->(m) RETURN m')
+
+    def test_rejects_unbounded_range(self) -> None:
+        with pytest.raises(BrainQuerySyntaxError, match="Unbounded"):
+            parse('MATCH (n)-[:CHILD*2..]->(m) RETURN m')
+
+    def test_rejects_exceeding_max_depth(self) -> None:
+        with pytest.raises(BrainQuerySyntaxError, match="Maximum hop depth"):
+            parse('MATCH (n {name: "R"})-[:CHILD*1..10]->(m) RETURN m')
+
+    def test_rejects_min_greater_than_max(self) -> None:
+        with pytest.raises(BrainQuerySyntaxError, match="must be >="):
+            parse('MATCH (n {name: "R"})-[:CHILD*3..1]->(m) RETURN m')
+
+    def test_variable_length_with_chain(self) -> None:
+        q = parse('MATCH (a {name: "R"})-[:CHILD*2]->(b)-[:JUMP]->(c) RETURN c')
+        assert q.relationships[0].min_hops == 2
+        assert q.relationships[0].max_hops == 2
+        assert q.relationships[1].min_hops == 1
+        assert q.relationships[1].max_hops == 1
+
+
+# ---------------------------------------------------------------------------
 # WHERE clause
 # ---------------------------------------------------------------------------
 
@@ -292,9 +373,9 @@ class TestErrorHandling:
         with pytest.raises(BrainQuerySyntaxError, match="OPTIONAL.*not supported"):
             parse('OPTIONAL MATCH (n {name: "X"}) RETURN n')
 
-    def test_unsupported_variable_length_path(self) -> None:
-        with pytest.raises(BrainQuerySyntaxError, match="Variable-length"):
-            parse('MATCH (n)-[*1..3]->(m) RETURN m')
+    def test_unsupported_unbounded_variable_length(self) -> None:
+        with pytest.raises(BrainQuerySyntaxError, match="Unbounded"):
+            parse('MATCH (n)-[:CHILD*]->(m) RETURN m')
 
     def test_invalid_syntax(self) -> None:
         with pytest.raises(BrainQuerySyntaxError, match="Syntax error|Failed to parse"):

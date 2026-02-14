@@ -306,6 +306,49 @@ async def _traverse_relationship(
     return results
 
 
+async def _traverse_variable_length(
+    api: TheBrainAPI,
+    brain_id: str,
+    source_thoughts: list[Thought],
+    rel: RelPattern,
+) -> list[Thought]:
+    """Traverse a variable-length path using BFS with depth tracking.
+
+    Expands from source_thoughts up to rel.max_hops levels deep.
+    Returns thoughts reachable at depths between min_hops and max_hops.
+    Deduplicates by thought ID to handle cycles.
+    """
+    attr = _GRAPH_RELATION_ATTR.get(rel.rel_type)
+    if not attr:
+        return []
+
+    visited: set[str] = {t.id for t in source_thoughts}
+    frontier: list[Thought] = list(source_thoughts)
+    results: list[Thought] = []
+    result_ids: set[str] = set()
+
+    for depth in range(1, rel.max_hops + 1):
+        next_frontier: list[Thought] = []
+        for source in frontier:
+            try:
+                graph = await api.get_thought_graph(brain_id, source.id)
+                related = getattr(graph, attr, None) or []
+                for t in related:
+                    if t.id not in visited:
+                        visited.add(t.id)
+                        next_frontier.append(t)
+                        if depth >= rel.min_hops and t.id not in result_ids:
+                            results.append(t)
+                            result_ids.add(t.id)
+            except TheBrainAPIError:
+                continue
+        frontier = next_frontier
+        if not frontier:
+            break
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Format results for output
 # ---------------------------------------------------------------------------
@@ -434,9 +477,14 @@ async def _execute_match(
             (n for n in query.nodes if n.variable == rel.target), None
         )
 
-        traversed = await _traverse_relationship(
-            api, brain_id, source_thoughts, rel
-        )
+        if rel.is_variable_length:
+            traversed = await _traverse_variable_length(
+                api, brain_id, source_thoughts, rel
+            )
+        else:
+            traversed = await _traverse_relationship(
+                api, brain_id, source_thoughts, rel
+            )
 
         # Apply target node's type filter if present
         if target_node and target_node.label and traversed:

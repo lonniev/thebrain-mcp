@@ -375,6 +375,162 @@ class TestMatchRelationships:
 
 
 # ---------------------------------------------------------------------------
+# MATCH: variable-length traversal
+# ---------------------------------------------------------------------------
+
+
+class TestVariableLengthTraversal:
+    @pytest.mark.asyncio
+    async def test_fixed_two_hops(self) -> None:
+        """*2 traverses exactly 2 levels."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        grandchild = _thought("gc1", "Grandchild")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[child])
+            if thought_id == "c1":
+                return _graph(child, children=[grandchild])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (n {name: "Root"})-[:CHILD*2]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 1
+        assert result.results["m"][0].name == "Grandchild"
+
+    @pytest.mark.asyncio
+    async def test_range_one_to_two(self) -> None:
+        """*1..2 returns both children and grandchildren."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        grandchild = _thought("gc1", "Grandchild")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[child])
+            if thought_id == "c1":
+                return _graph(child, children=[grandchild])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (n {name: "Root"})-[:CHILD*1..2]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 2
+        names = {r.name for r in result.results["m"]}
+        assert names == {"Child", "Grandchild"}
+
+    @pytest.mark.asyncio
+    async def test_cycle_detection(self) -> None:
+        """BFS should not revisit nodes in cycles."""
+        api = _mock_api()
+        a = _thought("a1", "A")
+        b = _thought("b1", "B")
+        api.get_thought_by_name = AsyncMock(return_value=a)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "a1":
+                return _graph(a, jumps=[b])
+            if thought_id == "b1":
+                return _graph(b, jumps=[a])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (n {name: "A"})-[:JUMP*1..3]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 1
+        assert result.results["m"][0].name == "B"
+
+    @pytest.mark.asyncio
+    async def test_empty_frontier_early_exit(self) -> None:
+        """Traversal stops when no more nodes to expand."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        leaf = _thought("l1", "Leaf")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[leaf])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (n {name: "Root"})-[:CHILD*1..5]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 1
+        assert result.results["m"][0].name == "Leaf"
+        assert api.get_thought_graph.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# MATCH: multi-hop chain execution
+# ---------------------------------------------------------------------------
+
+
+class TestMultiHopChainExecution:
+    @pytest.mark.asyncio
+    async def test_two_hop_chain(self) -> None:
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        mid = _thought("m1", "Middle")
+        leaf = _thought("l1", "Leaf")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[mid])
+            if thought_id == "m1":
+                return _graph(mid, children=[leaf])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (a {name: "Root"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN c')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["c"]) == 1
+        assert result.results["c"][0].name == "Leaf"
+
+    @pytest.mark.asyncio
+    async def test_chain_intermediate_return(self) -> None:
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        mid = _thought("m1", "Middle")
+        leaf = _thought("l1", "Leaf")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[mid])
+            if thought_id == "m1":
+                return _graph(mid, children=[leaf])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (a {name: "Root"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN b, c')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert "b" in result.results
+        assert "c" in result.results
+        assert result.results["b"][0].name == "Middle"
+        assert result.results["c"][0].name == "Leaf"
+
+
+# ---------------------------------------------------------------------------
 # CREATE: standalone
 # ---------------------------------------------------------------------------
 
