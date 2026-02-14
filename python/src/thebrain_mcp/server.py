@@ -23,7 +23,29 @@ from thebrain_mcp.vault import (
 )
 
 # Initialize FastMCP server (don't load settings yet - wait until runtime)
-mcp = FastMCP("thebrain-mcp")
+mcp = FastMCP(
+    "thebrain-mcp",
+    instructions=(
+        "TheBrain MCP Server — Tool Selection Guide\n\n"
+        "This server provides both a high-level query language (BrainQuery/BQL via brain_query) "
+        "and low-level tools for direct API access. Use them together:\n\n"
+        "1. brain_query (BQL) — primary tool for pattern-based CRUD. Handles searching by "
+        "name/type, graph traversal, multi-hop chains, creating thoughts in context. "
+        "Start here for most operations.\n\n"
+        "2. If BQL returns empty or you need finer control:\n"
+        "   - get_thought_by_name — fast exact-name lookup\n"
+        "   - search_thoughts — full-text keyword search across names and content\n"
+        "   - get_types → get_thought_graph — traverse from a known type\n\n"
+        "3. get_thought_graph / get_thought_graph_paginated — use when you have a thought ID "
+        "and need to explore its connections, or for operations BQL doesn't cover yet "
+        "(attachments, link metadata, full thought details).\n\n"
+        "4. create_or_update_note, append_to_note, list_attachments, add_file_attachment, "
+        "add_url_attachment — note and attachment operations not covered by BQL.\n\n"
+        "5. create_thought, create_link, update_thought, update_link, delete_thought, "
+        "delete_link — direct CRUD when you need precise control or BQL doesn't support "
+        "the operation yet."
+    ),
+)
 
 # Global API client and active brain state (initialized at runtime)
 _operator_api_client: TheBrainAPI | None = None
@@ -214,7 +236,12 @@ async def create_thought(
     relation: int | None = None,
     ac_type: int = 0,
 ) -> dict[str, Any]:
-    """Create a new thought with optional visual properties.
+    """Create a new thought with optional type, color, label, and parent link.
+
+    Prefer brain_query CREATE syntax when creating in graph context (e.g., as
+    child of a thought found by name). Use directly when you need properties BQL
+    doesn't support yet (kind, access control) or when you already have the
+    source thought ID.
 
     Args:
         name: The name of the thought
@@ -258,11 +285,15 @@ async def get_thought(thought_id: str, brain_id: str | None = None) -> dict[str,
 async def get_thought_by_name(
     name_exact: str, brain_id: str | None = None
 ) -> dict[str, Any]:
-    """Find a thought by its exact name.
+    """Exact name lookup — returns the first thought matching the name exactly (case-sensitive).
 
-    Returns the first thought matching the name exactly. Depends on TheBrain's
-    cloud search index — may return not-found for thoughts that exist but
-    aren't indexed. Use get_thought_graph for reliable traversal.
+    Use when you know the precise thought name and need a quick ID lookup.
+    Prefer brain_query with {name: "exact"} syntax when you also need type
+    filtering or graph context.
+
+    Depends on TheBrain's cloud search index — may return not-found for
+    thoughts that exist but aren't indexed. Use get_thought_graph for
+    reliable traversal.
 
     Args:
         name_exact: The exact name to match (case-sensitive)
@@ -285,7 +316,10 @@ async def update_thought(
     ac_type: int | None = None,
     type_id: str | None = None,
 ) -> dict[str, Any]:
-    """Update a thought including its visual properties.
+    """Update a thought's properties: name, label, colors, kind, type assignment.
+
+    Use when you have a thought ID and need to modify properties. Once BQL
+    supports SET, prefer brain_query for match-then-modify workflows.
 
     Args:
         thought_id: The ID of the thought to update
@@ -314,7 +348,11 @@ async def update_thought(
 
 @mcp.tool()
 async def delete_thought(thought_id: str, brain_id: str | None = None) -> dict[str, Any]:
-    """Delete a thought.
+    """Permanently delete a thought by ID. Cannot be undone.
+
+    Once BQL supports DELETE, prefer brain_query for match-then-delete with
+    safety guardrails (preview mode, batch limits). Use directly only with a
+    specific ID and user confirmation.
 
     Args:
         thought_id: The ID of the thought
@@ -330,11 +368,14 @@ async def search_thoughts(
     max_results: int = 30,
     only_search_thought_names: bool = False,
 ) -> dict[str, Any]:
-    """Search for thoughts in a brain.
+    """Full-text search across thought names and content. Returns matching thoughts with IDs.
 
-    Note: Search depends on TheBrain's cloud index, which may not cover all
-    thoughts. For reliable lookup, use get_thought_graph to traverse connections,
-    or get_thought_by_name for exact name matches on indexed thoughts.
+    Use as a complement to brain_query for broad keyword searches that don't
+    fit a graph pattern, or when you want to search note content (not just
+    thought names). Tip: keep queries short (1-3 words) for best results.
+
+    Depends on TheBrain's cloud index, which may not cover all thoughts. For
+    reliable lookup, use get_thought_graph to traverse connections.
 
     Args:
         query_text: Search query text
@@ -351,7 +392,16 @@ async def search_thoughts(
 async def get_thought_graph(
     thought_id: str, brain_id: str | None = None, include_siblings: bool = False
 ) -> dict[str, Any]:
-    """Get a thought with all its connections and attachments.
+    """Get a thought's full connection graph: parents, children, jumps, siblings,
+    links, tags, type info, and attachments. Always works given a valid thought
+    ID — the most reliable traversal method.
+
+    Use when you have a thought ID and need to explore its neighborhood, you
+    need full thought metadata (colors, labels, kind), or you need attachment
+    or link details.
+
+    For thoughts with many connections (>50), consider
+    get_thought_graph_paginated instead.
 
     Args:
         thought_id: The ID of the thought
@@ -372,10 +422,20 @@ async def get_thought_graph_paginated(
     relation_filter: str | None = None,
     brain_id: str | None = None,
 ) -> dict[str, Any]:
-    """Get a thought's connections with cursor-based pagination.
+    """Cursor-based paginated traversal of a thought's connections. Returns a page
+    of results sorted by modification date, with a cursor for fetching the next page.
 
-    Fetches the full graph, sorts by modification date, and returns a page.
-    Use this instead of get_thought_graph when a thought has many connections.
+    Use instead of get_thought_graph when a thought has many connections (types,
+    hub nodes with 50+ children).
+
+    Pagination uses a time-based cursor (modificationDateTime + thoughtId tiebreaker):
+    - First call: omit cursor, set page_size (default 10)
+    - Subsequent calls: pass the cursor from the previous response
+    - Direction: "older" (newest first, default) or "newer" (oldest first)
+    - Filter by relation: "child", "parent", "jump", "sibling", or omit for all
+
+    The cursor is stateless — no server-side session. You can change page_size
+    or direction between calls.
 
     Args:
         thought_id: The ID of the thought
@@ -393,7 +453,11 @@ async def get_thought_graph_paginated(
 
 @mcp.tool()
 async def get_types(brain_id: str | None = None) -> dict[str, Any]:
-    """Get all thought types in a brain.
+    """List all thought types defined in the brain (e.g., Person, Geographical, Organization).
+
+    Use for discovering available types before writing typed BQL queries,
+    resolving type names to IDs, or as step 1 of type-based traversal
+    (get_types -> get_thought_graph on a type -> filter results).
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
@@ -426,7 +490,14 @@ async def create_link(
     direction: int | None = None,
     type_id: str | None = None,
 ) -> dict[str, Any]:
-    """Create a link between two thoughts with visual properties.
+    """Create a relationship between two thoughts by ID.
+
+    Relation types: 1=Child, 2=Parent, 3=Jump, 4=Sibling.
+    Supports optional label, color (hex), thickness (1-10), and direction flags.
+
+    Prefer brain_query CREATE for links in graph context. Use directly when you
+    need visual link properties (color, thickness, labels) that BQL doesn't
+    support yet.
 
     Args:
         thought_id_a: ID of the first thought
@@ -492,7 +563,10 @@ async def get_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
 
 @mcp.tool()
 async def delete_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
-    """Delete a link.
+    """Permanently delete a link by ID. Cannot be undone.
+
+    Once BQL supports DELETE, prefer brain_query for match-then-delete with
+    safety guardrails. Use directly only with a specific link ID.
 
     Args:
         link_id: The ID of the link
@@ -674,18 +748,29 @@ async def brain_query(
     query: str,
     brain_id: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a BrainQuery (Cypher subset) against TheBrain.
+    """Primary tool for pattern-based operations on TheBrain. Accepts BrainQuery
+    (BQL) — a Cypher subset supporting MATCH, WHERE, CREATE, and RETURN.
 
-    Supports MATCH for searching and CREATE for adding thoughts in context.
-    Uses name-first resolution with lazy type filtering.
+    Use for: searching by name (exact, similarity, prefix, suffix, substring),
+    filtering by type, traversing relationships (CHILD, PARENT, JUMP, SIBLING),
+    multi-hop chains, variable-length paths (*1..N), and creating thoughts/links
+    in graph context.
+
+    Operators: =, =~ (similarity), CONTAINS, STARTS WITH, ENDS WITH.
+    Logical: AND, OR, NOT, XOR (with parenthesized grouping).
+    Relations: CHILD, PARENT, JUMP, SIBLING.
+    Path syntax: (a)-[:CHILD*1..3]->(b) for variable-length,
+                 (a)-[:R]->(b)-[:R]->(c) for chains.
 
     Examples:
-        Find by name:    MATCH (n {name: "Claude Thoughts"}) RETURN n
-        Find by type:    MATCH (p:Person {name: "Alice"}) RETURN p
-        Get children:    MATCH (n {name: "Projects"})-[:CHILD]->(m) RETURN m
-        Create child:    MATCH (p {name: "Ideas"}) CREATE (p)-[:CHILD]->(n {name: "New Idea"})
-        Link existing:   MATCH (a {name: "A"}), (b {name: "B"}) CREATE (a)-[:JUMP]->(b)
-        Substring search: MATCH (n) WHERE n.name CONTAINS "MCP" RETURN n
+        MATCH (p:Person) WHERE p.name =~ "Lonnie" RETURN p
+        MATCH (a {name: "My Thoughts"})-[:CHILD*1..2]->(b) RETURN b
+        MATCH (p {name: "Ideas"}) CREATE (p)-[:CHILD]->(n {name: "New Idea"})
+        MATCH (a {name: "A"}), (b {name: "B"}) CREATE (a)-[:JUMP]->(b)
+        MATCH (n) WHERE n.name CONTAINS "MCP" AND NOT n.name ENDS WITH "Old" RETURN n
+
+    If results are unexpectedly empty, retry with get_thought_by_name or
+    search_thoughts.
 
     Args:
         query: A BrainQuery string (Cypher subset). See examples above.
