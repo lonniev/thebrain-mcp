@@ -2,7 +2,7 @@
 
 BrainQuery is a minimal, Cypher-inspired query language for searching and creating thoughts in TheBrain. It provides a shared formalism between humans and AI agents for expressing graph operations unambiguously.
 
-BrainQuery is **not** a full graph query language. It covers the practical subset needed for everyday brain operations. Advanced graph features (variable-length paths, aggregations, etc.) are deferred to TheBrain v15's native capabilities.
+BrainQuery is **not** a full graph query language. It covers the practical subset needed for everyday brain operations. Advanced graph features (aggregations, etc.) are deferred to TheBrain v15's native capabilities.
 
 ## Quick Examples
 
@@ -30,6 +30,15 @@ MATCH (a {name: "Root"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN c
 
 -- Variable-depth traversal (1 to 3 hops)
 MATCH (n {name: "Root"})-[:CHILD*1..3]->(d) RETURN d
+
+-- Wildcard: traverse any relation type (children, jumps, siblings)
+MATCH (n {name: "Root"})-->(m) RETURN m
+
+-- Union: traverse multiple relation types
+MATCH (n {name: "Root"})-[:CHILD|JUMP]->(m) RETURN m
+
+-- Wildcard variable-length (explore neighborhood)
+MATCH (n {name: "Root"})-[*1..2]->(m) RETURN m
 
 -- Find children with labels (IS NOT NULL)
 MATCH (a {name: "Root"})-[:CHILD]->(c) WHERE c.label IS NOT NULL RETURN c
@@ -98,7 +107,11 @@ A node pattern matches or creates a thought. It consists of an optional variable
 Relationships connect two node patterns with a direction and type.
 
 ```
-(a)-[:REL_TYPE]->(b)    -- directed relationship from a to b
+(a)-[:REL_TYPE]->(b)         -- single relation type
+(a)-->(b)                    -- wildcard: any relation type
+(a)-[:CHILD|JUMP]->(b)       -- union: multiple relation types
+(a)-[r:CHILD]->(b)           -- named relationship variable
+(a)-[r]->(b)                 -- named wildcard variable
 ```
 
 Supported relationship types and their TheBrain API mappings:
@@ -109,6 +122,45 @@ Supported relationship types and their TheBrain API mappings:
 | `:PARENT`  | 2                   | `b` is a parent of `a` |
 | `:JUMP`    | 3                   | Jump link between `a` and `b` |
 | `:SIBLING` | 4                   | `b` is a sibling of `a` |
+
+#### Wildcard Relations
+
+The `-->` shorthand (or `-[]->`) traverses all forward relation types: children, jumps, and siblings. Parents are excluded to prevent upward explosion.
+
+```cypher
+-- Find all directly connected thoughts (children + jumps + siblings)
+MATCH (n {name: "Root"})-->(m) RETURN m
+
+-- Same with empty brackets
+MATCH (n {name: "Root"})-[]->(m) RETURN m
+
+-- Wildcard with variable-length path
+MATCH (n {name: "Root"})-[*1..2]->(m) RETURN m
+
+-- Named wildcard variable
+MATCH (n {name: "Root"})-[r]->(m) RETURN m
+```
+
+#### Union Relations
+
+Combine multiple relation types with `|` to traverse several types at once:
+
+```cypher
+-- Children and jumps (but not siblings)
+MATCH (n {name: "Root"})-[:CHILD|JUMP]->(m) RETURN m
+
+-- Union with variable-length path
+MATCH (n {name: "Root"})-[:CHILD|JUMP*1..3]->(m) RETURN m
+
+-- Named union variable
+MATCH (n {name: "Root"})-[r:CHILD|JUMP]->(m) RETURN m
+```
+
+**Rules:**
+- Wildcard and union are **read-only** — `CREATE` and `MERGE` require exactly one explicit relation type.
+- `DELETE` of a relationship variable also requires exactly one type (e.g., `-[r:JUMP]->`).
+- Wildcards exclude `:PARENT` to prevent traversal from exploding upward.
+- Union types are case-insensitive.
 
 ### Variable-Length Paths
 
@@ -518,7 +570,7 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 | Aggregations (`COUNT`, `COLLECT`) | Not a reporting tool | Use `get_brain_stats` for counts |
 | `OPTIONAL MATCH` | Adds null-handling complexity | Run two separate queries |
 | `UNION` | Use separate queries | Run queries independently |
-| Path variables `p = (a)-[*]->(b)` | No multi-hop support | Step-by-step traversal |
+| Path variables `p = (a)-[*]->(b)` | Path binding not supported | Use variable-length paths or chains |
 | `OR` across different variables | Cross-variable OR has ambiguous semantics | Use separate queries |
 | Property value comparisons (except `name`) | Only `name` supports value operators (`=`, `CONTAINS`, etc.) | Use `IS NULL`/`IS NOT NULL` for existence checks on other properties |
 | Standalone `DELETE` without `MATCH` | Always requires a MATCH clause | Use `MATCH ... DELETE` |
@@ -561,7 +613,12 @@ create_pattern  = node_pattern , { rel_pattern , node_pattern } ;
 node_pattern    = "(" , variable , [ ":" , type_label ] ,
                   [ "{" , property_map , "}" ] , ")" ;
 
-rel_pattern     = "-[" , [ variable , ":" ] , rel_type , [ hop_spec ] , "]->" ;
+rel_pattern     = "-->"
+                | "-[" , "]->"
+                | "-[" , [ variable , ":" ] , relation_types , [ hop_spec ] , "]->"
+                | "-[" , variable , [ hop_spec ] , "]->"
+                | "-[" , hop_spec , "]->" ;
+relation_types  = rel_type , { "|" , rel_type } ;
 hop_spec        = "*" , int , ".." , int
                 | "*" , int ;
 

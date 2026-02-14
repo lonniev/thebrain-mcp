@@ -538,6 +538,223 @@ class TestMultiHopChainExecution:
 
 
 # ---------------------------------------------------------------------------
+# MATCH: wildcard & union relation traversal
+# ---------------------------------------------------------------------------
+
+
+class TestWildcardUnionTraversal:
+    @pytest.mark.asyncio
+    async def test_wildcard_single_hop(self) -> None:
+        """-->: traverses children, jumps, and siblings."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        jump = _thought("j1", "Jump Target")
+        sibling = _thought("s1", "Sibling")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child], jumps=[jump], siblings=[sibling])
+        )
+
+        q = parse('MATCH (n {name: "Root"})-->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 3
+        names = {r.name for r in result.results["m"]}
+        assert names == {"Child", "Jump Target", "Sibling"}
+
+    @pytest.mark.asyncio
+    async def test_wildcard_excludes_parents(self) -> None:
+        """-->: does NOT include parents in forward wildcard."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        parent = _thought("p1", "Parent")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child], parents=[parent])
+        )
+
+        q = parse('MATCH (n {name: "Root"})-->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 1
+        assert result.results["m"][0].name == "Child"
+
+    @pytest.mark.asyncio
+    async def test_wildcard_variable_length(self) -> None:
+        """Wildcard *1..2: traverses all forward types across multiple hops."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        grandchild = _thought("gc1", "Grandchild")
+        jump_target = _thought("j1", "Jump from child")
+
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[child])
+            if thought_id == "c1":
+                return _graph(child, children=[grandchild], jumps=[jump_target])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (n {name: "Root"})-[*1..2]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        names = {r.name for r in result.results["m"]}
+        assert "Child" in names  # hop 1
+        assert "Grandchild" in names  # hop 2 via child
+        assert "Jump from child" in names  # hop 2 via jump
+
+    @pytest.mark.asyncio
+    async def test_union_single_hop(self) -> None:
+        """Union -[:CHILD|JUMP]->: collects from specified types."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        jump = _thought("j1", "Jump")
+        sibling = _thought("s1", "Sibling")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child], jumps=[jump], siblings=[sibling])
+        )
+
+        q = parse('MATCH (n {name: "Root"})-[:CHILD|JUMP]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 2
+        names = {r.name for r in result.results["m"]}
+        assert names == {"Child", "Jump"}
+
+    @pytest.mark.asyncio
+    async def test_union_variable_length(self) -> None:
+        """Union -[:CHILD|JUMP*1..2]->: collects from specified types at multiple depths."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        jump_from_child = _thought("j1", "Jump from child")
+
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[child])
+            if thought_id == "c1":
+                return _graph(child, jumps=[jump_from_child])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (n {name: "Root"})-[:CHILD|JUMP*1..2]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 2
+        names = {r.name for r in result.results["m"]}
+        assert names == {"Child", "Jump from child"}
+
+    @pytest.mark.asyncio
+    async def test_wildcard_with_type_filter(self) -> None:
+        """Wildcard + type label: only return typed thoughts."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        person_type = _thought("type-person", "Person")
+        child_typed = _thought("c1", "Alice", type_id="type-person")
+        child_untyped = _thought("c2", "Untyped")
+        jump_typed = _thought("j1", "Bob", type_id="type-person")
+
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_types = AsyncMock(return_value=[person_type])
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child_typed, child_untyped], jumps=[jump_typed])
+        )
+
+        # Mock get_thought for type_id fetch on untyped candidate
+        async def thought_lookup(brain_id, thought_id):
+            for t in [child_typed, child_untyped, jump_typed]:
+                if t.id == thought_id:
+                    return t
+            return None
+        api.get_thought = AsyncMock(side_effect=thought_lookup)
+
+        q = parse('MATCH (n {name: "Root"})-->(m:Person) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 2
+        names = {r.name for r in result.results["m"]}
+        assert names == {"Alice", "Bob"}
+
+    @pytest.mark.asyncio
+    async def test_wildcard_with_where_filter(self) -> None:
+        """Wildcard + WHERE: filters all traversed results."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Residences")
+        jump = _thought("j1", "Other")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child], jumps=[jump])
+        )
+
+        q = parse(
+            'MATCH (n {name: "Root"})-->(m) '
+            'WHERE m.name CONTAINS "Residen" RETURN m'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 1
+        assert result.results["m"][0].name == "Residences"
+
+    @pytest.mark.asyncio
+    async def test_wildcard_cycle_detection(self) -> None:
+        """Wildcard variable-length respects cycle detection."""
+        api = _mock_api()
+        a = _thought("a1", "A")
+        b = _thought("b1", "B")
+        api.get_thought_by_name = AsyncMock(return_value=a)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "a1":
+                return _graph(a, children=[b])
+            if thought_id == "b1":
+                return _graph(b, jumps=[a])  # cycle back
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse('MATCH (n {name: "A"})-[*1..3]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 1
+        assert result.results["m"][0].name == "B"
+
+    @pytest.mark.asyncio
+    async def test_empty_bracket_same_as_arrow(self) -> None:
+        """-[]-> should be equivalent to -->."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child])
+        )
+
+        q = parse('MATCH (n {name: "Root"})-[]->(m) RETURN m')
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["m"]) == 1
+        assert result.results["m"][0].name == "Child"
+
+
+# ---------------------------------------------------------------------------
 # MATCH: compound WHERE execution
 # ---------------------------------------------------------------------------
 

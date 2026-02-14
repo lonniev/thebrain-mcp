@@ -53,8 +53,13 @@ _GRAMMAR = r"""
 
     node_pattern: "(" VARIABLE (":" TYPE_LABEL)? ("{" property_map "}")? ")"
 
-    rel_pattern: "-[" VARIABLE ":" REL_TYPE hop_spec? "]->" -> rel_pattern_named
-              | "-[:" REL_TYPE hop_spec? "]->"
+    rel_pattern: "-->"                                              -> rel_any_arrow
+              | "-[" "]->"                                          -> rel_empty_bracket
+              | "-[" VARIABLE ":" relation_types hop_spec? "]->"    -> rel_pattern_named
+              | "-[" ":" relation_types hop_spec? "]->"             -> rel_typed
+              | "-[" hop_spec "]->"                                 -> rel_wildcard_hops
+              | "-[" VARIABLE hop_spec? "]->"                       -> rel_var_wildcard
+    relation_types: REL_TYPE ("|" REL_TYPE)*
     hop_spec: "*" INT ".." INT  -> hop_range
             | "*" INT           -> hop_fixed
 
@@ -110,7 +115,7 @@ _GRAMMAR = r"""
     %import common.WS
     %import common.INT
     %ignore WS
-    %ignore /--[^\n]*/
+    %ignore /--(?!>)[^\n]*/
 """
 
 _parser = Lark(_GRAMMAR, parser="earley", ambiguity="resolve")
@@ -212,17 +217,36 @@ class _BrainQueryTransformer(Transformer):
         val = int(n)
         return (val, val)
 
-    def rel_pattern(self, rel_type, hop_spec=None):
-        if hop_spec is None:
-            return (rel_type, 1, 1, None)
-        min_hops, max_hops = hop_spec
-        return (rel_type, min_hops, max_hops, None)
+    def relation_types(self, *types):
+        return list(types)
 
-    def rel_pattern_named(self, var_name, rel_type, hop_spec=None):
+    def rel_any_arrow(self):
+        return (None, 1, 1, None)
+
+    def rel_empty_bracket(self):
+        return (None, 1, 1, None)
+
+    def rel_typed(self, rel_types_list, hop_spec=None):
         if hop_spec is None:
-            return (rel_type, 1, 1, var_name)
+            return (rel_types_list, 1, 1, None)
         min_hops, max_hops = hop_spec
-        return (rel_type, min_hops, max_hops, var_name)
+        return (rel_types_list, min_hops, max_hops, None)
+
+    def rel_wildcard_hops(self, hop_spec):
+        min_hops, max_hops = hop_spec
+        return (None, min_hops, max_hops, None)
+
+    def rel_pattern_named(self, var_name, rel_types_list, hop_spec=None):
+        if hop_spec is None:
+            return (rel_types_list, 1, 1, var_name)
+        min_hops, max_hops = hop_spec
+        return (rel_types_list, min_hops, max_hops, var_name)
+
+    def rel_var_wildcard(self, var_name, hop_spec=None):
+        if hop_spec is None:
+            return (None, 1, 1, var_name)
+        min_hops, max_hops = hop_spec
+        return (None, min_hops, max_hops, var_name)
 
     def pattern(self, *args):
         if len(args) == 1:
@@ -384,9 +408,9 @@ class _BrainQueryTransformer(Transformer):
                         seen_vars.add(node_b.variable)
                     if is_match:
                         match_variables.add(node_b.variable)
-                    rel_type_str, min_hops, max_hops, rel_var = rel_info
+                    rel_types_val, min_hops, max_hops, rel_var = rel_info
                     rel = RelPattern(
-                        rel_type=rel_type_str,
+                        rel_types=rel_types_val,
                         source=node_a.variable,
                         target=node_b.variable,
                         min_hops=min_hops,
@@ -412,9 +436,9 @@ class _BrainQueryTransformer(Transformer):
                         nodes.append(node_b)
                         seen_vars.add(node_b.variable)
                     merge_variables.add(node_b.variable)
-                    rel_type_str, min_hops, max_hops, rel_var = rel_info
+                    rel_types_val, min_hops, max_hops, rel_var = rel_info
                     rel = RelPattern(
-                        rel_type=rel_type_str,
+                        rel_types=rel_types_val,
                         source=node_a.variable,
                         target=node_b.variable,
                         min_hops=min_hops,
@@ -441,6 +465,32 @@ class _BrainQueryTransformer(Transformer):
                 raise BrainQuerySyntaxError(
                     f"Maximum hop depth is {MAX_HOP_DEPTH}, got {rel.max_hops}."
                 )
+
+        # Validate: CREATE/MERGE require exactly one explicit relation type
+        if action in ("create", "match_create"):
+            for rel in rels:
+                if rel.rel_types is None or len(rel.rel_types) != 1:
+                    raise BrainQuerySyntaxError(
+                        "CREATE requires exactly one relation type per relationship. "
+                        "Use -[:CHILD]-> instead of --> or -[:CHILD|JUMP]->."
+                    )
+        if action in ("merge", "match_merge"):
+            for rel in rels:
+                if rel.rel_types is None or len(rel.rel_types) != 1:
+                    raise BrainQuerySyntaxError(
+                        "MERGE requires exactly one relation type per relationship. "
+                        "Use -[:CHILD]-> instead of --> or -[:CHILD|JUMP]->."
+                    )
+        if action == "match_delete" and delete_cl:
+            # Only reject wildcard/union on rel variables that DELETE references
+            for var in delete_cl.variables:
+                if var in rel_variables:
+                    rel = rel_variables[var]
+                    if rel.rel_types is None or len(rel.rel_types) != 1:
+                        raise BrainQuerySyntaxError(
+                            f"DELETE relationship variable '{var}' requires exactly one "
+                            f"relation type. Use -[{var}:CHILD]-> instead of wildcard/union."
+                        )
 
         return BrainQuery(
             action=action,
