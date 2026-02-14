@@ -12,7 +12,9 @@ from thebrain_mcp.brainquery.ir import (
     NodePattern,
     RelPattern,
     ReturnField,
+    WhereAnd,
     WhereClause,
+    WhereOr,
 )
 
 # ---------------------------------------------------------------------------
@@ -42,13 +44,18 @@ _GRAMMAR = r"""
     property_map: property ("," property)*
     property: "name"i ":" STRING
 
-    where_clause: "WHERE"i where_expr
-    where_expr: VARIABLE "." "name"i where_op STRING
+    where_clause: "WHERE"i or_expr
+    or_expr: and_expr (_OR and_expr)*
+    and_expr: where_atom (_AND where_atom)*
+    where_atom: "(" or_expr ")" -> where_paren
+              | VARIABLE "." "name"i where_op STRING
     where_op: "=" -> eq_op
             | "CONTAINS"i -> contains_op
             | "STARTS"i "WITH"i -> starts_with_op
             | "ENDS"i "WITH"i -> ends_with_op
             | "=~" -> similar_op
+    _OR: /OR/i
+    _AND: /AND/i
 
     return_clause: "RETURN"i return_item ("," return_item)*
     return_item: VARIABLE ("." FIELD_NAME)?
@@ -210,7 +217,20 @@ class _BrainQueryTransformer(Transformer):
     def similar_op(self):
         return "=~"
 
-    def where_expr(self, variable, op, value):
+    def or_expr(self, *args):
+        if len(args) == 1:
+            return args[0]
+        return WhereOr(operands=list(args))
+
+    def and_expr(self, *args):
+        if len(args) == 1:
+            return args[0]
+        return WhereAnd(operands=list(args))
+
+    def where_paren(self, inner):
+        return inner
+
+    def where_atom(self, variable, op, value):
         return WhereClause(variable=variable, field="name", operator=op, value=value)
 
     def where_clause(self, expr):
@@ -277,7 +297,7 @@ class _BrainQueryTransformer(Transformer):
             action=action,
             nodes=nodes,
             relationships=rels,
-            where_clauses=[where] if where else [],
+            where_expr=where,
             return_fields=returns or [],
             match_variables=match_variables,
         )

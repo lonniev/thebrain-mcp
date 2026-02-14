@@ -174,6 +174,36 @@ MATCH (n:Person) WHERE n.name CONTAINS "Van" RETURN n
 
 **Note**: Inline property syntax `{name: "value"}` behaves identically to `WHERE n.name = "value"` — strict exact match with no search fallback. Use `=~` if you want the old fuzzy behavior.
 
+#### Compound WHERE Conditions
+
+Combine multiple conditions with `AND` and `OR`. Standard precedence applies: `AND` binds tighter than `OR`. Use parentheses to override.
+
+```cypher
+-- AND: both conditions must match
+MATCH (n) WHERE n.name CONTAINS "MCP" AND n.name ENDS WITH "Server" RETURN n
+
+-- OR: either condition matches (same variable only)
+MATCH (n) WHERE n.name = "Alice" OR n.name = "Bob" RETURN n
+
+-- Parentheses override precedence
+MATCH (n) WHERE (n.name CONTAINS "Server" OR n.name CONTAINS "Client") AND n.name STARTS WITH "MCP" RETURN n
+
+-- AND across different variables in a chain
+MATCH (a {name: "Root"})-[:CHILD]->(b)
+WHERE a.name = "Root" AND b.name CONTAINS "Project"
+RETURN b
+
+-- Filter traversal targets
+MATCH (a {name: "Root"})-[:CHILD]->(b)
+WHERE b.name STARTS WITH "Alpha"
+RETURN b
+```
+
+**Rules:**
+- `AND` across different variables is allowed — each condition is routed to its respective variable.
+- `OR` across different variables is **not** supported (use separate queries instead).
+- Keywords `AND` and `OR` are case-insensitive.
+
 #### RETURN clause
 
 Specifies what to return. Supported forms:
@@ -250,7 +280,7 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 | `OPTIONAL MATCH` | Adds null-handling complexity | Run two separate queries |
 | `UNION` | Use separate queries | Run queries independently |
 | Path variables `p = (a)-[*]->(b)` | No multi-hop support | Step-by-step traversal |
-| `WHERE` with `AND`/`OR` | Keep filtering simple for v1 | Multiple queries |
+| `OR` across different variables | Cross-variable OR has ambiguous semantics | Use separate queries |
 | Numeric/boolean properties | Only `name` is queryable via TheBrain API | Use notes for rich metadata |
 
 ## Formal Grammar (EBNF)
@@ -286,8 +316,11 @@ property        = "name" , ":" , string_literal ;
 
 string_literal  = '"' , { any_char - '"' } , '"' ;
 
-where_clause    = "WHERE" , where_expr ;
-where_expr      = variable , "." , "name" , where_op , string_literal ;
+where_clause    = "WHERE" , or_expr ;
+or_expr         = and_expr , { "OR" , and_expr } ;
+and_expr        = where_atom , { "AND" , where_atom } ;
+where_atom      = "(" , or_expr , ")"
+                | variable , "." , "name" , where_op , string_literal ;
 where_op        = "=" | "CONTAINS" | "STARTS" , "WITH"
                 | "ENDS" , "WITH" | "=~" ;
 

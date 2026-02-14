@@ -6,7 +6,9 @@ from thebrain_mcp.brainquery import (
     BrainQuery,
     NodePattern,
     RelPattern,
+    WhereAnd,
     WhereClause,
+    WhereOr,
     parse,
 )
 from thebrain_mcp.brainquery.ir import ReturnField
@@ -170,8 +172,8 @@ class TestVariableLengthPaths:
 class TestWhereClause:
     def test_where_equals(self) -> None:
         q = parse('MATCH (n) WHERE n.name = "Claude Thoughts" RETURN n')
-        assert len(q.where_clauses) == 1
-        w = q.where_clauses[0]
+        assert isinstance(q.where_expr, WhereClause)
+        w = q.where_expr
         assert w.variable == "n"
         assert w.field == "name"
         assert w.operator == "="
@@ -179,44 +181,135 @@ class TestWhereClause:
 
     def test_where_contains(self) -> None:
         q = parse('MATCH (n) WHERE n.name CONTAINS "MCP" RETURN n')
-        w = q.where_clauses[0]
-        assert w.operator == "CONTAINS"
-        assert w.value == "MCP"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.operator == "CONTAINS"
+        assert q.where_expr.value == "MCP"
 
     def test_where_with_typed_node(self) -> None:
         q = parse('MATCH (n:Person) WHERE n.name CONTAINS "Van" RETURN n')
         assert q.nodes[0].label == "Person"
-        assert q.where_clauses[0].value == "Van"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.value == "Van"
 
     def test_case_insensitive_contains(self) -> None:
         q = parse('MATCH (n) WHERE n.name contains "test" RETURN n')
-        assert q.where_clauses[0].operator == "CONTAINS"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.operator == "CONTAINS"
 
     def test_starts_with(self) -> None:
         q = parse('MATCH (n) WHERE n.name STARTS WITH "MCP" RETURN n')
-        w = q.where_clauses[0]
-        assert w.operator == "STARTS WITH"
-        assert w.value == "MCP"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.operator == "STARTS WITH"
+        assert q.where_expr.value == "MCP"
 
     def test_ends_with(self) -> None:
         q = parse('MATCH (n) WHERE n.name ENDS WITH "Server" RETURN n')
-        w = q.where_clauses[0]
-        assert w.operator == "ENDS WITH"
-        assert w.value == "Server"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.operator == "ENDS WITH"
+        assert q.where_expr.value == "Server"
 
     def test_similar(self) -> None:
         q = parse('MATCH (n) WHERE n.name =~ "Claude" RETURN n')
-        w = q.where_clauses[0]
-        assert w.operator == "=~"
-        assert w.value == "Claude"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.operator == "=~"
+        assert q.where_expr.value == "Claude"
 
     def test_case_insensitive_starts_with(self) -> None:
         q = parse('MATCH (n) WHERE n.name starts with "X" RETURN n')
-        assert q.where_clauses[0].operator == "STARTS WITH"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.operator == "STARTS WITH"
 
     def test_case_insensitive_ends_with(self) -> None:
         q = parse('MATCH (n) WHERE n.name ends with "X" RETURN n')
-        assert q.where_clauses[0].operator == "ENDS WITH"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.operator == "ENDS WITH"
+
+
+# ---------------------------------------------------------------------------
+# Compound WHERE (AND / OR)
+# ---------------------------------------------------------------------------
+
+
+class TestCompoundWhere:
+    def test_single_condition_backward_compat(self) -> None:
+        """A single WHERE condition produces a plain WhereClause, not WhereAnd/Or."""
+        q = parse('MATCH (n) WHERE n.name = "X" RETURN n')
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.operator == "="
+
+    def test_two_condition_and(self) -> None:
+        q = parse('MATCH (n) WHERE n.name CONTAINS "A" AND n.name CONTAINS "B" RETURN n')
+        assert isinstance(q.where_expr, WhereAnd)
+        assert len(q.where_expr.operands) == 2
+        assert all(isinstance(op, WhereClause) for op in q.where_expr.operands)
+        assert q.where_expr.operands[0].value == "A"
+        assert q.where_expr.operands[1].value == "B"
+
+    def test_three_condition_and(self) -> None:
+        q = parse(
+            'MATCH (n) WHERE n.name CONTAINS "A" AND n.name CONTAINS "B" '
+            'AND n.name CONTAINS "C" RETURN n'
+        )
+        assert isinstance(q.where_expr, WhereAnd)
+        assert len(q.where_expr.operands) == 3
+
+    def test_two_condition_or(self) -> None:
+        q = parse('MATCH (n) WHERE n.name = "A" OR n.name = "B" RETURN n')
+        assert isinstance(q.where_expr, WhereOr)
+        assert len(q.where_expr.operands) == 2
+        assert q.where_expr.operands[0].value == "A"
+        assert q.where_expr.operands[1].value == "B"
+
+    def test_precedence_and_binds_tighter(self) -> None:
+        """A OR B AND C → WhereOr([A, WhereAnd([B, C])])"""
+        q = parse(
+            'MATCH (n) WHERE n.name = "A" OR n.name = "B" AND n.name = "C" RETURN n'
+        )
+        assert isinstance(q.where_expr, WhereOr)
+        assert len(q.where_expr.operands) == 2
+        assert isinstance(q.where_expr.operands[0], WhereClause)
+        assert q.where_expr.operands[0].value == "A"
+        assert isinstance(q.where_expr.operands[1], WhereAnd)
+        assert len(q.where_expr.operands[1].operands) == 2
+
+    def test_parens_override_precedence(self) -> None:
+        """(A OR B) AND C → WhereAnd([WhereOr([A, B]), C])"""
+        q = parse(
+            'MATCH (n) WHERE (n.name = "A" OR n.name = "B") AND n.name = "C" RETURN n'
+        )
+        assert isinstance(q.where_expr, WhereAnd)
+        assert len(q.where_expr.operands) == 2
+        assert isinstance(q.where_expr.operands[0], WhereOr)
+        assert isinstance(q.where_expr.operands[1], WhereClause)
+
+    def test_nested_parens(self) -> None:
+        """((A AND B) OR C)"""
+        q = parse(
+            'MATCH (n) WHERE (n.name CONTAINS "A" AND n.name CONTAINS "B") '
+            'OR n.name = "C" RETURN n'
+        )
+        assert isinstance(q.where_expr, WhereOr)
+        assert isinstance(q.where_expr.operands[0], WhereAnd)
+        assert isinstance(q.where_expr.operands[1], WhereClause)
+
+    def test_case_insensitive_and(self) -> None:
+        q = parse('MATCH (n) WHERE n.name = "A" and n.name = "B" RETURN n')
+        assert isinstance(q.where_expr, WhereAnd)
+
+    def test_case_insensitive_or(self) -> None:
+        q = parse('MATCH (n) WHERE n.name = "A" or n.name = "B" RETURN n')
+        assert isinstance(q.where_expr, WhereOr)
+
+    def test_multi_variable_and(self) -> None:
+        """AND across different variables is allowed."""
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(b) '
+            'WHERE a.name = "Root" AND b.name CONTAINS "X" RETURN b'
+        )
+        assert isinstance(q.where_expr, WhereAnd)
+        assert len(q.where_expr.operands) == 2
+        assert q.where_expr.operands[0].variable == "a"
+        assert q.where_expr.operands[1].variable == "b"
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +422,8 @@ class TestCaseInsensitivity:
 
     def test_lowercase_where(self) -> None:
         q = parse('MATCH (n) where n.name = "X" RETURN n')
-        assert q.where_clauses[0].value == "X"
+        assert isinstance(q.where_expr, WhereClause)
+        assert q.where_expr.value == "X"
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +494,7 @@ class TestIRStructure:
         q = parse('MATCH (n:Person {name: "X"}) WHERE n.name CONTAINS "Y" RETURN n.name, n.id')
         assert isinstance(q, BrainQuery)
         assert isinstance(q.nodes[0], NodePattern)
-        assert isinstance(q.where_clauses[0], WhereClause)
+        assert isinstance(q.where_expr, WhereClause)
         assert isinstance(q.return_fields[0], ReturnField)
 
     def test_no_duplicate_nodes(self) -> None:

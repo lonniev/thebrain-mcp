@@ -17,7 +17,11 @@ from thebrain_mcp.brainquery.ir import (
     NodePattern,
     RelPattern,
     ReturnField,
+    WhereAnd,
     WhereClause,
+    WhereExpression,
+    WhereOr,
+    collect_variables,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,11 +206,166 @@ async def _filter_by_type(
     return filtered
 
 
+# ---------------------------------------------------------------------------
+# Compound WHERE helpers
+# ---------------------------------------------------------------------------
+
+
+def _validate_where_expr(expr: WhereExpression | None) -> None:
+    """Validate a WHERE expression tree. Raises ValueError for cross-variable OR."""
+    if expr is None:
+        return
+    if isinstance(expr, WhereClause):
+        return
+    if isinstance(expr, WhereAnd):
+        for op in expr.operands:
+            _validate_where_expr(op)
+        return
+    if isinstance(expr, WhereOr):
+        variables = collect_variables(expr)
+        if len(variables) > 1:
+            raise ValueError(
+                f"OR across different variables ({', '.join(sorted(variables))}) "
+                f"is not supported. Use separate queries instead."
+            )
+        for op in expr.operands:
+            _validate_where_expr(op)
+
+
+def _where_for_variables(
+    expr: WhereExpression | None,
+) -> dict[str, WhereExpression]:
+    """Decompose a WHERE expression into per-variable subtrees.
+
+    Top-level AND is split by variable. OR is kept as a unit (single-variable only).
+    """
+    if expr is None:
+        return {}
+    if isinstance(expr, WhereClause):
+        return {expr.variable: expr}
+    if isinstance(expr, WhereOr):
+        # Single-variable OR (validated earlier)
+        variables = collect_variables(expr)
+        if len(variables) == 1:
+            var = next(iter(variables))
+            return {var: expr}
+        return {}  # cross-variable OR shouldn't reach here after validation
+    if isinstance(expr, WhereAnd):
+        result: dict[str, list[WhereExpression]] = {}
+        for op in expr.operands:
+            op_vars = collect_variables(op)
+            if len(op_vars) == 1:
+                var = next(iter(op_vars))
+                result.setdefault(var, []).append(op)
+            else:
+                # Multi-variable operand within AND — distribute to each var
+                for var in op_vars:
+                    result.setdefault(var, []).append(op)
+        return {
+            var: ops[0] if len(ops) == 1 else WhereAnd(operands=ops)
+            for var, ops in result.items()
+        }
+    return {}
+
+
+
+def _matches_clause(thought: Thought, clause: WhereClause) -> bool:
+    """In-memory match of a thought against a single WHERE clause."""
+    if clause.field != "name":
+        return False
+    name = thought.name
+    val = clause.value
+    op = clause.operator
+    if op == "=":
+        return name == val
+    val_lower = val.lower()
+    name_lower = name.lower()
+    if op == "CONTAINS":
+        return val_lower in name_lower
+    if op == "STARTS WITH":
+        return name_lower.startswith(val_lower)
+    if op == "ENDS WITH":
+        return name_lower.endswith(val_lower)
+    if op == "=~":
+        return val_lower in name_lower
+    return False
+
+
+def _apply_filter(candidates: list[Thought], expr: WhereExpression) -> list[Thought]:
+    """In-memory filtering of candidates against a compound WHERE expression."""
+    if isinstance(expr, WhereClause):
+        return [t for t in candidates if _matches_clause(t, expr)]
+    if isinstance(expr, WhereAnd):
+        result = candidates
+        for op in expr.operands:
+            result = _apply_filter(result, op)
+        return result
+    if isinstance(expr, WhereOr):
+        seen: set[str] = set()
+        result: list[Thought] = []
+        for op in expr.operands:
+            for t in _apply_filter(candidates, op):
+                if t.id not in seen:
+                    result.append(t)
+                    seen.add(t.id)
+        return result
+    return candidates
+
+
+async def _resolve_single_clause(
+    api: TheBrainAPI, brain_id: str, clause: WhereClause,
+) -> list[Thought]:
+    """Resolve a single WHERE clause to thoughts via the API."""
+    op = clause.operator
+    val = clause.value
+    if op == "=":
+        return await _resolve_exact(api, brain_id, val)
+    if op == "=~":
+        return await _resolve_similar(api, brain_id, val)
+    if op in ("CONTAINS", "STARTS WITH", "ENDS WITH"):
+        candidates = await _resolve_by_search(api, brain_id, val)
+        val_lower = val.lower()
+        if op == "CONTAINS":
+            return [t for t in candidates if val_lower in t.name.lower()]
+        if op == "STARTS WITH":
+            return [t for t in candidates if t.name.lower().startswith(val_lower)]
+        if op == "ENDS WITH":
+            return [t for t in candidates if t.name.lower().endswith(val_lower)]
+    return []
+
+
+async def _evaluate_where(
+    api: TheBrainAPI, brain_id: str, expr: WhereExpression,
+) -> list[Thought]:
+    """Recursively evaluate a compound WHERE expression against the API."""
+    if isinstance(expr, WhereClause):
+        return await _resolve_single_clause(api, brain_id, expr)
+    if isinstance(expr, WhereOr):
+        seen: set[str] = set()
+        result: list[Thought] = []
+        for op in expr.operands:
+            for t in await _evaluate_where(api, brain_id, op):
+                if t.id not in seen:
+                    result.append(t)
+                    seen.add(t.id)
+        return result
+    if isinstance(expr, WhereAnd):
+        # Evaluate each operand recursively and intersect results
+        sets: list[list[Thought]] = []
+        for op in expr.operands:
+            sets.append(await _evaluate_where(api, brain_id, op))
+        if not sets:
+            return []
+        common_ids = set.intersection(*(set(t.id for t in s) for s in sets))
+        return [t for t in sets[0] if t.id in common_ids]
+    return []
+
+
 async def _resolve_node(
     api: TheBrainAPI,
     brain_id: str,
     node: NodePattern,
-    where_clauses: list[WhereClause],
+    var_where: WhereExpression | None,
     type_cache: _TypeCache,
 ) -> list[Thought]:
     """Resolve a node pattern to concrete thoughts.
@@ -219,36 +378,11 @@ async def _resolve_node(
     - WHERE =~ → similarity (exact → search → rank)
     - Type label only → resolve the type thought itself
     """
-    # Gather constraints for this node
     name_exact = node.properties.get("name")
-    where_clause: WhereClause | None = None
-    for w in where_clauses:
-        if w.variable == node.variable and w.field == "name":
-            where_clause = w
-            break
-
-    # Step 1: Resolve candidates by operator
     candidates: list[Thought] = []
 
-    if where_clause:
-        op = where_clause.operator
-        val = where_clause.value
-
-        if op == "=":
-            # WHERE = is strict exact match, same as inline property
-            candidates = await _resolve_exact(api, brain_id, val)
-        elif op == "=~":
-            candidates = await _resolve_similar(api, brain_id, val)
-        elif op in ("CONTAINS", "STARTS WITH", "ENDS WITH"):
-            candidates = await _resolve_by_search(api, brain_id, val)
-            # Post-filter by the specific string operation
-            val_lower = val.lower()
-            if op == "CONTAINS":
-                candidates = [t for t in candidates if val_lower in t.name.lower()]
-            elif op == "STARTS WITH":
-                candidates = [t for t in candidates if t.name.lower().startswith(val_lower)]
-            elif op == "ENDS WITH":
-                candidates = [t for t in candidates if t.name.lower().endswith(val_lower)]
+    if var_where:
+        candidates = await _evaluate_where(api, brain_id, var_where)
     elif name_exact:
         # Inline property {name: "value"} → strict exact match
         candidates = await _resolve_exact(api, brain_id, name_exact)
@@ -266,7 +400,7 @@ async def _resolve_node(
     if not candidates:
         return []
 
-    # Step 2: Lazy type filtering (only if candidates AND type label)
+    # Lazy type filtering (only if candidates AND type label)
     if node.label and candidates:
         candidates = await _filter_by_type(api, brain_id, candidates, type_cache, node.label)
 
@@ -429,6 +563,12 @@ async def _execute_match(
     resolved: dict[str, list[Thought]],
 ) -> None:
     """Execute the MATCH portion of a query."""
+    # Validate compound WHERE up front
+    _validate_where_expr(query.where_expr)
+
+    # Decompose WHERE into per-variable subtrees
+    var_wheres = _where_for_variables(query.where_expr)
+
     # For match_create queries, only resolve MATCH-phase variables.
     # CREATE-only variables are handled by _execute_create.
     match_vars = query.match_variables if query.action == "match_create" else None
@@ -440,8 +580,11 @@ async def _execute_match(
     for node in query.nodes:
         if node.properties or node.label:
             has_own_criteria.add(node.variable)
-    for w in query.where_clauses:
-        has_own_criteria.add(w.variable)
+    # WHERE on non-target variables triggers direct resolution;
+    # WHERE on target variables is applied as post-filter after traversal.
+    for var in var_wheres:
+        if var not in target_vars:
+            has_own_criteria.add(var)
 
     # Targets that have their own criteria get resolved directly, not via traversal
     skip_vars = target_vars - has_own_criteria
@@ -455,7 +598,7 @@ async def _execute_match(
             continue  # Already resolved
 
         thoughts = await _resolve_node(
-            api, brain_id, node, query.where_clauses, type_cache
+            api, brain_id, node, var_wheres.get(node.variable), type_cache
         )
         resolved[node.variable] = thoughts
 
@@ -496,6 +639,11 @@ async def _execute_match(
         if target_node and target_node.properties.get("name") and traversed:
             name = target_node.properties["name"]
             traversed = [t for t in traversed if t.name == name]
+
+        # Apply target's WHERE constraint if present
+        target_where = var_wheres.get(rel.target)
+        if target_where and traversed:
+            traversed = _apply_filter(traversed, target_where)
 
         resolved[rel.target] = traversed
 

@@ -5,7 +5,10 @@ from thebrain_mcp.brainquery.ir import (
     NodePattern,
     RelPattern,
     ReturnField,
+    WhereAnd,
     WhereClause,
+    WhereExpression,
+    WhereOr,
 )
 from thebrain_mcp.brainquery.parser import BrainQuerySyntaxError, parse
 from thebrain_mcp.brainquery.planner import QueryResult, execute
@@ -17,7 +20,10 @@ __all__ = [
     "QueryResult",
     "RelPattern",
     "ReturnField",
+    "WhereAnd",
     "WhereClause",
+    "WhereExpression",
+    "WhereOr",
     "execute",
     "parse",
 ]
