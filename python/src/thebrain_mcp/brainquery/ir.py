@@ -67,12 +67,38 @@ class WhereOr:
     operands: list[WhereExpression]
 
 
-WhereExpression = Union[WhereClause, WhereNot, WhereAnd, WhereXor, WhereOr]
+@dataclass
+class ExistenceCondition:
+    """Property existence check (IS NULL / IS NOT NULL)."""
+
+    variable: str
+    property: str  # canonical form: "label", "typeId", etc.
+    negated: bool  # True for IS NOT NULL
+
+
+# Valid property names for existence checks.
+# Keys are lowercase (for case-insensitive matching), values are canonical forms.
+QUERYABLE_PROPERTIES: dict[str, str] = {
+    "name": "name",
+    "id": "id",
+    "label": "label",
+    "typeid": "typeId",
+    "foregroundcolor": "foregroundColor",
+    "backgroundcolor": "backgroundColor",
+    "kind": "kind",
+}
+
+
+WhereExpression = Union[
+    WhereClause, WhereNot, WhereAnd, WhereXor, WhereOr, ExistenceCondition
+]
 
 
 def collect_variables(expr: WhereExpression) -> set[str]:
     """Return all variable names referenced in a WHERE expression tree."""
     if isinstance(expr, WhereClause):
+        return {expr.variable}
+    if isinstance(expr, ExistenceCondition):
         return {expr.variable}
     if isinstance(expr, WhereNot):
         return collect_variables(expr.operand)
@@ -90,6 +116,8 @@ def extract_for_variable(expr: WhereExpression, var: str) -> WhereExpression | N
     (cross-variable OR/XOR is rejected later by the planner).
     """
     if isinstance(expr, WhereClause):
+        return expr if expr.variable == var else None
+    if isinstance(expr, ExistenceCondition):
         return expr if expr.variable == var else None
     if isinstance(expr, WhereNot):
         inner = extract_for_variable(expr.operand, var)

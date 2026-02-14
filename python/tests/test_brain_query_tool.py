@@ -44,10 +44,17 @@ def _search_result(thought: Thought) -> SearchResult:
 
 def _graph(active: Thought, children=None, parents=None, jumps=None, siblings=None) -> ThoughtGraph:
     def to_dict(t):
-        return {
+        d = {
             "id": t.id, "brainId": t.brain_id, "name": t.name,
             "kind": t.kind, "acType": t.ac_type, "typeId": t.type_id,
         }
+        if t.label is not None:
+            d["label"] = t.label
+        if t.foreground_color is not None:
+            d["foregroundColor"] = t.foreground_color
+        if t.background_color is not None:
+            d["backgroundColor"] = t.background_color
+        return d
     return ThoughtGraph.model_validate({
         "activeThought": to_dict(active),
         "children": [to_dict(t) for t in (children or [])],
@@ -365,6 +372,31 @@ class TestCompoundWhereE2E:
         assert result["success"] is True
         assert len(result["results"]["p"]) == 1
         assert result["results"]["p"][0]["name"] == "Meagan"
+
+    @pytest.mark.asyncio
+    async def test_is_not_null_e2e(self) -> None:
+        """IS NOT NULL on traversal target: parse → execute → to_dict."""
+        api = _mock_api()
+        parent = _thought("p1", "Parent")
+        c1 = _thought("c1", "Labeled")
+        c2 = _thought("c2", "Unlabeled")
+        # Manually set label on one child
+        c1.label = "Has label"
+        c2.label = None
+        api.get_thought_by_name = AsyncMock(return_value=parent)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(parent, children=[c1, c2])
+        )
+
+        result = await _run_query(
+            api,
+            'MATCH (a {name: "Parent"})-[:CHILD]->(c) '
+            'WHERE c.label IS NOT NULL RETURN c',
+        )
+
+        assert result["success"] is True
+        assert len(result["results"]["c"]) == 1
+        assert result["results"]["c"][0]["name"] == "Labeled"
 
     @pytest.mark.asyncio
     async def test_xor_e2e(self) -> None:

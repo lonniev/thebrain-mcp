@@ -14,6 +14,7 @@ from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.api.models import Thought
 from thebrain_mcp.brainquery.ir import (
     BrainQuery,
+    ExistenceCondition,
     NodePattern,
     RelPattern,
     ReturnField,
@@ -222,7 +223,7 @@ def _validate_where_expr(expr: WhereExpression | None) -> None:
     """
     if expr is None:
         return
-    if isinstance(expr, WhereClause):
+    if isinstance(expr, (WhereClause, ExistenceCondition)):
         return
     if isinstance(expr, WhereNot):
         _validate_where_expr(expr.operand)
@@ -254,6 +255,8 @@ def _where_for_variables(
     if expr is None:
         return {}
     if isinstance(expr, WhereClause):
+        return {expr.variable: expr}
+    if isinstance(expr, ExistenceCondition):
         return {expr.variable: expr}
     if isinstance(expr, WhereNot):
         variables = collect_variables(expr)
@@ -287,6 +290,30 @@ def _where_for_variables(
 
 
 
+def _get_property(thought: Thought, prop: str) -> Any:
+    """Get a property value from a Thought by canonical property name."""
+    _ACCESSORS: dict[str, Any] = {
+        "name": lambda t: t.name,
+        "id": lambda t: t.id,
+        "label": lambda t: t.label,
+        "typeId": lambda t: t.type_id,
+        "foregroundColor": lambda t: t.foreground_color,
+        "backgroundColor": lambda t: t.background_color,
+        "kind": lambda t: t.kind,
+    }
+    accessor = _ACCESSORS.get(prop)
+    return accessor(thought) if accessor else None
+
+
+def _check_existence(thought: Thought, cond: ExistenceCondition) -> bool:
+    """Check if a thought satisfies an existence condition."""
+    value = _get_property(thought, cond.property)
+    is_null = value is None
+    if cond.negated:  # IS NOT NULL
+        return not is_null
+    return is_null  # IS NULL
+
+
 def _matches_clause(thought: Thought, clause: WhereClause) -> bool:
     """In-memory match of a thought against a single WHERE clause."""
     if clause.field != "name":
@@ -311,6 +338,8 @@ def _matches_clause(thought: Thought, clause: WhereClause) -> bool:
 
 def _apply_filter(candidates: list[Thought], expr: WhereExpression) -> list[Thought]:
     """In-memory filtering of candidates against a compound WHERE expression."""
+    if isinstance(expr, ExistenceCondition):
+        return [t for t in candidates if _check_existence(t, expr)]
     if isinstance(expr, WhereClause):
         return [t for t in candidates if _matches_clause(t, expr)]
     if isinstance(expr, WhereNot):
@@ -374,9 +403,14 @@ async def _resolve_single_clause(
 
 
 def _has_positive_clause(expr: WhereExpression) -> bool:
-    """Check whether an expression contains at least one positive (non-NOT) clause."""
+    """Check whether an expression contains at least one positive (non-NOT) search-driving clause.
+
+    ExistenceCondition is a filter (can't drive a search), so it returns False.
+    """
     if isinstance(expr, WhereClause):
         return True
+    if isinstance(expr, ExistenceCondition):
+        return False  # filter only, can't drive a search
     if isinstance(expr, WhereNot):
         return False
     if isinstance(expr, (WhereAnd, WhereOr, WhereXor)):
@@ -390,6 +424,13 @@ async def _evaluate_where(
     """Recursively evaluate a compound WHERE expression against the API."""
     if isinstance(expr, WhereClause):
         return await _resolve_single_clause(api, brain_id, expr)
+    if isinstance(expr, ExistenceCondition):
+        # Existence checks can't drive a search on their own — they need
+        # a candidate set from a chain traversal or a sibling positive clause.
+        raise ValueError(
+            "IS NULL / IS NOT NULL cannot be used as the sole constraint. "
+            "Combine with a name condition (AND) or use on a traversal target."
+        )
     if isinstance(expr, WhereNot):
         # NOT cannot drive a search on its own — it needs a candidate set
         # provided by a chain traversal or a sibling positive constraint.

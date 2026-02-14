@@ -8,7 +8,9 @@ import re
 
 from thebrain_mcp.brainquery.ir import (
     MAX_HOP_DEPTH,
+    QUERYABLE_PROPERTIES,
     BrainQuery,
+    ExistenceCondition,
     NodePattern,
     RelPattern,
     ReturnField,
@@ -53,6 +55,8 @@ _GRAMMAR = r"""
     not_expr: _NOT not_expr -> where_not
             | where_atom
     where_atom: "(" or_expr ")" -> where_paren
+              | VARIABLE "." VARIABLE _IS _NOT _NULL -> is_not_null
+              | VARIABLE "." VARIABLE _IS _NULL -> is_null
               | VARIABLE "." "name"i where_op STRING
     where_op: "=" -> eq_op
             | "CONTAINS"i -> contains_op
@@ -63,6 +67,8 @@ _GRAMMAR = r"""
     _XOR: /XOR/i
     _AND: /AND/i
     _NOT: /NOT/i
+    _IS: /IS/i
+    _NULL: /NULL/i
 
     return_clause: "RETURN"i return_item ("," return_item)*
     return_item: VARIABLE ("." FIELD_NAME)?
@@ -248,6 +254,30 @@ class _BrainQueryTransformer(Transformer):
 
     def where_paren(self, inner):
         return inner
+
+    def _normalize_property(self, token: str) -> str:
+        canonical = QUERYABLE_PROPERTIES.get(token.lower())
+        if canonical is None:
+            valid = ", ".join(sorted(QUERYABLE_PROPERTIES.values()))
+            raise BrainQuerySyntaxError(
+                f"Unknown property '{token}'. "
+                f"Valid properties for IS NULL/IS NOT NULL: {valid}"
+            )
+        return canonical
+
+    def is_null(self, variable, prop_name):
+        return ExistenceCondition(
+            variable=variable,
+            property=self._normalize_property(prop_name),
+            negated=False,
+        )
+
+    def is_not_null(self, variable, prop_name):
+        return ExistenceCondition(
+            variable=variable,
+            property=self._normalize_property(prop_name),
+            negated=True,
+        )
 
     def where_atom(self, variable, op, value):
         return WhereClause(variable=variable, field="name", operator=op, value=value)
