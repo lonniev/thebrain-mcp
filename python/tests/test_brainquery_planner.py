@@ -40,10 +40,17 @@ def _search_result(thought: Thought) -> SearchResult:
 
 def _graph(active: Thought, children=None, parents=None, jumps=None, siblings=None) -> ThoughtGraph:
     def to_dict(t):
-        return {
+        d = {
             "id": t.id, "brainId": t.brain_id, "name": t.name,
             "kind": t.kind, "acType": t.ac_type, "typeId": t.type_id,
         }
+        if t.label is not None:
+            d["label"] = t.label
+        if t.foreground_color is not None:
+            d["foregroundColor"] = t.foreground_color
+        if t.background_color is not None:
+            d["backgroundColor"] = t.background_color
+        return d
     return ThoughtGraph.model_validate({
         "activeThought": to_dict(active),
         "children": [to_dict(t) for t in (children or [])],
@@ -876,6 +883,137 @@ class TestCompoundWhereExecution:
 
         assert not result.success
         assert any("XOR across different variables" in e for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# MATCH: IS NULL / IS NOT NULL
+# ---------------------------------------------------------------------------
+
+
+class TestExistenceChecks:
+    @pytest.mark.asyncio
+    async def test_is_not_null_filters_on_traversal(self) -> None:
+        """IS NOT NULL on a traversal target filters candidates with null values."""
+        api = _mock_api()
+        parent = _thought("p1", "Parent")
+        child_with_label = _thought("c1", "Child A")
+        child_with_label.label = "Has a label"
+        child_no_label = _thought("c2", "Child B")
+        child_no_label.label = None
+        api.get_thought_by_name = AsyncMock(return_value=parent)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(parent, children=[child_with_label, child_no_label])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Parent"})-[:CHILD]->(c) '
+            'WHERE c.label IS NOT NULL RETURN c'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["c"]) == 1
+        assert result.results["c"][0].name == "Child A"
+
+    @pytest.mark.asyncio
+    async def test_is_null_filters_on_traversal(self) -> None:
+        """IS NULL on a traversal target returns candidates where property is null."""
+        api = _mock_api()
+        parent = _thought("p1", "Parent")
+        child_typed = _thought("c1", "Typed", type_id="type-1")
+        child_untyped = _thought("c2", "Untyped")
+        api.get_thought_by_name = AsyncMock(return_value=parent)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(parent, children=[child_typed, child_untyped])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Parent"})-[:CHILD]->(c) '
+            'WHERE c.typeId IS NULL RETURN c'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["c"]) == 1
+        assert result.results["c"][0].name == "Untyped"
+
+    @pytest.mark.asyncio
+    async def test_existence_combined_with_name(self) -> None:
+        """IS NOT NULL combined with name condition via AND."""
+        api = _mock_api()
+        parent = _thought("p1", "Parent")
+        c1 = _thought("c1", "Alice")
+        c1.label = "Person"
+        c2 = _thought("c2", "Bob")
+        c2.label = None
+        c3 = _thought("c3", "Alice Clone")
+        c3.label = None  # No label — filtered by IS NOT NULL
+        api.get_thought_by_name = AsyncMock(return_value=parent)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(parent, children=[c1, c2, c3])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Parent"})-[:CHILD]->(c) '
+            'WHERE c.label IS NOT NULL AND c.name STARTS WITH "Ali" RETURN c'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["c"]) == 1
+        assert result.results["c"][0].name == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_existence_alone_on_non_traversal_rejected(self) -> None:
+        """IS NULL as sole constraint on non-traversal node should error."""
+        api = _mock_api()
+
+        q = parse('MATCH (n) WHERE n.label IS NULL RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert not result.success
+        assert any("IS NULL" in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_name_is_null_returns_empty(self) -> None:
+        """name IS NULL on traversal target should return empty (name is never null)."""
+        api = _mock_api()
+        parent = _thought("p1", "Parent")
+        child = _thought("c1", "Child")
+        api.get_thought_by_name = AsyncMock(return_value=parent)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(parent, children=[child])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Parent"})-[:CHILD]->(c) '
+            'WHERE c.name IS NULL RETURN c'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["c"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_name_is_not_null_returns_all(self) -> None:
+        """name IS NOT NULL on traversal target returns all (name is never null)."""
+        api = _mock_api()
+        parent = _thought("p1", "Parent")
+        c1 = _thought("c1", "Child A")
+        c2 = _thought("c2", "Child B")
+        api.get_thought_by_name = AsyncMock(return_value=parent)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(parent, children=[c1, c2])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Parent"})-[:CHILD]->(c) '
+            'WHERE c.name IS NOT NULL RETURN c'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["c"]) == 2
 
 
 # ---------------------------------------------------------------------------

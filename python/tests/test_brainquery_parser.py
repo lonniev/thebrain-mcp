@@ -4,6 +4,7 @@ import pytest
 
 from thebrain_mcp.brainquery import (
     BrainQuery,
+    ExistenceCondition,
     NodePattern,
     RelPattern,
     WhereAnd,
@@ -384,6 +385,78 @@ class TestCompoundWhere:
         assert isinstance(and_expr, WhereAnd)
         assert isinstance(and_expr.operands[0], WhereNot)  # NOT A
         assert isinstance(and_expr.operands[1], WhereClause)  # B
+
+
+# ---------------------------------------------------------------------------
+# IS NULL / IS NOT NULL
+# ---------------------------------------------------------------------------
+
+
+class TestIsNullParsing:
+    def test_is_null(self) -> None:
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.label IS NULL RETURN c')
+        assert isinstance(q.where_expr, ExistenceCondition)
+        assert q.where_expr.variable == "c"
+        assert q.where_expr.property == "label"
+        assert q.where_expr.negated is False
+
+    def test_is_not_null(self) -> None:
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.label IS NOT NULL RETURN c')
+        assert isinstance(q.where_expr, ExistenceCondition)
+        assert q.where_expr.variable == "c"
+        assert q.where_expr.property == "label"
+        assert q.where_expr.negated is True
+
+    def test_typeid_property(self) -> None:
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.typeId IS NULL RETURN c')
+        assert isinstance(q.where_expr, ExistenceCondition)
+        assert q.where_expr.property == "typeId"
+
+    def test_case_insensitive_property(self) -> None:
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.typeid IS NOT NULL RETURN c')
+        assert isinstance(q.where_expr, ExistenceCondition)
+        assert q.where_expr.property == "typeId"
+
+    def test_foreground_color_property(self) -> None:
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.foregroundColor IS NOT NULL RETURN c')
+        assert isinstance(q.where_expr, ExistenceCondition)
+        assert q.where_expr.property == "foregroundColor"
+
+    def test_combined_with_name_condition(self) -> None:
+        q = parse(
+            'MATCH (n {name: "X"})-[:CHILD]->(c) '
+            'WHERE c.label IS NOT NULL AND c.name =~ "Y" RETURN c'
+        )
+        assert isinstance(q.where_expr, WhereAnd)
+        assert isinstance(q.where_expr.operands[0], ExistenceCondition)
+        assert isinstance(q.where_expr.operands[1], WhereClause)
+
+    def test_case_insensitive_is_null(self) -> None:
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.label is null RETURN c')
+        assert isinstance(q.where_expr, ExistenceCondition)
+        assert q.where_expr.negated is False
+
+    def test_case_insensitive_is_not_null(self) -> None:
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.label is not null RETURN c')
+        assert isinstance(q.where_expr, ExistenceCondition)
+        assert q.where_expr.negated is True
+
+    def test_invalid_property_rejected(self) -> None:
+        with pytest.raises(BrainQuerySyntaxError, match="Unknown property"):
+            parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.bogus IS NULL RETURN c')
+
+    def test_name_is_null(self) -> None:
+        """name IS NULL is valid syntax (always returns empty in practice)."""
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE c.name IS NULL RETURN c')
+        assert isinstance(q.where_expr, ExistenceCondition)
+        assert q.where_expr.property == "name"
+
+    def test_not_is_null(self) -> None:
+        """NOT c.label IS NULL (via compound NOT)."""
+        q = parse('MATCH (n {name: "X"})-[:CHILD]->(c) WHERE NOT c.label IS NULL RETURN c')
+        assert isinstance(q.where_expr, WhereNot)
+        assert isinstance(q.where_expr.operand, ExistenceCondition)
+        assert q.where_expr.operand.negated is False
 
 
 # ---------------------------------------------------------------------------
