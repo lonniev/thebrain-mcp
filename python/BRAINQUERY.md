@@ -31,6 +31,12 @@ MATCH (a {name: "Root"})-[:CHILD]->(b)-[:CHILD]->(c) RETURN c
 -- Variable-depth traversal (1 to 3 hops)
 MATCH (n {name: "Root"})-[:CHILD*1..3]->(d) RETURN d
 
+-- Find children with labels (IS NOT NULL)
+MATCH (a {name: "Root"})-[:CHILD]->(c) WHERE c.label IS NOT NULL RETURN c
+
+-- Find untyped descendants (IS NULL)
+MATCH (a {name: "Root"})-[:CHILD*1..2]->(c) WHERE c.typeId IS NULL RETURN c
+
 -- Create a new thought under an existing parent
 MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n {name: "New Project"})
 
@@ -223,6 +229,45 @@ RETURN b
 - `NOT` cannot be the sole constraint on a directly-resolved node — it needs a positive constraint or chain-provided candidate set to filter against.
 - All logical keywords (`AND`, `OR`, `NOT`, `XOR`) are case-insensitive.
 
+#### Property Existence Checks (IS NULL / IS NOT NULL)
+
+Check whether a thought has a value for a given property:
+
+```cypher
+-- Find children with labels (subtitle)
+MATCH (a {name: "Lonnie VanZandt"})-[:CHILD]->(c)
+WHERE c.label IS NOT NULL
+RETURN c
+
+-- Find untyped children
+MATCH (a {name: "Claude Thoughts"})-[:CHILD*1..2]->(c)
+WHERE c.typeId IS NULL
+RETURN c
+
+-- Combine with name conditions
+MATCH (a {name: "Lonnie VanZandt"})-[:CHILD]->(c:Person)
+WHERE c.label IS NOT NULL AND c.name =~ "Kelsey"
+RETURN c
+```
+
+Supported properties:
+
+| Property | Description | When null |
+|----------|-------------|-----------|
+| `label` | Subtitle/description text | Most thoughts |
+| `typeId` | ID of the thought's type | Untyped thoughts |
+| `foregroundColor` | Text color hex | Uses default |
+| `backgroundColor` | Background color hex | Uses default |
+| `kind` | Thought kind (1=Normal, etc.) | Never null |
+| `name` | Thought name | Never null |
+| `id` | Thought ID | Never null |
+
+**Rules:**
+- IS NULL / IS NOT NULL are **post-filters** — they cannot drive a search on their own.
+- They must be combined with a name condition (via AND) or used on a traversal target where the chain provides candidates.
+- Property names are case-insensitive (`typeId`, `typeid`, and `TYPEID` all work).
+- `name IS NULL` always returns empty; `name IS NOT NULL` always returns all candidates.
+
 #### RETURN clause
 
 Specifies what to return. Supported forms:
@@ -300,7 +345,7 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 | `UNION` | Use separate queries | Run queries independently |
 | Path variables `p = (a)-[*]->(b)` | No multi-hop support | Step-by-step traversal |
 | `OR` across different variables | Cross-variable OR has ambiguous semantics | Use separate queries |
-| Numeric/boolean properties | Only `name` is queryable via TheBrain API | Use notes for rich metadata |
+| Property value comparisons (except `name`) | Only `name` supports value operators (`=`, `CONTAINS`, etc.) | Use `IS NULL`/`IS NOT NULL` for existence checks on other properties |
 
 ## Formal Grammar (EBNF)
 
@@ -339,9 +384,13 @@ where_clause    = "WHERE" , or_expr ;
 or_expr         = and_expr , { "OR" , and_expr } ;
 and_expr        = where_atom , { "AND" , where_atom } ;
 where_atom      = "(" , or_expr , ")"
+                | variable , "." , property_name , "IS" , "NOT" , "NULL"
+                | variable , "." , property_name , "IS" , "NULL"
                 | variable , "." , "name" , where_op , string_literal ;
 where_op        = "=" | "CONTAINS" | "STARTS" , "WITH"
                 | "ENDS" , "WITH" | "=~" ;
+property_name   = "name" | "id" | "label" | "typeId"
+                | "foregroundColor" | "backgroundColor" | "kind" ;
 
 return_clause   = "RETURN" , return_item , { "," , return_item } ;
 return_item     = variable , [ "." , field_name ] ;

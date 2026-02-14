@@ -2,6 +2,7 @@
 
 from thebrain_mcp.brainquery.ir import (
     BrainQuery,
+    ExistenceCondition,
     NodePattern,
     RelPattern,
     ReturnField,
@@ -18,6 +19,7 @@ from thebrain_mcp.brainquery.planner import QueryResult, execute
 __all__ = [
     "BrainQuery",
     "BrainQuerySyntaxError",
+    "ExistenceCondition",
     "NodePattern",
     "QueryResult",
     "RelPattern",
