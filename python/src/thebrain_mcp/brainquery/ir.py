@@ -20,13 +20,14 @@ MAX_HOP_DEPTH = 5
 
 @dataclass
 class RelPattern:
-    """A relationship pattern like -[:CHILD]-> or -[:CHILD*1..3]->."""
+    """A relationship pattern like -[:CHILD]-> or -[r:CHILD*1..3]->."""
 
     rel_type: str  # CHILD, PARENT, JUMP, SIBLING
     source: str  # variable name of source node
     target: str  # variable name of target node
     min_hops: int = 1  # 1 = single hop (default)
     max_hops: int = 1  # 1 = single hop (default)
+    variable: str | None = None  # optional variable binding for DELETE
 
     @property
     def is_variable_length(self) -> bool:
@@ -99,6 +100,9 @@ SETTABLE_PROPERTIES: dict[str, str] = {
 # Maximum number of thoughts SET can modify in a single query.
 MAX_SET_BATCH = 10
 
+# Maximum number of items DELETE can remove in a single query.
+MAX_DELETE_BATCH = 5
+
 
 @dataclass
 class PropertyAssignment:
@@ -122,6 +126,14 @@ class SetClause:
     """A SET clause with one or more assignments."""
 
     assignments: list[PropertyAssignment | TypeAssignment]
+
+
+@dataclass
+class DeleteClause:
+    """A DELETE or DETACH DELETE clause."""
+
+    variables: list[str]
+    detach: bool = False  # True for DETACH DELETE
 
 
 WhereExpression = Union[
@@ -186,14 +198,21 @@ class ReturnField:
 class BrainQuery:
     """Parsed BrainQuery ready for the planner."""
 
-    action: Literal["match", "create", "match_create", "merge", "match_merge"]
+    action: Literal[
+        "match", "create", "match_create", "merge", "match_merge", "match_delete"
+    ]
     nodes: list[NodePattern] = field(default_factory=list)
     relationships: list[RelPattern] = field(default_factory=list)
     where_expr: WhereExpression | None = None
     set_clause: SetClause | None = None
+    delete_clause: DeleteClause | None = None
     on_create_set: SetClause | None = None
     on_match_set: SetClause | None = None
     return_fields: list[ReturnField] = field(default_factory=list)
     match_variables: set[str] = field(default_factory=set)
     # For MERGE: which variables are in the MERGE pattern (vs MATCH)
     merge_variables: set[str] = field(default_factory=set)
+    # For DELETE: relationship variables bound in MATCH patterns
+    rel_variables: dict[str, RelPattern] = field(default_factory=dict)
+    # Whether deletion is confirmed (dry-run by default)
+    confirm_delete: bool = False

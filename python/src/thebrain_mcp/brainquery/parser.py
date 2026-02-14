@@ -11,6 +11,7 @@ from thebrain_mcp.brainquery.ir import (
     QUERYABLE_PROPERTIES,
     SETTABLE_PROPERTIES,
     BrainQuery,
+    DeleteClause,
     ExistenceCondition,
     NodePattern,
     PropertyAssignment,
@@ -31,7 +32,7 @@ from thebrain_mcp.brainquery.ir import (
 
 _GRAMMAR = r"""
     start: match_query | create_query | match_create_query
-         | merge_query | match_merge_query
+         | merge_query | match_merge_query | match_delete_query
 
     match_query: match_clause where_clause? set_clause? return_clause
     create_query: create_clause
@@ -39,6 +40,8 @@ _GRAMMAR = r"""
 
     merge_query: merge_clause on_create_clause? on_match_clause? return_clause?
     match_merge_query: match_clause merge_clause on_create_clause? on_match_clause? return_clause?
+
+    match_delete_query: match_clause where_clause? delete_clause
 
     match_clause: "MATCH"i pattern_list
     create_clause: "CREATE"i pattern_list
@@ -50,7 +53,8 @@ _GRAMMAR = r"""
 
     node_pattern: "(" VARIABLE (":" TYPE_LABEL)? ("{" property_map "}")? ")"
 
-    rel_pattern: "-[:" REL_TYPE hop_spec? "]->"
+    rel_pattern: "-[" VARIABLE ":" REL_TYPE hop_spec? "]->" -> rel_pattern_named
+              | "-[:" REL_TYPE hop_spec? "]->"
     hop_spec: "*" INT ".." INT  -> hop_range
             | "*" INT           -> hop_fixed
 
@@ -89,6 +93,11 @@ _GRAMMAR = r"""
             | VARIABLE "." VARIABLE "=" STRING -> set_property
             | VARIABLE ":" VARIABLE -> set_type
 
+    delete_clause: _DETACH? _DELETE delete_var_list
+    _DETACH: /DETACH/i
+    _DELETE: /DELETE/i
+    delete_var_list: VARIABLE ("," VARIABLE)*
+
     return_clause: "RETURN"i return_item ("," return_item)*
     return_item: VARIABLE ("." FIELD_NAME)?
 
@@ -111,8 +120,6 @@ _parser = Lark(_GRAMMAR, parser="earley", ambiguity="resolve")
 # ---------------------------------------------------------------------------
 
 _UNSUPPORTED = {
-    "DELETE": "Use the delete_thought tool instead.",
-    "DETACH": "Use the delete_thought tool instead.",
     "OPTIONAL": "Run two separate queries instead.",
     "UNION": "Run queries independently.",
     "COUNT": "Use get_brain_stats for counts.",
@@ -207,9 +214,15 @@ class _BrainQueryTransformer(Transformer):
 
     def rel_pattern(self, rel_type, hop_spec=None):
         if hop_spec is None:
-            return (rel_type, 1, 1)
+            return (rel_type, 1, 1, None)
         min_hops, max_hops = hop_spec
-        return (rel_type, min_hops, max_hops)
+        return (rel_type, min_hops, max_hops, None)
+
+    def rel_pattern_named(self, var_name, rel_type, hop_spec=None):
+        if hop_spec is None:
+            return (rel_type, 1, 1, var_name)
+        min_hops, max_hops = hop_spec
+        return (rel_type, min_hops, max_hops, var_name)
 
     def pattern(self, *args):
         if len(args) == 1:
@@ -350,11 +363,13 @@ class _BrainQueryTransformer(Transformer):
 
     def _build_query(self, action, match_patterns=None, create_patterns=None,
                      merge_patterns=None, where=None, set_cl=None,
-                     on_create=None, on_match=None, returns=None):
+                     delete_cl=None, on_create=None, on_match=None,
+                     returns=None):
         nodes = []
         rels = []
         seen_vars = set()
         match_variables: set[str] = set()
+        rel_variables: dict[str, RelPattern] = {}
 
         def process_patterns(patterns, *, is_match: bool = False):
             for node_a, rel_info, node_b in patterns:
@@ -369,14 +384,18 @@ class _BrainQueryTransformer(Transformer):
                         seen_vars.add(node_b.variable)
                     if is_match:
                         match_variables.add(node_b.variable)
-                    rel_type_str, min_hops, max_hops = rel_info
-                    rels.append(RelPattern(
+                    rel_type_str, min_hops, max_hops, rel_var = rel_info
+                    rel = RelPattern(
                         rel_type=rel_type_str,
                         source=node_a.variable,
                         target=node_b.variable,
                         min_hops=min_hops,
                         max_hops=max_hops,
-                    ))
+                        variable=rel_var,
+                    )
+                    rels.append(rel)
+                    if rel_var:
+                        rel_variables[rel_var] = rel
 
         merge_variables: set[str] = set()
 
@@ -393,14 +412,18 @@ class _BrainQueryTransformer(Transformer):
                         nodes.append(node_b)
                         seen_vars.add(node_b.variable)
                     merge_variables.add(node_b.variable)
-                    rel_type_str, min_hops, max_hops = rel_info
-                    rels.append(RelPattern(
+                    rel_type_str, min_hops, max_hops, rel_var = rel_info
+                    rel = RelPattern(
                         rel_type=rel_type_str,
                         source=node_a.variable,
                         target=node_b.variable,
                         min_hops=min_hops,
                         max_hops=max_hops,
-                    ))
+                        variable=rel_var,
+                    )
+                    rels.append(rel)
+                    if rel_var:
+                        rel_variables[rel_var] = rel
         if create_patterns:
             process_patterns(create_patterns, is_match=False)
 
@@ -425,11 +448,13 @@ class _BrainQueryTransformer(Transformer):
             relationships=rels,
             where_expr=where,
             set_clause=set_cl,
+            delete_clause=delete_cl,
             on_create_set=on_create,
             on_match_set=on_match,
             return_fields=returns or [],
             match_variables=match_variables,
             merge_variables=merge_variables,
+            rel_variables=rel_variables,
         )
 
     def match_query(self, *args):
@@ -487,6 +512,25 @@ class _BrainQueryTransformer(Transformer):
         return self._build_query("merge", merge_patterns=patterns,
                                  on_create=on_create, on_match=on_match,
                                  returns=returns)
+
+    def delete_var_list(self, *args):
+        return list(args)
+
+    def delete_clause(self, var_list):
+        return DeleteClause(variables=var_list)
+
+    def match_delete_query(self, *args):
+        match = args[0]
+        _, patterns = match
+        where = None
+        delete_cl = None
+        for arg in args[1:]:
+            if isinstance(arg, DeleteClause):
+                delete_cl = arg
+            else:
+                where = arg
+        return self._build_query("match_delete", match_patterns=patterns,
+                                 where=where, delete_cl=delete_cl)
 
     def match_merge_query(self, *args):
         match = args[0]
