@@ -6,7 +6,10 @@ from thebrain_mcp.brainquery import (
     BrainQuery,
     ExistenceCondition,
     NodePattern,
+    PropertyAssignment,
     RelPattern,
+    SetClause,
+    TypeAssignment,
     WhereAnd,
     WhereClause,
     WhereNot,
@@ -602,9 +605,10 @@ class TestErrorHandling:
         with pytest.raises(BrainQuerySyntaxError, match="DELETE.*not supported"):
             parse('DELETE (n {name: "X"})')
 
-    def test_unsupported_set(self) -> None:
-        with pytest.raises(BrainQuerySyntaxError, match="SET.*not supported"):
-            parse('MATCH (n {name: "X"}) SET n.name = "Y"')
+    def test_set_is_supported(self) -> None:
+        """SET is now supported — should parse successfully."""
+        q = parse('MATCH (n {name: "X"}) SET n.name = "Y" RETURN n')
+        assert q.set_clause is not None
 
     def test_unsupported_merge(self) -> None:
         with pytest.raises(BrainQuerySyntaxError, match="MERGE.*not supported"):
@@ -649,3 +653,78 @@ class TestIRStructure:
         q = parse('MATCH (p {name: "Parent"}) CREATE (p)-[:CHILD]->(c {name: "Child"})')
         var_names = [n.variable for n in q.nodes]
         assert var_names == ["p", "c"]  # p not duplicated
+
+
+# ---------------------------------------------------------------------------
+# SET clause parsing
+# ---------------------------------------------------------------------------
+
+
+class TestSetClause:
+    def test_single_set_property(self) -> None:
+        q = parse('MATCH (p {name: "X"}) SET p.label = "Architect" RETURN p')
+        assert q.set_clause is not None
+        assert len(q.set_clause.assignments) == 1
+        a = q.set_clause.assignments[0]
+        assert isinstance(a, PropertyAssignment)
+        assert a.variable == "p"
+        assert a.property == "label"
+        assert a.value == "Architect"
+
+    def test_multiple_set_properties(self) -> None:
+        q = parse(
+            'MATCH (p {name: "X"}) '
+            'SET p.label = "Architect", p.foregroundColor = "#0000ff" '
+            'RETURN p'
+        )
+        assert q.set_clause is not None
+        assert len(q.set_clause.assignments) == 2
+        assert q.set_clause.assignments[0].property == "label"
+        assert q.set_clause.assignments[1].property == "foregroundColor"
+
+    def test_set_null(self) -> None:
+        q = parse('MATCH (p {name: "X"}) SET p.label = NULL RETURN p')
+        assert q.set_clause is not None
+        a = q.set_clause.assignments[0]
+        assert isinstance(a, PropertyAssignment)
+        assert a.value is None
+
+    def test_set_type(self) -> None:
+        q = parse('MATCH (p {name: "X"}) SET p:Person RETURN p')
+        assert q.set_clause is not None
+        a = q.set_clause.assignments[0]
+        assert isinstance(a, TypeAssignment)
+        assert a.variable == "p"
+        assert a.type_name == "Person"
+
+    def test_set_with_where(self) -> None:
+        q = parse(
+            'MATCH (p) WHERE p.name =~ "Lonnie" '
+            'SET p.label = "Architect" RETURN p'
+        )
+        assert q.where_expr is not None
+        assert q.set_clause is not None
+        assert q.set_clause.assignments[0].value == "Architect"
+
+    def test_set_name_property(self) -> None:
+        q = parse('MATCH (p {name: "Old"}) SET p.name = "New" RETURN p')
+        a = q.set_clause.assignments[0]
+        assert a.property == "name"
+        assert a.value == "New"
+
+    def test_set_unsettable_property_rejected(self) -> None:
+        with pytest.raises(Exception, match="not settable"):
+            parse('MATCH (p {name: "X"}) SET p.id = "bad" RETURN p')
+
+    def test_set_unknown_property_rejected(self) -> None:
+        with pytest.raises(Exception, match="Unknown property"):
+            parse('MATCH (p {name: "X"}) SET p.bogus = "bad" RETURN p')
+
+    def test_no_set_clause(self) -> None:
+        q = parse('MATCH (p {name: "X"}) RETURN p')
+        assert q.set_clause is None
+
+    def test_set_case_insensitive(self) -> None:
+        q = parse('MATCH (p {name: "X"}) set p.Label = "test" RETURN p')
+        assert q.set_clause is not None
+        assert q.set_clause.assignments[0].property == "label"

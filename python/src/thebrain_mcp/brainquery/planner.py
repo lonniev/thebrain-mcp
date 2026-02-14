@@ -13,11 +13,16 @@ from typing import Any
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.api.models import Thought
 from thebrain_mcp.brainquery.ir import (
+    MAX_SET_BATCH,
+    SETTABLE_PROPERTIES,
     BrainQuery,
     ExistenceCondition,
     NodePattern,
+    PropertyAssignment,
     RelPattern,
     ReturnField,
+    SetClause,
+    TypeAssignment,
     WhereAnd,
     WhereClause,
     WhereExpression,
@@ -667,6 +672,10 @@ async def execute(
     try:
         if query.action == "match":
             await _execute_match(api, brain_id, query, type_cache, resolved)
+            if query.set_clause:
+                await _execute_set(
+                    api, brain_id, query.set_clause, type_cache, resolved, result
+                )
         elif query.action == "create":
             await _execute_create(api, brain_id, query, type_cache, resolved, result)
         elif query.action == "match_create":
@@ -925,3 +934,71 @@ async def _execute_create(
                 "name": name,
                 "typeId": type_id,
             })
+
+
+async def _execute_set(
+    api: TheBrainAPI,
+    brain_id: str,
+    set_clause: SetClause,
+    type_cache: _TypeCache,
+    resolved: dict[str, list[Thought]],
+    result: QueryResult,
+) -> None:
+    """Execute the SET portion of a query — update matched thoughts."""
+    result.action = "match_set"
+
+    # Group assignments by variable
+    var_assignments: dict[str, list[PropertyAssignment | TypeAssignment]] = {}
+    for assignment in set_clause.assignments:
+        var_assignments.setdefault(assignment.variable, []).append(assignment)
+
+    for var, assignments in var_assignments.items():
+        thoughts = resolved.get(var, [])
+        if not thoughts:
+            continue
+
+        # Safety: bulk modification limit
+        if len(thoughts) > MAX_SET_BATCH:
+            raise ValueError(
+                f"SET would affect {len(thoughts)} thoughts (max {MAX_SET_BATCH}). "
+                f"Narrow the MATCH to reduce the target set."
+            )
+
+        for thought in thoughts:
+            updates: dict[str, Any] = {}
+
+            for assignment in assignments:
+                if isinstance(assignment, PropertyAssignment):
+                    api_field = SETTABLE_PROPERTIES.get(assignment.property)
+                    if api_field:
+                        updates[api_field] = assignment.value
+                elif isinstance(assignment, TypeAssignment):
+                    type_id = await type_cache.resolve(assignment.type_name)
+                    if type_id is None:
+                        raise ValueError(
+                            f"Unknown type '{assignment.type_name}'. "
+                            f"Check available types with get_types."
+                        )
+                    updates["typeId"] = type_id
+
+            if updates:
+                await api.update_thought(brain_id, thought.id, updates)
+
+                # Update in-memory thought to reflect changes
+                if "name" in updates and updates["name"] is not None:
+                    thought.name = updates["name"]
+                if "label" in updates:
+                    thought.label = updates["label"]
+                if "foregroundColor" in updates:
+                    thought.foreground_color = updates["foregroundColor"]
+                if "backgroundColor" in updates:
+                    thought.background_color = updates["backgroundColor"]
+                if "typeId" in updates:
+                    thought.type_id = updates["typeId"]
+
+                result.created.append({
+                    "type": "update",
+                    "thoughtId": thought.id,
+                    "name": thought.name,
+                    "updates": updates,
+                })

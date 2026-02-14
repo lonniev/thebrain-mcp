@@ -1155,3 +1155,142 @@ class TestQueryResultDict:
         assert len(d["results"]["n"]) == 1
         assert d["results"]["n"][0]["id"] == "t1"
         assert d["results"]["n"][0]["name"] == "Test"
+
+
+# ---------------------------------------------------------------------------
+# SET execution
+# ---------------------------------------------------------------------------
+
+
+class TestSetExecution:
+    @pytest.mark.asyncio
+    async def test_set_single_property(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Lonnie")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse('MATCH (p {name: "Lonnie"}) SET p.label = "Architect" RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert result.action == "match_set"
+        api.update_thought.assert_called_once_with("brain", "t1", {"label": "Architect"})
+
+    @pytest.mark.asyncio
+    async def test_set_multiple_properties(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Test")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse(
+            'MATCH (p {name: "Test"}) '
+            'SET p.label = "Sub", p.foregroundColor = "#ff0000" '
+            'RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_called_once_with(
+            "brain", "t1", {"label": "Sub", "foregroundColor": "#ff0000"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_null_clears_property(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Test")
+        t.label = "Old Label"
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse('MATCH (p {name: "Test"}) SET p.label = NULL RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_called_once_with("brain", "t1", {"label": None})
+
+    @pytest.mark.asyncio
+    async def test_set_type_assignment(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Untyped")
+        person_type = _thought("type-person", "Person")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+        api.get_types = AsyncMock(return_value=[person_type])
+
+        q = parse('MATCH (p {name: "Untyped"}) SET p:Person RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_called_once_with("brain", "t1", {"typeId": "type-person"})
+
+    @pytest.mark.asyncio
+    async def test_set_rename(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Old Name")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse('MATCH (p {name: "Old Name"}) SET p.name = "New Name" RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_called_once_with("brain", "t1", {"name": "New Name"})
+        # In-memory thought should be updated
+        assert result.results["p"][0].name == "New Name"
+
+    @pytest.mark.asyncio
+    async def test_set_bulk_limit(self) -> None:
+        api = _mock_api()
+        thoughts = [_thought(f"t{i}", f"T{i}") for i in range(15)]
+        api.search_thoughts = AsyncMock(
+            return_value=[_search_result(t) for t in thoughts]
+        )
+
+        q = parse(
+            'MATCH (p) WHERE p.name CONTAINS "T" '
+            'SET p.label = "Too many" RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success is False
+        assert "max 10" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_set_in_chain_context(self) -> None:
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child = _thought("c1", "Child")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(b) '
+            'SET b.label = "Updated" RETURN b'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_called_once_with("brain", "c1", {"label": "Updated"})
+
+    @pytest.mark.asyncio
+    async def test_set_unknown_type_rejected(self) -> None:
+        api = _mock_api()
+        t = _thought("t1", "Test")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+        api.get_types = AsyncMock(return_value=[])
+
+        q = parse('MATCH (p {name: "Test"}) SET p:NonexistentType RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is False
+        assert "Unknown type" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_set_no_match_does_nothing(self) -> None:
+        api = _mock_api()
+        api.get_thought_by_name = AsyncMock(return_value=None)
+
+        q = parse('MATCH (p {name: "Nonexistent"}) SET p.label = "X" RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        api.update_thought.assert_not_called()

@@ -76,7 +76,7 @@ class ExistenceCondition:
     negated: bool  # True for IS NOT NULL
 
 
-# Valid property names for existence checks.
+# Valid property names for existence checks and SET assignments.
 # Keys are lowercase (for case-insensitive matching), values are canonical forms.
 QUERYABLE_PROPERTIES: dict[str, str] = {
     "name": "name",
@@ -87,6 +87,41 @@ QUERYABLE_PROPERTIES: dict[str, str] = {
     "backgroundcolor": "backgroundColor",
     "kind": "kind",
 }
+
+# Properties that can be updated via SET (maps canonical name to API field).
+SETTABLE_PROPERTIES: dict[str, str] = {
+    "name": "name",
+    "label": "label",
+    "foregroundColor": "foregroundColor",
+    "backgroundColor": "backgroundColor",
+}
+
+# Maximum number of thoughts SET can modify in a single query.
+MAX_SET_BATCH = 10
+
+
+@dataclass
+class PropertyAssignment:
+    """A SET assignment like p.label = "value" or p.label = NULL."""
+
+    variable: str
+    property: str  # canonical form: "label", "foregroundColor", etc.
+    value: str | None  # None means SET to NULL (clear)
+
+
+@dataclass
+class TypeAssignment:
+    """A SET type assignment like p:Person."""
+
+    variable: str
+    type_name: str
+
+
+@dataclass
+class SetClause:
+    """A SET clause with one or more assignments."""
+
+    assignments: list[PropertyAssignment | TypeAssignment]
 
 
 WhereExpression = Union[
@@ -155,5 +190,6 @@ class BrainQuery:
     nodes: list[NodePattern] = field(default_factory=list)
     relationships: list[RelPattern] = field(default_factory=list)
     where_expr: WhereExpression | None = None
+    set_clause: SetClause | None = None
     return_fields: list[ReturnField] = field(default_factory=list)
     match_variables: set[str] = field(default_factory=set)

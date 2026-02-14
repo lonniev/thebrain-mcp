@@ -423,6 +423,31 @@ class TestCompoundWhereE2E:
 
 
 # ---------------------------------------------------------------------------
+# SET (end-to-end)
+# ---------------------------------------------------------------------------
+
+
+class TestSetE2E:
+    @pytest.mark.asyncio
+    async def test_set_e2e(self) -> None:
+        """SET property: parse → execute → to_dict."""
+        api = _mock_api()
+        t = _thought("t1", "Test")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        result = await _run_query(
+            api,
+            'MATCH (p {name: "Test"}) SET p.label = "Updated" RETURN p',
+        )
+
+        assert result["success"] is True
+        assert result["action"] == "match_set"
+        assert len(result["created"]) == 1
+        assert result["created"][0]["type"] == "update"
+        api.update_thought.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # Tool registration check
 # ---------------------------------------------------------------------------
 
