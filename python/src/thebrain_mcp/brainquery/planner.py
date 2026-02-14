@@ -677,6 +677,17 @@ async def _execute_match(
         if var not in target_vars:
             has_own_criteria.add(var)
 
+    # Traversal targets whose WHERE is purely negative (bare NOT) should NOT
+    # force direct resolution — the chain provides the candidate set and NOT
+    # is applied as a post-filter. Remove them from has_own_criteria so they
+    # go through the traversal path instead.
+    for var in list(has_own_criteria & target_vars):
+        var_where = var_wheres.get(var)
+        if var_where and not _has_positive_clause(var_where):
+            node = next((n for n in query.nodes if n.variable == var), None)
+            if node and not node.properties:
+                has_own_criteria.discard(var)
+
     # Targets that have their own criteria get resolved directly, not via traversal
     skip_vars = target_vars - has_own_criteria
 

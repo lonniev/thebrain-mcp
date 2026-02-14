@@ -343,6 +343,30 @@ class TestCompoundWhereE2E:
         assert result["results"]["b"][0]["name"] == "Keep"
 
     @pytest.mark.asyncio
+    async def test_bare_not_on_typed_traversal_e2e(self) -> None:
+        """Bare NOT on typed traversal target: parse → execute → to_dict."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        person_type = _thought("type-person", "Person")
+        child1 = _thought("c1", "Kelsey", type_id="type-person")
+        child2 = _thought("c2", "Meagan", type_id="type-person")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_types = AsyncMock(return_value=[person_type])
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2])
+        )
+
+        result = await _run_query(
+            api,
+            'MATCH (a {name: "Root"})-[:CHILD]->(p:Person) '
+            'WHERE NOT p.name =~ "Kelsey" RETURN p',
+        )
+
+        assert result["success"] is True
+        assert len(result["results"]["p"]) == 1
+        assert result["results"]["p"][0]["name"] == "Meagan"
+
+    @pytest.mark.asyncio
     async def test_xor_e2e(self) -> None:
         """XOR: parse → execute → to_dict."""
         api = _mock_api()

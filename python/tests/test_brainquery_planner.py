@@ -675,6 +675,120 @@ class TestCompoundWhereExecution:
         assert names == {"Meagan", "Other"}
 
     @pytest.mark.asyncio
+    async def test_bare_not_on_typed_traversal_target(self) -> None:
+        """Bare NOT on a typed traversal target should filter chain candidates."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        person_type = _thought("type-person", "Person")
+        child1 = _thought("c1", "Kelsey", type_id="type-person")
+        child2 = _thought("c2", "Meagan", type_id="type-person")
+        child3 = _thought("c3", "Other", type_id="type-person")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_types = AsyncMock(return_value=[person_type])
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2, child3])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(p:Person) '
+            'WHERE NOT p.name =~ "Kelsey" RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["p"]) == 2
+        names = {r.name for r in result.results["p"]}
+        assert names == {"Meagan", "Other"}
+
+    @pytest.mark.asyncio
+    async def test_bare_not_on_non_traversal_target_rejected(self) -> None:
+        """Bare NOT on a non-traversal node should still be rejected."""
+        api = _mock_api()
+        person_type = _thought("type-person", "Person")
+        api.get_types = AsyncMock(return_value=[person_type])
+        api.get_thought = AsyncMock(return_value=person_type)
+
+        q = parse('MATCH (p:Person) WHERE NOT p.name =~ "Kelsey" RETURN p')
+        result = await execute(api, "brain", q)
+
+        assert not result.success
+        assert any("NOT requires" in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_multiple_nots_on_traversal_target(self) -> None:
+        """Multiple NOTs via AND on a traversal target should work."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child1 = _thought("c1", "Kelsey")
+        child2 = _thought("c2", "Meagan")
+        child3 = _thought("c3", "Other")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2, child3])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(p) '
+            'WHERE NOT p.name =~ "Kelsey" AND NOT p.name =~ "Meagan" RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["p"]) == 1
+        assert result.results["p"][0].name == "Other"
+
+    @pytest.mark.asyncio
+    async def test_not_on_multihop_terminal(self) -> None:
+        """NOT on the terminal node of a multi-hop chain should work."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        mid = _thought("m1", "Middle")
+        leaf1 = _thought("l1", "Keep")
+        leaf2 = _thought("l2", "Remove")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+
+        async def graph_lookup(brain_id, thought_id):
+            if thought_id == "r1":
+                return _graph(root, children=[mid])
+            if thought_id == "m1":
+                return _graph(mid, children=[leaf1, leaf2])
+            return _graph(_thought(thought_id, "X"))
+        api.get_thought_graph = AsyncMock(side_effect=graph_lookup)
+
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(b)-[:CHILD]->(c) '
+            'WHERE NOT c.name = "Remove" RETURN c'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["c"]) == 1
+        assert result.results["c"][0].name == "Keep"
+
+    @pytest.mark.asyncio
+    async def test_double_not_on_traversal_target(self) -> None:
+        """NOT NOT on a traversal target: double negation = positive."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child1 = _thought("c1", "Kelsey")
+        child2 = _thought("c2", "Meagan")
+        child3 = _thought("c3", "Other")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2, child3])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(p) '
+            'WHERE NOT NOT p.name =~ "Kelsey" RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["p"]) == 1
+        assert result.results["p"][0].name == "Kelsey"
+
+    @pytest.mark.asyncio
     async def test_not_with_and_positive(self) -> None:
         """AND with NOT: positive clause drives search, NOT post-filters."""
         api = _mock_api()
