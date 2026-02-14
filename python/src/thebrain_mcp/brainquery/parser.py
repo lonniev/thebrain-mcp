@@ -31,13 +31,18 @@ from thebrain_mcp.brainquery.ir import (
 
 _GRAMMAR = r"""
     start: match_query | create_query | match_create_query
+         | merge_query | match_merge_query
 
     match_query: match_clause where_clause? set_clause? return_clause
     create_query: create_clause
     match_create_query: match_clause create_clause
 
+    merge_query: merge_clause on_create_clause? on_match_clause? return_clause?
+    match_merge_query: match_clause merge_clause on_create_clause? on_match_clause? return_clause?
+
     match_clause: "MATCH"i pattern_list
     create_clause: "CREATE"i pattern_list
+    merge_clause: "MERGE"i pattern_list
 
     pattern_list: pattern ("," pattern)*
 
@@ -75,6 +80,11 @@ _GRAMMAR = r"""
     _NULL: /NULL/i
 
     set_clause: "SET"i set_item ("," set_item)*
+    on_create_clause: _ON _CREATE "SET"i set_item ("," set_item)*
+    on_match_clause: _ON _MATCH_KW "SET"i set_item ("," set_item)*
+    _ON: /ON/i
+    _CREATE: /CREATE/i
+    _MATCH_KW: /MATCH/i
     set_item: VARIABLE "." VARIABLE "=" _NULL -> set_null
             | VARIABLE "." VARIABLE "=" STRING -> set_property
             | VARIABLE ":" VARIABLE -> set_type
@@ -103,7 +113,6 @@ _parser = Lark(_GRAMMAR, parser="earley", ambiguity="resolve")
 _UNSUPPORTED = {
     "DELETE": "Use the delete_thought tool instead.",
     "DETACH": "Use the delete_thought tool instead.",
-    "MERGE": "Use MATCH first, then CREATE if not found.",
     "OPTIONAL": "Run two separate queries instead.",
     "UNION": "Run queries independently.",
     "COUNT": "Use get_brain_stats for counts.",
@@ -340,7 +349,8 @@ class _BrainQueryTransformer(Transformer):
         return list(items)
 
     def _build_query(self, action, match_patterns=None, create_patterns=None,
-                     where=None, set_cl=None, returns=None):
+                     merge_patterns=None, where=None, set_cl=None,
+                     on_create=None, on_match=None, returns=None):
         nodes = []
         rels = []
         seen_vars = set()
@@ -368,8 +378,29 @@ class _BrainQueryTransformer(Transformer):
                         max_hops=max_hops,
                     ))
 
+        merge_variables: set[str] = set()
+
         if match_patterns:
             process_patterns(match_patterns, is_match=True)
+        if merge_patterns:
+            for node_a, rel_info, node_b in merge_patterns:
+                if node_a.variable not in seen_vars:
+                    nodes.append(node_a)
+                    seen_vars.add(node_a.variable)
+                merge_variables.add(node_a.variable)
+                if rel_info and node_b:
+                    if node_b.variable not in seen_vars:
+                        nodes.append(node_b)
+                        seen_vars.add(node_b.variable)
+                    merge_variables.add(node_b.variable)
+                    rel_type_str, min_hops, max_hops = rel_info
+                    rels.append(RelPattern(
+                        rel_type=rel_type_str,
+                        source=node_a.variable,
+                        target=node_b.variable,
+                        min_hops=min_hops,
+                        max_hops=max_hops,
+                    ))
         if create_patterns:
             process_patterns(create_patterns, is_match=False)
 
@@ -394,8 +425,11 @@ class _BrainQueryTransformer(Transformer):
             relationships=rels,
             where_expr=where,
             set_clause=set_cl,
+            on_create_set=on_create,
+            on_match_set=on_match,
             return_fields=returns or [],
             match_variables=match_variables,
+            merge_variables=merge_variables,
         )
 
     def match_query(self, *args):
@@ -427,6 +461,53 @@ class _BrainQueryTransformer(Transformer):
         return self._build_query("match_create",
                                  match_patterns=match_patterns,
                                  create_patterns=create_patterns)
+
+    def merge_clause(self, patterns):
+        return ("merge", patterns)
+
+    def on_create_clause(self, *items):
+        return ("on_create", SetClause(assignments=list(items)))
+
+    def on_match_clause(self, *items):
+        return ("on_match", SetClause(assignments=list(items)))
+
+    def merge_query(self, *args):
+        merge = args[0]
+        _, patterns = merge
+        on_create = None
+        on_match = None
+        returns = None
+        for arg in args[1:]:
+            if isinstance(arg, tuple) and arg[0] == "on_create":
+                on_create = arg[1]
+            elif isinstance(arg, tuple) and arg[0] == "on_match":
+                on_match = arg[1]
+            elif isinstance(arg, list):
+                returns = arg
+        return self._build_query("merge", merge_patterns=patterns,
+                                 on_create=on_create, on_match=on_match,
+                                 returns=returns)
+
+    def match_merge_query(self, *args):
+        match = args[0]
+        _, match_patterns = match
+        merge = args[1]
+        _, merge_patterns = merge
+        on_create = None
+        on_match = None
+        returns = None
+        for arg in args[2:]:
+            if isinstance(arg, tuple) and arg[0] == "on_create":
+                on_create = arg[1]
+            elif isinstance(arg, tuple) and arg[0] == "on_match":
+                on_match = arg[1]
+            elif isinstance(arg, list):
+                returns = arg
+        return self._build_query("match_merge",
+                                 match_patterns=match_patterns,
+                                 merge_patterns=merge_patterns,
+                                 on_create=on_create, on_match=on_match,
+                                 returns=returns)
 
     def start(self, query):
         return query
