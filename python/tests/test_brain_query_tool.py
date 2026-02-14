@@ -97,8 +97,9 @@ class TestParseErrors:
         with pytest.raises(BrainQuerySyntaxError, match="Empty query"):
             parse("")
 
-    def test_unsupported_delete(self) -> None:
-        with pytest.raises(BrainQuerySyntaxError, match="DELETE"):
+    def test_delete_requires_match(self) -> None:
+        """Standalone DELETE without MATCH is not valid syntax."""
+        with pytest.raises(BrainQuerySyntaxError):
             parse('DELETE (n {name: "X"})')
 
 
@@ -479,6 +480,47 @@ class TestMergeE2E:
         assert result["action"] == "merge"
         assert any(c["type"] == "merge_create" for c in result["created"])
         api.create_thought.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# DELETE (end-to-end)
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteE2E:
+    @pytest.mark.asyncio
+    async def test_delete_preview_e2e(self) -> None:
+        """DELETE preview: parse → execute → to_dict."""
+        api = _mock_api()
+        t = _thought("t1", "Doomed")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        result = await _run_query(api, 'MATCH (n {name: "Doomed"}) DELETE n')
+
+        assert result["success"] is True
+        assert result["action"] == "match_delete_preview"
+        assert len(result["deleted"]) == 1
+        assert result["deleted"][0]["type"] == "thought_preview"
+        assert result["deleted"][0]["name"] == "Doomed"
+
+    @pytest.mark.asyncio
+    async def test_delete_confirmed_e2e(self) -> None:
+        """DELETE confirmed: parse → set confirm → execute → to_dict."""
+        api = _mock_api()
+        t = _thought("t1", "Doomed")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+        api.delete_thought = AsyncMock(return_value={"success": True})
+
+        parsed = parse('MATCH (n {name: "Doomed"}) DELETE n')
+        parsed.confirm_delete = True
+        result = await execute(api, "brain", parsed)
+        d = result.to_dict()
+
+        assert d["success"] is True
+        assert d["action"] == "match_delete"
+        assert len(d["deleted"]) == 1
+        assert d["deleted"][0]["type"] == "thought"
+        api.delete_thought.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

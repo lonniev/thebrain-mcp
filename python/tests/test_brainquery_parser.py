@@ -4,6 +4,7 @@ import pytest
 
 from thebrain_mcp.brainquery import (
     BrainQuery,
+    DeleteClause,
     ExistenceCondition,
     NodePattern,
     PropertyAssignment,
@@ -601,8 +602,9 @@ class TestErrorHandling:
         with pytest.raises(BrainQuerySyntaxError, match="Empty query"):
             parse("   ")
 
-    def test_unsupported_delete(self) -> None:
-        with pytest.raises(BrainQuerySyntaxError, match="DELETE.*not supported"):
+    def test_delete_requires_match(self) -> None:
+        """Standalone DELETE without MATCH is not valid syntax."""
+        with pytest.raises(BrainQuerySyntaxError):
             parse('DELETE (n {name: "X"})')
 
     def test_set_is_supported(self) -> None:
@@ -801,3 +803,62 @@ class TestMergeParsing:
         q = parse('MERGE (p {name: "Test"})')
         assert q.action == "merge"
         assert q.return_fields == []
+
+
+# ---------------------------------------------------------------------------
+# DELETE parsing
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteParsing:
+    def test_basic_delete(self) -> None:
+        q = parse('MATCH (n {name: "X"}) DELETE n')
+        assert q.action == "match_delete"
+        assert q.delete_clause is not None
+        assert q.delete_clause.variables == ["n"]
+
+    def test_delete_with_where(self) -> None:
+        q = parse('MATCH (n) WHERE n.name = "X" DELETE n')
+        assert q.action == "match_delete"
+        assert q.where_expr is not None
+        assert q.delete_clause.variables == ["n"]
+
+    def test_detach_delete(self) -> None:
+        q = parse('MATCH (n {name: "X"}) DETACH DELETE n')
+        assert q.action == "match_delete"
+        assert q.delete_clause.variables == ["n"]
+
+    def test_delete_multiple_variables(self) -> None:
+        q = parse('MATCH (a {name: "A"}), (b {name: "B"}) DELETE a, b')
+        assert q.delete_clause.variables == ["a", "b"]
+
+    def test_delete_relationship_variable(self) -> None:
+        q = parse('MATCH (a {name: "A"})-[r:JUMP]->(b) DELETE r')
+        assert q.action == "match_delete"
+        assert q.delete_clause.variables == ["r"]
+        assert "r" in q.rel_variables
+        assert q.rel_variables["r"].rel_type == "JUMP"
+        assert q.rel_variables["r"].source == "a"
+        assert q.rel_variables["r"].target == "b"
+
+    def test_named_rel_pattern(self) -> None:
+        q = parse('MATCH (a {name: "A"})-[r:CHILD]->(b) DELETE r')
+        assert q.relationships[0].variable == "r"
+        assert q.relationships[0].rel_type == "CHILD"
+
+    def test_unnamed_rel_pattern_no_variable(self) -> None:
+        q = parse('MATCH (a {name: "A"})-[:CHILD]->(b) DELETE b')
+        assert q.relationships[0].variable is None
+
+    def test_delete_case_insensitive(self) -> None:
+        q = parse('MATCH (n {name: "X"}) delete n')
+        assert q.action == "match_delete"
+        assert q.delete_clause.variables == ["n"]
+
+    def test_detach_delete_case_insensitive(self) -> None:
+        q = parse('MATCH (n {name: "X"}) detach delete n')
+        assert q.action == "match_delete"
+
+    def test_standalone_delete_rejected(self) -> None:
+        with pytest.raises(BrainQuerySyntaxError):
+            parse('DELETE (n {name: "X"})')

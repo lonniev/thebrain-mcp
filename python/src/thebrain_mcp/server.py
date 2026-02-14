@@ -747,14 +747,16 @@ async def get_modifications(
 async def brain_query(
     query: str,
     brain_id: str | None = None,
+    confirm: bool = False,
 ) -> dict[str, Any]:
     """Primary tool for pattern-based operations on TheBrain. Accepts BrainQuery
-    (BQL) — a Cypher subset supporting MATCH, WHERE, CREATE, and RETURN.
+    (BQL) — a Cypher subset supporting MATCH, WHERE, CREATE, SET, MERGE, DELETE,
+    and RETURN.
 
     Use for: searching by name (exact, similarity, prefix, suffix, substring),
     filtering by type, traversing relationships (CHILD, PARENT, JUMP, SIBLING),
-    multi-hop chains, variable-length paths (*1..N), and creating thoughts/links
-    in graph context.
+    multi-hop chains, variable-length paths (*1..N), creating thoughts/links,
+    updating properties, upserting, and deleting thoughts/links.
 
     Operators: =, =~ (similarity), CONTAINS, STARTS WITH, ENDS WITH.
     Logical: AND, OR, NOT, XOR (with parenthesized grouping).
@@ -762,12 +764,17 @@ async def brain_query(
     Path syntax: (a)-[:CHILD*1..3]->(b) for variable-length,
                  (a)-[:R]->(b)-[:R]->(c) for chains.
 
+    DELETE is two-phase: first call returns a preview (dry-run), then call
+    again with confirm=true to execute the deletion.
+
     Examples:
         MATCH (p:Person) WHERE p.name =~ "Lonnie" RETURN p
         MATCH (a {name: "My Thoughts"})-[:CHILD*1..2]->(b) RETURN b
         MATCH (p {name: "Ideas"}) CREATE (p)-[:CHILD]->(n {name: "New Idea"})
         MATCH (a {name: "A"}), (b {name: "B"}) CREATE (a)-[:JUMP]->(b)
         MATCH (n) WHERE n.name CONTAINS "MCP" AND NOT n.name ENDS WITH "Old" RETURN n
+        MATCH (n {name: "Old Note"}) DELETE n
+        MATCH (a)-[r:JUMP]->(b {name: "Bob"}) DELETE r
 
     If results are unexpectedly empty, retry with get_thought_by_name or
     search_thoughts.
@@ -775,6 +782,8 @@ async def brain_query(
     Args:
         query: A BrainQuery string (Cypher subset). See examples above.
         brain_id: The ID of the brain (uses active brain if not specified)
+        confirm: Set to true to confirm and execute a DELETE operation.
+                 Without this, DELETE returns a preview of what would be deleted.
     """
     from thebrain_mcp.brainquery import BrainQuerySyntaxError, execute, parse
 
@@ -782,6 +791,9 @@ async def brain_query(
         parsed = parse(query)
     except BrainQuerySyntaxError as e:
         return {"success": False, "error": str(e)}
+
+    if parsed.action == "match_delete":
+        parsed.confirm_delete = confirm
 
     api = get_api()
     bid = get_brain_id(brain_id)

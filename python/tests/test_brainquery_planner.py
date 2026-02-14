@@ -1439,3 +1439,184 @@ class TestMergeExecution:
 
         assert result.success is False
         assert "name constraint" in result.errors[0]
+
+
+# ---------------------------------------------------------------------------
+# DELETE execution
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteExecution:
+    @pytest.mark.asyncio
+    async def test_delete_preview_mode(self) -> None:
+        """Without confirm, DELETE returns a preview."""
+        api = _mock_api()
+        t = _thought("t1", "Doomed")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse('MATCH (n {name: "Doomed"}) DELETE n')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert result.action == "match_delete_preview"
+        assert len(result.deleted) == 1
+        assert result.deleted[0]["type"] == "thought_preview"
+        assert result.deleted[0]["name"] == "Doomed"
+        api.delete_thought.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_confirmed(self) -> None:
+        """With confirm_delete=True, DELETE executes."""
+        api = _mock_api()
+        t = _thought("t1", "Doomed")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+        api.delete_thought = AsyncMock(return_value={"success": True})
+
+        q = parse('MATCH (n {name: "Doomed"}) DELETE n')
+        q.confirm_delete = True
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert result.action == "match_delete"
+        assert len(result.deleted) == 1
+        assert result.deleted[0]["type"] == "thought"
+        assert result.deleted[0]["thoughtId"] == "t1"
+        api.delete_thought.assert_called_once_with("brain", "t1")
+
+    @pytest.mark.asyncio
+    async def test_delete_with_where(self) -> None:
+        """DELETE with WHERE clause filters targets."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child1 = _thought("c1", "Keep")
+        child2 = _thought("c2", "Remove")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2])
+        )
+        api.delete_thought = AsyncMock(return_value={"success": True})
+
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(b) '
+            'WHERE b.name = "Remove" DELETE b'
+        )
+        q.confirm_delete = True
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert len(result.deleted) == 1
+        assert result.deleted[0]["name"] == "Remove"
+        api.delete_thought.assert_called_once_with("brain", "c2")
+
+    @pytest.mark.asyncio
+    async def test_delete_relationship(self) -> None:
+        """DELETE r removes the link, not the thoughts."""
+        api = _mock_api()
+        alice = _thought("a1", "Alice")
+        bob = _thought("b1", "Bob")
+
+        async def name_lookup(brain_id, name):
+            if name == "Alice":
+                return alice
+            return None
+        api.get_thought_by_name = AsyncMock(side_effect=name_lookup)
+
+        from thebrain_mcp.api.models import Link
+        link = Link.model_validate({
+            "id": "link-1",
+            "brainId": "brain",
+            "thoughtIdA": "a1",
+            "thoughtIdB": "b1",
+            "relation": 3,  # JUMP
+        })
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(alice, jumps=[bob])
+        )
+        # Patch links into graph response
+        graph_with_links = _graph(alice, jumps=[bob])
+        graph_with_links.links = [link]
+        api.get_thought_graph = AsyncMock(return_value=graph_with_links)
+        api.delete_link = AsyncMock(return_value={"success": True})
+
+        q = parse('MATCH (a {name: "Alice"})-[r:JUMP]->(b) DELETE r')
+        q.confirm_delete = True
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert len(result.deleted) == 1
+        assert result.deleted[0]["type"] == "link"
+        assert result.deleted[0]["linkId"] == "link-1"
+        api.delete_link.assert_called_once_with("brain", "link-1")
+        api.delete_thought.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_batch_limit(self) -> None:
+        """DELETE refuses when too many thoughts would be affected."""
+        api = _mock_api()
+        thoughts = [_thought(f"t{i}", f"T{i}") for i in range(10)]
+        api.search_thoughts = AsyncMock(
+            return_value=[_search_result(t) for t in thoughts]
+        )
+
+        q = parse('MATCH (n) WHERE n.name CONTAINS "T" DELETE n')
+        q.confirm_delete = True
+        result = await execute(api, "brain", q)
+
+        assert result.success is False
+        assert "max 5" in result.errors[0]
+        api.delete_thought.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_no_match_does_nothing(self) -> None:
+        """DELETE with no matched thoughts produces empty preview."""
+        api = _mock_api()
+        api.get_thought_by_name = AsyncMock(return_value=None)
+
+        q = parse('MATCH (n {name: "Nonexistent"}) DELETE n')
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert result.deleted == []
+
+    @pytest.mark.asyncio
+    async def test_delete_undefined_variable_rejected(self) -> None:
+        """DELETE referencing an undefined variable produces an error."""
+        api = _mock_api()
+        t = _thought("t1", "Test")
+        api.get_thought_by_name = AsyncMock(return_value=t)
+
+        q = parse('MATCH (n {name: "Test"}) DELETE n')
+        # Manually add an undefined variable to test the guard
+        q.delete_clause.variables.append("z")
+        q.confirm_delete = True
+        result = await execute(api, "brain", q)
+
+        assert result.success is False
+        assert any("not defined" in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_delete_link_preview(self) -> None:
+        """Link DELETE preview shows relationship info."""
+        api = _mock_api()
+        alice = _thought("a1", "Alice")
+        bob = _thought("b1", "Bob")
+
+        async def name_lookup(brain_id, name):
+            if name == "Alice":
+                return alice
+            return None
+        api.get_thought_by_name = AsyncMock(side_effect=name_lookup)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(alice, jumps=[bob])
+        )
+
+        q = parse('MATCH (a {name: "Alice"})-[r:JUMP]->(b) DELETE r')
+        # confirm_delete defaults to False
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert result.action == "match_delete_preview"
+        assert len(result.deleted) == 1
+        assert result.deleted[0]["type"] == "link_preview"
+        assert result.deleted[0]["from"] == "Alice"
+        assert result.deleted[0]["to"] == "Bob"

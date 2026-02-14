@@ -61,6 +61,12 @@ RETURN p
 -- MERGE a relationship (idempotent link)
 MATCH (a {name: "Alice"}), (b {name: "Bob"}) MERGE (a)-[:JUMP]->(b)
 
+-- Delete a thought (preview by default, confirm=true to execute)
+MATCH (n {name: "Old Note"}) DELETE n
+
+-- Delete a relationship (keep the thoughts)
+MATCH (a {name: "Alice"})-[r:JUMP]->(b {name: "Bob"}) DELETE r
+
 -- Create a new thought under an existing parent
 MATCH (p {name: "Projects"}) CREATE (p)-[:CHILD]->(n {name: "New Project"})
 
@@ -433,6 +439,59 @@ RETURN c
 - ON CREATE SET is applied only when creating a new thought.
 - ON MATCH SET is applied only when matching an existing thought.
 
+### DELETE Queries (MATCH + DELETE)
+
+DELETE removes matched thoughts or relationships. It always requires a MATCH clause first.
+
+**Two-phase execution**: DELETE uses a dry-run preview by default. Call with `confirm=true` to execute.
+
+#### Delete a thought
+
+```cypher
+-- Preview what would be deleted (dry-run)
+MATCH (n {name: "Old Note"}) DELETE n
+
+-- Actually delete (with confirm=true)
+MATCH (n {name: "Old Note"}) DELETE n
+```
+
+#### Delete with WHERE filter
+
+```cypher
+-- Delete specific children
+MATCH (a {name: "Root"})-[:CHILD]->(b)
+WHERE b.name = "Obsolete"
+DELETE b
+```
+
+#### Delete a relationship (keep the thoughts)
+
+```cypher
+-- Remove a jump link between two thoughts
+MATCH (a {name: "Alice"})-[r:JUMP]->(b {name: "Bob"}) DELETE r
+```
+
+#### DETACH DELETE
+
+```cypher
+-- DETACH DELETE is accepted for Cypher compatibility (same behavior in TheBrain)
+MATCH (n {name: "Old"}) DETACH DELETE n
+```
+
+#### Delete multiple targets
+
+```cypher
+MATCH (a {name: "A"}), (b {name: "B"}) DELETE a, b
+```
+
+**Rules:**
+- DELETE always requires MATCH (standalone `DELETE (n)` is rejected).
+- SET and DELETE cannot be combined in the same query.
+- A batch limit of 5 thoughts applies. If MATCH resolves more, an error is returned.
+- Relationship variables (`-[r:TYPE]->`) allow deleting links without deleting thoughts.
+- DETACH DELETE is accepted for Cypher compatibility but behaves identically to DELETE (TheBrain handles orphan cleanup).
+- The `confirm` parameter must be set to `true` to actually execute the deletion. Without it, a preview of what would be deleted is returned.
+
 ## Resolution Strategy
 
 When executing a MATCH, the query planner resolves nodes by operator:
@@ -456,19 +515,19 @@ The following Cypher features are explicitly out of scope. BrainQuery will retur
 
 | Feature | Why excluded | Alternative |
 |---------|-------------|-------------|
-| `DELETE` / `DETACH DELETE` | Destructive — use dedicated `delete_thought` tool | `delete_thought` tool |
 | Aggregations (`COUNT`, `COLLECT`) | Not a reporting tool | Use `get_brain_stats` for counts |
 | `OPTIONAL MATCH` | Adds null-handling complexity | Run two separate queries |
 | `UNION` | Use separate queries | Run queries independently |
 | Path variables `p = (a)-[*]->(b)` | No multi-hop support | Step-by-step traversal |
 | `OR` across different variables | Cross-variable OR has ambiguous semantics | Use separate queries |
 | Property value comparisons (except `name`) | Only `name` supports value operators (`=`, `CONTAINS`, etc.) | Use `IS NULL`/`IS NOT NULL` for existence checks on other properties |
+| Standalone `DELETE` without `MATCH` | Always requires a MATCH clause | Use `MATCH ... DELETE` |
 
 ## Formal Grammar (EBNF)
 
 ```ebnf
 query           = match_query | create_query | match_create_query
-                | merge_query | match_merge_query ;
+                | merge_query | match_merge_query | match_delete_query ;
 
 match_query     = "MATCH" , match_pattern , { "," , match_pattern } ,
                   [ where_clause ] , [ set_clause ] , return_clause ;
@@ -487,6 +546,9 @@ match_merge_query = "MATCH" , match_pattern , { "," , match_pattern } ,
                     [ on_create_clause ] , [ on_match_clause ] ,
                     [ return_clause ] ;
 
+match_delete_query = "MATCH" , match_pattern , { "," , match_pattern } ,
+                     [ where_clause ] , delete_clause ;
+
 merge_pattern   = node_pattern , { rel_pattern , node_pattern } ;
 
 on_create_clause = "ON" , "CREATE" , "SET" , set_item , { "," , set_item } ;
@@ -499,7 +561,7 @@ create_pattern  = node_pattern , { rel_pattern , node_pattern } ;
 node_pattern    = "(" , variable , [ ":" , type_label ] ,
                   [ "{" , property_map , "}" ] , ")" ;
 
-rel_pattern     = "-[" , ":" , rel_type , [ hop_spec ] , "]->" ;
+rel_pattern     = "-[" , [ variable , ":" ] , rel_type , [ hop_spec ] , "]->" ;
 hop_spec        = "*" , int , ".." , int
                 | "*" , int ;
 
@@ -529,6 +591,8 @@ set_item        = variable , "." , settable_prop , "=" , ( string_literal | "NUL
                 | variable , ":" , type_label ;
 settable_prop   = "name" | "label" | "foregroundColor" | "backgroundColor" ;
 
+delete_clause   = [ "DETACH" ] , "DELETE" , variable , { "," , variable } ;
+
 return_clause   = "RETURN" , return_item , { "," , return_item } ;
 return_item     = variable , [ "." , field_name ] ;
 field_name      = "name" | "id" ;
@@ -549,4 +613,6 @@ rel_type        = "CHILD" | "PARENT" | "JUMP" | "SIBLING" ;
 | `MATCH` | `get_thought_by_name`, `search_thoughts`, `get_thought_graph` |
 | `CREATE` node | `create_thought` API |
 | `CREATE` relationship | `create_link` API |
+| `DELETE` node | `delete_thought` API |
+| `DELETE` relationship | `delete_link` API |
 | `RETURN` | Response formatting (thought ID, name, type) |

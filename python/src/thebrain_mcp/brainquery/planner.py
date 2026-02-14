@@ -13,9 +13,11 @@ from typing import Any
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.api.models import Thought
 from thebrain_mcp.brainquery.ir import (
+    MAX_DELETE_BATCH,
     MAX_SET_BATCH,
     SETTABLE_PROPERTIES,
     BrainQuery,
+    DeleteClause,
     ExistenceCondition,
     NodePattern,
     PropertyAssignment,
@@ -74,6 +76,7 @@ class QueryResult:
     action: str
     results: dict[str, list[ResolvedThought]] = field(default_factory=dict)
     created: list[dict[str, Any]] = field(default_factory=list)
+    deleted: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -92,6 +95,8 @@ class QueryResult:
             }
         if self.created:
             out["created"] = self.created
+        if self.deleted:
+            out["deleted"] = self.deleted
         if self.errors:
             out["errors"] = self.errors
         return out
@@ -683,6 +688,9 @@ async def execute(
             await _execute_create(api, brain_id, query, type_cache, resolved, result)
         elif query.action in ("merge", "match_merge"):
             await _execute_merge(api, brain_id, query, type_cache, resolved, result)
+        elif query.action == "match_delete":
+            await _execute_match(api, brain_id, query, type_cache, resolved)
+            await _execute_delete(api, brain_id, query, type_cache, resolved, result)
     except Exception as e:
         result.success = False
         result.errors.append(str(e))
@@ -1143,3 +1151,129 @@ async def _execute_merge(
                 "to": tgt.name,
                 "relation": rel.rel_type,
             })
+
+
+async def _execute_delete(
+    api: TheBrainAPI,
+    brain_id: str,
+    query: BrainQuery,
+    type_cache: _TypeCache,
+    resolved: dict[str, list[Thought]],
+    result: QueryResult,
+) -> None:
+    """Execute DELETE: remove thoughts and/or relationships.
+
+    Two-phase execution:
+    - Default (confirm_delete=False): dry-run preview showing what would be deleted.
+    - Confirmed (confirm_delete=True): actually delete the targets.
+    """
+    delete_clause = query.delete_clause
+    if not delete_clause:
+        return
+
+    # Reject SET + DELETE in same query
+    if query.set_clause:
+        raise ValueError("SET and DELETE cannot be used in the same query.")
+
+    # Collect deletion targets
+    thoughts_to_delete: list[tuple[str, Thought]] = []
+    link_rels_to_delete: list[tuple[str, RelPattern]] = []
+
+    for var in delete_clause.variables:
+        if var in query.rel_variables:
+            link_rels_to_delete.append((var, query.rel_variables[var]))
+        elif var in resolved:
+            for thought in resolved[var]:
+                thoughts_to_delete.append((var, thought))
+        else:
+            raise ValueError(
+                f"Variable '{var}' referenced in DELETE but not defined in MATCH."
+            )
+
+    # Enforce batch limit for thoughts
+    if len(thoughts_to_delete) > MAX_DELETE_BATCH:
+        raise ValueError(
+            f"DELETE would affect {len(thoughts_to_delete)} thoughts "
+            f"(max {MAX_DELETE_BATCH}). "
+            f"Narrow the MATCH to reduce the target set."
+        )
+
+    # Preview mode (dry-run)
+    if not query.confirm_delete:
+        result.action = "match_delete_preview"
+        for var, thought in thoughts_to_delete:
+            result.deleted.append({
+                "type": "thought_preview",
+                "thoughtId": thought.id,
+                "name": thought.name,
+                "variable": var,
+            })
+        for var, rel in link_rels_to_delete:
+            source_thoughts = resolved.get(rel.source, [])
+            target_thoughts = resolved.get(rel.target, [])
+            for src in source_thoughts:
+                for tgt in target_thoughts:
+                    result.deleted.append({
+                        "type": "link_preview",
+                        "from": src.name,
+                        "to": tgt.name,
+                        "relation": rel.rel_type,
+                        "variable": var,
+                    })
+        return
+
+    # Confirmed mode — execute deletions
+    result.action = "match_delete"
+
+    # Delete links first (before deleting thoughts that may be endpoints)
+    for var, rel in link_rels_to_delete:
+        source_thoughts = resolved.get(rel.source, [])
+        target_thoughts = resolved.get(rel.target, [])
+        target_ids = {t.id for t in target_thoughts}
+        rel_int = _RELATION_MAP.get(rel.rel_type)
+
+        for src in source_thoughts:
+            try:
+                graph = await api.get_thought_graph(brain_id, src.id)
+                if graph.links:
+                    for link in graph.links:
+                        if link.relation != rel_int:
+                            continue
+                        other_id = (
+                            link.thought_id_b
+                            if link.thought_id_a == src.id
+                            else link.thought_id_a
+                        )
+                        if other_id in target_ids:
+                            await api.delete_link(brain_id, link.id)
+                            other_name = next(
+                                (t.name for t in target_thoughts if t.id == other_id),
+                                "?",
+                            )
+                            result.deleted.append({
+                                "type": "link",
+                                "linkId": link.id,
+                                "from": src.name,
+                                "to": other_name,
+                                "relation": rel.rel_type,
+                            })
+            except TheBrainAPIError as e:
+                result.errors.append(
+                    f"Failed to delete link from '{src.name}': {e}"
+                )
+                result.success = False
+
+    # Delete thoughts
+    for var, thought in thoughts_to_delete:
+        try:
+            await api.delete_thought(brain_id, thought.id)
+            result.deleted.append({
+                "type": "thought",
+                "thoughtId": thought.id,
+                "name": thought.name,
+            })
+        except TheBrainAPIError as e:
+            result.errors.append(
+                f"Failed to delete thought '{thought.name}': {e}"
+            )
+            result.success = False

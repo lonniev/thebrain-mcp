@@ -2,6 +2,7 @@
 
 from thebrain_mcp.brainquery.ir import (
     BrainQuery,
+    DeleteClause,
     ExistenceCondition,
     NodePattern,
     PropertyAssignment,
@@ -22,6 +23,7 @@ from thebrain_mcp.brainquery.planner import QueryResult, execute
 __all__ = [
     "BrainQuery",
     "BrainQuerySyntaxError",
+    "DeleteClause",
     "ExistenceCondition",
     "NodePattern",
     "PropertyAssignment",
