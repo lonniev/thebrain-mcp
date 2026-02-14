@@ -650,6 +650,119 @@ class TestCompoundWhereExecution:
         assert result.success
         assert len(result.results["n"]) == 1
 
+    @pytest.mark.asyncio
+    async def test_not_in_chain_filters(self) -> None:
+        """NOT on a traversal target filters out matching results."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child1 = _thought("c1", "Kelsey")
+        child2 = _thought("c2", "Meagan")
+        child3 = _thought("c3", "Other")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2, child3])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(p) '
+            'WHERE NOT p.name =~ "Kelsey" RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["p"]) == 2
+        names = {r.name for r in result.results["p"]}
+        assert names == {"Meagan", "Other"}
+
+    @pytest.mark.asyncio
+    async def test_not_with_and_positive(self) -> None:
+        """AND with NOT: positive clause drives search, NOT post-filters."""
+        api = _mock_api()
+        t1 = _thought("t1", "Lonnie VanZandt")
+        t2 = _thought("t2", "Lonnie VanZandt Jr")
+        api.search_thoughts = AsyncMock(return_value=[
+            _search_result(t1), _search_result(t2),
+        ])
+
+        q = parse(
+            'MATCH (n) WHERE n.name =~ "Lonnie" AND NOT n.name CONTAINS "Jr" RETURN n'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["n"]) == 1
+        assert result.results["n"][0].name == "Lonnie VanZandt"
+
+    @pytest.mark.asyncio
+    async def test_not_alone_on_unconstrained_rejected(self) -> None:
+        """NOT as sole constraint on a direct-resolve node should error."""
+        api = _mock_api()
+
+        q = parse('MATCH (n) WHERE NOT n.name = "X" RETURN n')
+        result = await execute(api, "brain", q)
+
+        assert not result.success
+        assert any("NOT requires" in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_not_parenthesized_or(self) -> None:
+        """NOT (A OR B) excludes both."""
+        api = _mock_api()
+        root = _thought("r1", "Root")
+        child1 = _thought("c1", "Kelsey")
+        child2 = _thought("c2", "Meagan")
+        child3 = _thought("c3", "Other")
+        api.get_thought_by_name = AsyncMock(return_value=root)
+        api.get_thought_graph = AsyncMock(
+            return_value=_graph(root, children=[child1, child2, child3])
+        )
+
+        q = parse(
+            'MATCH (a {name: "Root"})-[:CHILD]->(p) '
+            'WHERE NOT (p.name =~ "Kelsey" OR p.name =~ "Meagan") RETURN p'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["p"]) == 1
+        assert result.results["p"][0].name == "Other"
+
+    @pytest.mark.asyncio
+    async def test_xor_symmetric_difference(self) -> None:
+        """XOR returns results in exactly one branch."""
+        api = _mock_api()
+        t1 = _thought("t1", "Kelsey VanZandt")
+        t2 = _thought("t2", "Meagan VanZandt")
+        t3 = _thought("t3", "Kelsey Meagan")  # matches both → excluded
+
+        api.search_thoughts = AsyncMock(return_value=[
+            _search_result(t1), _search_result(t2), _search_result(t3),
+        ])
+
+        q = parse(
+            'MATCH (n) WHERE n.name CONTAINS "Kelsey" XOR n.name CONTAINS "Meagan" RETURN n'
+        )
+        result = await execute(api, "brain", q)
+
+        assert result.success
+        assert len(result.results["n"]) == 2
+        names = {r.name for r in result.results["n"]}
+        assert names == {"Kelsey VanZandt", "Meagan VanZandt"}
+
+    @pytest.mark.asyncio
+    async def test_cross_variable_xor_rejected(self) -> None:
+        """XOR across different variables should produce an error."""
+        api = _mock_api()
+
+        q = parse(
+            'MATCH (a)-[:CHILD]->(b) '
+            'WHERE a.name = "X" XOR b.name = "Y" RETURN b'
+        )
+        result = await execute(api, "brain", q)
+
+        assert not result.success
+        assert any("XOR across different variables" in e for e in result.errors)
+
 
 # ---------------------------------------------------------------------------
 # CREATE: standalone

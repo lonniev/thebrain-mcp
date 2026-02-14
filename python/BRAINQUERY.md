@@ -176,7 +176,7 @@ MATCH (n:Person) WHERE n.name CONTAINS "Van" RETURN n
 
 #### Compound WHERE Conditions
 
-Combine multiple conditions with `AND` and `OR`. Standard precedence applies: `AND` binds tighter than `OR`. Use parentheses to override.
+Combine multiple conditions with `AND`, `OR`, `NOT`, and `XOR`. Standard Cypher precedence applies: `NOT` > `AND` > `XOR` > `OR`. Use parentheses to override.
 
 ```cypher
 -- AND: both conditions must match
@@ -185,6 +185,22 @@ MATCH (n) WHERE n.name CONTAINS "MCP" AND n.name ENDS WITH "Server" RETURN n
 -- OR: either condition matches (same variable only)
 MATCH (n) WHERE n.name = "Alice" OR n.name = "Bob" RETURN n
 
+-- NOT: exclude matches (prefix unary)
+MATCH (a {name: "Root"})-[:CHILD]->(p)
+WHERE NOT p.name =~ "Kelsey"
+RETURN p
+
+-- NOT with AND: positive clause drives search, NOT filters
+MATCH (n) WHERE n.name =~ "Lonnie" AND NOT n.name CONTAINS "Jr" RETURN n
+
+-- NOT with parenthesized group
+MATCH (a {name: "Root"})-[:CHILD]->(p)
+WHERE NOT (p.name =~ "Kelsey" OR p.name =~ "Meagan")
+RETURN p
+
+-- XOR: exactly one condition true (symmetric difference)
+MATCH (n) WHERE n.name CONTAINS "Kelsey" XOR n.name CONTAINS "Meagan" RETURN n
+
 -- Parentheses override precedence
 MATCH (n) WHERE (n.name CONTAINS "Server" OR n.name CONTAINS "Client") AND n.name STARTS WITH "MCP" RETURN n
 
@@ -192,17 +208,20 @@ MATCH (n) WHERE (n.name CONTAINS "Server" OR n.name CONTAINS "Client") AND n.nam
 MATCH (a {name: "Root"})-[:CHILD]->(b)
 WHERE a.name = "Root" AND b.name CONTAINS "Project"
 RETURN b
-
--- Filter traversal targets
-MATCH (a {name: "Root"})-[:CHILD]->(b)
-WHERE b.name STARTS WITH "Alpha"
-RETURN b
 ```
+
+| Operator | Precedence | Meaning |
+|----------|------------|---------|
+| `NOT` | 1 (highest) | Negation (prefix unary) |
+| `AND` | 2 | Both conditions must be true |
+| `XOR` | 3 | Exactly one condition true |
+| `OR` | 4 (lowest) | At least one condition true |
 
 **Rules:**
 - `AND` across different variables is allowed — each condition is routed to its respective variable.
-- `OR` across different variables is **not** supported (use separate queries instead).
-- Keywords `AND` and `OR` are case-insensitive.
+- `OR` and `XOR` across different variables are **not** supported (use separate queries instead).
+- `NOT` cannot be the sole constraint on a directly-resolved node — it needs a positive constraint or chain-provided candidate set to filter against.
+- All logical keywords (`AND`, `OR`, `NOT`, `XOR`) are case-insensitive.
 
 #### RETURN clause
 

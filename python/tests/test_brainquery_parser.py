@@ -8,7 +8,9 @@ from thebrain_mcp.brainquery import (
     RelPattern,
     WhereAnd,
     WhereClause,
+    WhereNot,
     WhereOr,
+    WhereXor,
     parse,
 )
 from thebrain_mcp.brainquery.ir import ReturnField
@@ -310,6 +312,78 @@ class TestCompoundWhere:
         assert len(q.where_expr.operands) == 2
         assert q.where_expr.operands[0].variable == "a"
         assert q.where_expr.operands[1].variable == "b"
+
+    def test_not(self) -> None:
+        q = parse('MATCH (n) WHERE NOT n.name = "X" RETURN n')
+        assert isinstance(q.where_expr, WhereNot)
+        assert isinstance(q.where_expr.operand, WhereClause)
+        assert q.where_expr.operand.value == "X"
+
+    def test_double_not(self) -> None:
+        q = parse('MATCH (n) WHERE NOT NOT n.name = "X" RETURN n')
+        assert isinstance(q.where_expr, WhereNot)
+        assert isinstance(q.where_expr.operand, WhereNot)
+        assert isinstance(q.where_expr.operand.operand, WhereClause)
+
+    def test_not_with_and(self) -> None:
+        """n.name =~ "Lonnie" AND NOT n.name CONTAINS "Jr" """
+        q = parse(
+            'MATCH (n) WHERE n.name =~ "Lonnie" AND NOT n.name CONTAINS "Jr" RETURN n'
+        )
+        assert isinstance(q.where_expr, WhereAnd)
+        assert isinstance(q.where_expr.operands[0], WhereClause)
+        assert isinstance(q.where_expr.operands[1], WhereNot)
+
+    def test_not_with_parens(self) -> None:
+        """NOT (A OR B)"""
+        q = parse(
+            'MATCH (n) WHERE NOT (n.name = "A" OR n.name = "B") RETURN n'
+        )
+        assert isinstance(q.where_expr, WhereNot)
+        assert isinstance(q.where_expr.operand, WhereOr)
+
+    def test_case_insensitive_not(self) -> None:
+        q = parse('MATCH (n) WHERE not n.name = "X" RETURN n')
+        assert isinstance(q.where_expr, WhereNot)
+
+    def test_xor(self) -> None:
+        q = parse('MATCH (n) WHERE n.name = "A" XOR n.name = "B" RETURN n')
+        assert isinstance(q.where_expr, WhereXor)
+        assert len(q.where_expr.operands) == 2
+
+    def test_case_insensitive_xor(self) -> None:
+        q = parse('MATCH (n) WHERE n.name = "A" xor n.name = "B" RETURN n')
+        assert isinstance(q.where_expr, WhereXor)
+
+    def test_xor_precedence(self) -> None:
+        """A OR B XOR C → WhereOr([A, WhereXor([B, C])])"""
+        q = parse(
+            'MATCH (n) WHERE n.name = "A" OR n.name = "B" XOR n.name = "C" RETURN n'
+        )
+        assert isinstance(q.where_expr, WhereOr)
+        assert isinstance(q.where_expr.operands[0], WhereClause)
+        assert isinstance(q.where_expr.operands[1], WhereXor)
+
+    def test_full_precedence_not_and_xor_or(self) -> None:
+        """NOT A AND B XOR C OR D parses as ((NOT A AND B) XOR C) OR D
+        Actually: NOT > AND > XOR > OR so:
+        NOT A AND B → WhereAnd([WhereNot(A), B])
+        (WhereAnd([WhereNot(A), B])) XOR C → WhereXor([WhereAnd(...), C])
+        WhereXor(...) OR D → WhereOr([WhereXor(...), D])
+        """
+        q = parse(
+            'MATCH (n) WHERE NOT n.name = "A" AND n.name = "B" '
+            'XOR n.name = "C" OR n.name = "D" RETURN n'
+        )
+        assert isinstance(q.where_expr, WhereOr)
+        assert isinstance(q.where_expr.operands[1], WhereClause)  # D
+        xor = q.where_expr.operands[0]
+        assert isinstance(xor, WhereXor)
+        assert isinstance(xor.operands[1], WhereClause)  # C
+        and_expr = xor.operands[0]
+        assert isinstance(and_expr, WhereAnd)
+        assert isinstance(and_expr.operands[0], WhereNot)  # NOT A
+        assert isinstance(and_expr.operands[1], WhereClause)  # B
 
 
 # ---------------------------------------------------------------------------

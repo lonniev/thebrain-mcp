@@ -20,7 +20,9 @@ from thebrain_mcp.brainquery.ir import (
     WhereAnd,
     WhereClause,
     WhereExpression,
+    WhereNot,
     WhereOr,
+    WhereXor,
     collect_variables,
 )
 
@@ -212,20 +214,29 @@ async def _filter_by_type(
 
 
 def _validate_where_expr(expr: WhereExpression | None) -> None:
-    """Validate a WHERE expression tree. Raises ValueError for cross-variable OR."""
+    """Validate a WHERE expression tree.
+
+    Raises ValueError for:
+    - Cross-variable OR or XOR
+    - NOT as the sole constraint on an unconstrained node (no chain context)
+    """
     if expr is None:
         return
     if isinstance(expr, WhereClause):
+        return
+    if isinstance(expr, WhereNot):
+        _validate_where_expr(expr.operand)
         return
     if isinstance(expr, WhereAnd):
         for op in expr.operands:
             _validate_where_expr(op)
         return
-    if isinstance(expr, WhereOr):
+    if isinstance(expr, (WhereOr, WhereXor)):
         variables = collect_variables(expr)
+        kind = "OR" if isinstance(expr, WhereOr) else "XOR"
         if len(variables) > 1:
             raise ValueError(
-                f"OR across different variables ({', '.join(sorted(variables))}) "
+                f"{kind} across different variables ({', '.join(sorted(variables))}) "
                 f"is not supported. Use separate queries instead."
             )
         for op in expr.operands:
@@ -237,19 +248,26 @@ def _where_for_variables(
 ) -> dict[str, WhereExpression]:
     """Decompose a WHERE expression into per-variable subtrees.
 
-    Top-level AND is split by variable. OR is kept as a unit (single-variable only).
+    Top-level AND is split by variable. OR/XOR is kept as a unit (single-variable only).
+    NOT is kept with its operand's variable.
     """
     if expr is None:
         return {}
     if isinstance(expr, WhereClause):
         return {expr.variable: expr}
-    if isinstance(expr, WhereOr):
-        # Single-variable OR (validated earlier)
+    if isinstance(expr, WhereNot):
         variables = collect_variables(expr)
         if len(variables) == 1:
             var = next(iter(variables))
             return {var: expr}
-        return {}  # cross-variable OR shouldn't reach here after validation
+        return {}
+    if isinstance(expr, (WhereOr, WhereXor)):
+        # Single-variable OR/XOR (validated earlier)
+        variables = collect_variables(expr)
+        if len(variables) == 1:
+            var = next(iter(variables))
+            return {var: expr}
+        return {}
     if isinstance(expr, WhereAnd):
         result: dict[str, list[WhereExpression]] = {}
         for op in expr.operands:
@@ -295,11 +313,32 @@ def _apply_filter(candidates: list[Thought], expr: WhereExpression) -> list[Thou
     """In-memory filtering of candidates against a compound WHERE expression."""
     if isinstance(expr, WhereClause):
         return [t for t in candidates if _matches_clause(t, expr)]
+    if isinstance(expr, WhereNot):
+        excluded = _apply_filter(candidates, expr.operand)
+        excluded_ids = {t.id for t in excluded}
+        return [t for t in candidates if t.id not in excluded_ids]
     if isinstance(expr, WhereAnd):
         result = candidates
         for op in expr.operands:
             result = _apply_filter(result, op)
         return result
+    if isinstance(expr, WhereXor):
+        # Symmetric difference: in exactly one branch but not both
+        branch_sets: list[set[str]] = []
+        branch_thoughts: dict[str, Thought] = {}
+        for op in expr.operands:
+            matched = _apply_filter(candidates, op)
+            branch_sets.append({t.id for t in matched})
+            for t in matched:
+                branch_thoughts[t.id] = t
+        # XOR: present in exactly one branch
+        all_ids = set.union(*branch_sets) if branch_sets else set()
+        xor_ids: set[str] = set()
+        for tid in all_ids:
+            count = sum(1 for bs in branch_sets if tid in bs)
+            if count == 1:
+                xor_ids.add(tid)
+        return [branch_thoughts[tid] for tid in xor_ids if tid in branch_thoughts]
     if isinstance(expr, WhereOr):
         seen: set[str] = set()
         result: list[Thought] = []
@@ -334,12 +373,32 @@ async def _resolve_single_clause(
     return []
 
 
+def _has_positive_clause(expr: WhereExpression) -> bool:
+    """Check whether an expression contains at least one positive (non-NOT) clause."""
+    if isinstance(expr, WhereClause):
+        return True
+    if isinstance(expr, WhereNot):
+        return False
+    if isinstance(expr, (WhereAnd, WhereOr, WhereXor)):
+        return any(_has_positive_clause(op) for op in expr.operands)
+    return False
+
+
 async def _evaluate_where(
     api: TheBrainAPI, brain_id: str, expr: WhereExpression,
 ) -> list[Thought]:
     """Recursively evaluate a compound WHERE expression against the API."""
     if isinstance(expr, WhereClause):
         return await _resolve_single_clause(api, brain_id, expr)
+    if isinstance(expr, WhereNot):
+        # NOT cannot drive a search on its own — it needs a candidate set
+        # provided by a chain traversal or a sibling positive constraint.
+        # If we reach here, it means NOT is the sole constraint for direct
+        # resolution — reject it.
+        raise ValueError(
+            "NOT requires at least one positive constraint to filter against. "
+            "Use AND with a positive condition, or place NOT on a traversal target."
+        )
     if isinstance(expr, WhereOr):
         seen: set[str] = set()
         result: list[Thought] = []
@@ -349,15 +408,47 @@ async def _evaluate_where(
                     result.append(t)
                     seen.add(t.id)
         return result
-    if isinstance(expr, WhereAnd):
-        # Evaluate each operand recursively and intersect results
-        sets: list[list[Thought]] = []
+    if isinstance(expr, WhereXor):
+        # Symmetric difference: evaluate each branch, keep results in exactly one
+        branch_sets: list[set[str]] = []
+        branch_thoughts: dict[str, Thought] = {}
         for op in expr.operands:
+            matched = await _evaluate_where(api, brain_id, op)
+            branch_sets.append({t.id for t in matched})
+            for t in matched:
+                branch_thoughts[t.id] = t
+        all_ids = set.union(*branch_sets) if branch_sets else set()
+        xor_ids: set[str] = set()
+        for tid in all_ids:
+            count = sum(1 for bs in branch_sets if tid in bs)
+            if count == 1:
+                xor_ids.add(tid)
+        return [branch_thoughts[tid] for tid in xor_ids if tid in branch_thoughts]
+    if isinstance(expr, WhereAnd):
+        # Separate positive operands (that can drive search) from NOT operands
+        positive_ops = [op for op in expr.operands if _has_positive_clause(op)]
+        not_ops = [op for op in expr.operands if not _has_positive_clause(op)]
+
+        if not positive_ops:
+            raise ValueError(
+                "NOT requires at least one positive constraint to filter against. "
+                "Add a positive condition with AND."
+            )
+
+        # Evaluate positive operands and intersect
+        sets: list[list[Thought]] = []
+        for op in positive_ops:
             sets.append(await _evaluate_where(api, brain_id, op))
         if not sets:
             return []
         common_ids = set.intersection(*(set(t.id for t in s) for s in sets))
-        return [t for t in sets[0] if t.id in common_ids]
+        candidates = [t for t in sets[0] if t.id in common_ids]
+
+        # Apply NOT operands as post-filters
+        for not_op in not_ops:
+            candidates = _apply_filter(candidates, not_op)
+
+        return candidates
     return []
 
 

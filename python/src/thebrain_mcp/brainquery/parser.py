@@ -14,7 +14,9 @@ from thebrain_mcp.brainquery.ir import (
     ReturnField,
     WhereAnd,
     WhereClause,
+    WhereNot,
     WhereOr,
+    WhereXor,
 )
 
 # ---------------------------------------------------------------------------
@@ -45,8 +47,11 @@ _GRAMMAR = r"""
     property: "name"i ":" STRING
 
     where_clause: "WHERE"i or_expr
-    or_expr: and_expr (_OR and_expr)*
-    and_expr: where_atom (_AND where_atom)*
+    or_expr: xor_expr (_OR xor_expr)*
+    xor_expr: and_expr (_XOR and_expr)*
+    and_expr: not_expr (_AND not_expr)*
+    not_expr: _NOT not_expr -> where_not
+            | where_atom
     where_atom: "(" or_expr ")" -> where_paren
               | VARIABLE "." "name"i where_op STRING
     where_op: "=" -> eq_op
@@ -55,7 +60,9 @@ _GRAMMAR = r"""
             | "ENDS"i "WITH"i -> ends_with_op
             | "=~" -> similar_op
     _OR: /OR/i
+    _XOR: /XOR/i
     _AND: /AND/i
+    _NOT: /NOT/i
 
     return_clause: "RETURN"i return_item ("," return_item)*
     return_item: VARIABLE ("." FIELD_NAME)?
@@ -222,10 +229,22 @@ class _BrainQueryTransformer(Transformer):
             return args[0]
         return WhereOr(operands=list(args))
 
+    def xor_expr(self, *args):
+        if len(args) == 1:
+            return args[0]
+        return WhereXor(operands=list(args))
+
     def and_expr(self, *args):
         if len(args) == 1:
             return args[0]
         return WhereAnd(operands=list(args))
+
+    def not_expr(self, inner):
+        # Passthrough when not_expr matches where_atom (no NOT prefix)
+        return inner
+
+    def where_not(self, inner):
+        return WhereNot(operand=inner)
 
     def where_paren(self, inner):
         return inner

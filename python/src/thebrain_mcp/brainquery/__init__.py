@@ -8,7 +8,9 @@ from thebrain_mcp.brainquery.ir import (
     WhereAnd,
     WhereClause,
     WhereExpression,
+    WhereNot,
     WhereOr,
+    WhereXor,
 )
 from thebrain_mcp.brainquery.parser import BrainQuerySyntaxError, parse
 from thebrain_mcp.brainquery.planner import QueryResult, execute
@@ -23,7 +25,9 @@ __all__ = [
     "WhereAnd",
     "WhereClause",
     "WhereExpression",
+    "WhereNot",
     "WhereOr",
+    "WhereXor",
     "execute",
     "parse",
 ]
