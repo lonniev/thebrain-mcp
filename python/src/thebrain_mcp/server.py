@@ -1,6 +1,5 @@
 """TheBrain MCP server using FastMCP."""
 
-import os
 import sys
 import time
 from typing import Any
@@ -948,88 +947,6 @@ def _get_vault() -> CredentialVault:
         vault_brain_id=vault_brain_id,
         home_thought_id=_VAULT_HOME_THOUGHT_ID,
     )
-
-
-# ---------------------------------------------------------------------------
-# x402 Payment Probe (Task 19 — Horizon compatibility experiment)
-# ---------------------------------------------------------------------------
-
-# Base Sepolia USDC contract address
-_X402_ASSET = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-
-
-@mcp.custom_route("/x402/payment-probe", methods=["GET", "POST"])
-async def x402_payment_probe(request: Any) -> Any:
-    """x402 payment probe endpoint.
-
-    Returns HTTP 402 with x402-compliant payment metadata when no X-PAYMENT
-    header is present. Returns HTTP 200 when the header is present (verification
-    skipped in probe mode). Tests whether FastMCP Horizon passes 402 responses
-    through to clients.
-    """
-    from starlette.responses import JSONResponse
-
-    payment_header = request.headers.get("x-payment")
-
-    if payment_header:
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": "ok",
-                "message": "Payment header accepted (verification skipped in probe mode)",
-                "x402Version": 1,
-            },
-            headers={"X-PAYMENT-RESPONSE": "probe-mode-no-verification"},
-        )
-
-    pay_to = os.environ.get(
-        "X402_PAY_TO", "0x0000000000000000000000000000000000000000"
-    )
-    return JSONResponse(
-        status_code=402,
-        content={
-            "x402Version": 1,
-            "error": "Payment required for this tool",
-            "accepts": [
-                {
-                    "scheme": "exact",
-                    "network": "base-sepolia",
-                    "maxAmountRequired": "1000",
-                    "asset": _X402_ASSET,
-                    "payTo": pay_to,
-                    "resource": "/x402/payment-probe",
-                    "description": (
-                        "Payment probe — tests x402 compatibility "
-                        "with FastMCP Horizon"
-                    ),
-                    "maxTimeoutSeconds": 300,
-                    "mimeType": "application/json",
-                    "outputSchema": {},
-                }
-            ],
-        },
-    )
-
-
-@mcp.tool()
-async def payment_probe() -> dict[str, Any]:
-    """Check the x402 payment probe endpoint status.
-
-    Returns the URL and instructions for testing the x402 payment probe.
-    The actual payment negotiation happens at the /x402/payment-probe HTTP
-    endpoint, not through this MCP tool.
-    """
-    return {
-        "endpoint": "/x402/payment-probe",
-        "methods": ["GET", "POST"],
-        "description": (
-            "Send a request without X-PAYMENT header to get a 402 response. "
-            "Send with X-PAYMENT header to get a 200 response."
-        ),
-        "x402Version": 1,
-        "network": "base-sepolia",
-        "status": "probe-mode (no on-chain verification)",
-    }
 
 
 def main() -> None:
