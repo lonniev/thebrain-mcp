@@ -135,7 +135,9 @@ _UNSUPPORTED = {
 
 def _check_unsupported(query: str) -> None:
     """Check for unsupported Cypher keywords and give helpful errors."""
-    upper = query.upper().split()
+    # Strip quoted strings so keywords inside string literals are ignored
+    stripped = re.sub(r'"[^"]*"', '', query)
+    upper = stripped.upper().split()
     for keyword, suggestion in _UNSUPPORTED.items():
         if keyword in upper:
             # "WITH" is valid inside "STARTS WITH" and "ENDS WITH"

@@ -1004,3 +1004,52 @@ class TestDeleteParsing:
     def test_standalone_delete_rejected(self) -> None:
         with pytest.raises(BrainQuerySyntaxError):
             parse('DELETE (n {name: "X"})')
+
+
+# ---------------------------------------------------------------------------
+# Reserved keywords inside quoted strings
+# ---------------------------------------------------------------------------
+
+
+class TestKeywordsInStrings:
+    """Keywords inside quoted strings must not trigger parser errors."""
+
+    def test_union_in_name_property(self) -> None:
+        q = parse('MATCH (t {name: "Task 16: Wildcard & Union Relations"}) RETURN t')
+        assert q.nodes[0].properties["name"] == "Task 16: Wildcard & Union Relations"
+
+    def test_multiple_keywords_in_name(self) -> None:
+        q = parse('MATCH (t {name: "Match Delete Set Return"}) RETURN t')
+        assert q.nodes[0].properties["name"] == "Match Delete Set Return"
+
+    def test_keyword_in_where_equals(self) -> None:
+        q = parse('MATCH (t) WHERE t.name = "Delete Old Archives" RETURN t')
+        assert q.where_expr.value == "Delete Old Archives"
+
+    def test_keyword_in_where_contains(self) -> None:
+        q = parse('MATCH (t) WHERE t.name CONTAINS "Union" RETURN t')
+        assert q.where_expr.value == "Union"
+
+    def test_keyword_in_set_value(self) -> None:
+        q = parse('MATCH (t) WHERE t.name CONTAINS "X" SET t.label = "Not Started" RETURN t')
+        assert q.set_clause.assignments[0].value == "Not Started"
+
+    def test_optional_in_string(self) -> None:
+        q = parse('MATCH (t {name: "Optional Meeting Notes"}) RETURN t')
+        assert q.nodes[0].properties["name"] == "Optional Meeting Notes"
+
+    def test_with_in_string_not_preceded_by_starts_ends(self) -> None:
+        q = parse('MATCH (t {name: "Work With Teams"}) RETURN t')
+        assert q.nodes[0].properties["name"] == "Work With Teams"
+
+    def test_collect_in_string(self) -> None:
+        q = parse('MATCH (t {name: "Collect Feedback"}) RETURN t')
+        assert q.nodes[0].properties["name"] == "Collect Feedback"
+
+    def test_keywords_outside_strings_still_rejected(self) -> None:
+        with pytest.raises(BrainQuerySyntaxError, match="UNION"):
+            parse("MATCH (a) RETURN a UNION MATCH (b) RETURN b")
+
+    def test_keyword_regression_delete_still_works(self) -> None:
+        q = parse('MATCH (a {name: "Alice"}), (b {name: "Bob"}) DELETE a')
+        assert q.action == "match_delete"
