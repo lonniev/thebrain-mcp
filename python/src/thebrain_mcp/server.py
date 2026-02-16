@@ -930,6 +930,78 @@ async def session_status() -> dict[str, Any]:
     return result
 
 
+# Operator Admin Tools
+
+
+async def _refresh_config_impl() -> dict[str, Any]:
+    """Core logic for hot-reloading server configuration.
+
+    Extracted so tests can call it directly (the @mcp.tool wrapper
+    produces a FunctionTool, not a plain coroutine).
+    """
+    global _operator_api_client, _btcpay_client, _ledger_cache
+    global active_brain_id, _settings_loaded
+
+    refreshed: list[str] = []
+
+    # 1. Flush dirty ledger entries so no credits are lost
+    if _ledger_cache is not None:
+        flushed = await _ledger_cache.flush_all()
+        await _ledger_cache.stop()
+        refreshed.append(f"ledger_cache flushed ({flushed} dirty entries)")
+        _ledger_cache = None
+
+    # 2. Close BTCPay HTTP client
+    if _btcpay_client is not None:
+        await _btcpay_client.close()
+        refreshed.append("btcpay_client closed")
+        _btcpay_client = None
+
+    # 3. Close operator API HTTP client
+    if _operator_api_client is not None:
+        await _operator_api_client.close()
+        refreshed.append("operator_api_client closed")
+        _operator_api_client = None
+
+    # 4. Reset settings-loaded flag so env vars are re-read
+    _settings_loaded = False
+    active_brain_id = None
+    refreshed.append("settings_loaded reset")
+
+    # 5. Re-load settings from environment
+    _ensure_settings_loaded()
+    settings = get_settings()
+
+    btcpay_configured = bool(
+        settings.btcpay_host and settings.btcpay_store_id and settings.btcpay_api_key
+    )
+    tier_config_present = bool(settings.btcpay_tier_config)
+
+    return {
+        "success": True,
+        "refreshed": refreshed,
+        "config_summary": {
+            "active_brain_id": active_brain_id,
+            "btcpay_configured": btcpay_configured,
+            "tier_config_present": tier_config_present,
+            "vault_brain_id": settings.thebrain_vault_brain_id or None,
+        },
+    }
+
+
+@mcp.tool()
+async def refresh_config() -> dict[str, Any]:
+    """Hot-reload server configuration from environment variables.
+
+    Flushes any dirty ledger entries to vault, tears down cached clients
+    (BTCPay, operator API), and re-reads all env vars so that Horizon
+    config changes take effect without a full redeploy.
+
+    Operator-only — no user credentials are affected.
+    """
+    return await _refresh_config_impl()
+
+
 _VAULT_HOME_THOUGHT_ID = "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
 
 # BTCPay / credit singletons (lazy-initialized)
