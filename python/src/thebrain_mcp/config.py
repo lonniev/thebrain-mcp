@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     btcpay_host: str | None = None
     btcpay_store_id: str | None = None
     btcpay_api_key: str | None = None
+    btcpay_tier_config: str | None = None
+    btcpay_user_tiers: str | None = None
 
 
 def get_settings() -> Settings:
