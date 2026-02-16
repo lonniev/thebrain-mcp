@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 920" font-family="system-ui, -apple-system, sans-serif" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 990" font-family="system-ui, -apple-system, sans-serif" font-size="13">
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <path d="M0,0 L8,3 L0,6 Z" fill="#334155"/>
@@ -15,14 +15,17 @@
     <marker id="arrow-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <path d="M0,0 L8,3 L0,6 Z" fill="#7c3aed"/>
     </marker>
+    <marker id="arrow-red" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#e11d48"/>
+    </marker>
   </defs>
 
   <!-- Background -->
-  <rect width="1100" height="920" fill="#fafafa" rx="8"/>
+  <rect width="1100" height="990" fill="#fafafa" rx="8"/>
 
   <!-- Title -->
   <text x="550" y="35" text-anchor="middle" font-size="20" font-weight="bold" fill="#0f172a">BTCPay Payment Middleware — Protocol Flow</text>
-  <text x="550" y="55" text-anchor="middle" font-size="12" fill="#64748b">thebrain-mcp: OAuth identity + Lightning micropayments</text>
+  <text x="550" y="55" text-anchor="middle" font-size="12" fill="#64748b">thebrain-mcp: OAuth identity + Lightning micropayments (sat-denominated)</text>
 
   <!-- Swim lane headers -->
   <g font-size="12" font-weight="bold" text-anchor="middle">
@@ -46,11 +49,11 @@
 
   <!-- Vertical lifelines -->
   <g stroke="#cbd5e1" stroke-width="1" stroke-dasharray="6,4">
-    <line x1="110" y1="110" x2="110" y2="900"/>
-    <line x1="290" y1="110" x2="290" y2="900"/>
-    <line x1="490" y1="110" x2="490" y2="900"/>
-    <line x1="695" y1="110" x2="695" y2="900"/>
-    <line x1="895" y1="110" x2="895" y2="900"/>
+    <line x1="110" y1="110" x2="110" y2="970"/>
+    <line x1="290" y1="110" x2="290" y2="970"/>
+    <line x1="490" y1="110" x2="490" y2="970"/>
+    <line x1="695" y1="110" x2="695" y2="970"/>
+    <line x1="895" y1="110" x2="895" y2="970"/>
   </g>
 
   <!-- ═══ Phase 1: OAuth Authentication ═══ -->
@@ -73,94 +76,119 @@
   <line x1="285" y1="235" x2="118" y2="235" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
   <text x="198" y="230" text-anchor="middle" font-size="11" fill="#d97706">Bearer token issued</text>
 
-  <!-- ═══ Phase 2: Credential & Store Setup ═══ -->
-  <rect x="30" y="260" width="1040" height="145" rx="4" fill="#f0fdf4" fill-opacity="0.5" stroke="#bbf7d0" stroke-width="1"/>
-  <text x="45" y="280" font-size="13" font-weight="bold" fill="#166534">Phase 2: Credential &amp; Store Setup</text>
+  <!-- ═══ Phase 2: Session & Credential Setup ═══ -->
+  <rect x="30" y="260" width="1040" height="165" rx="4" fill="#f0fdf4" fill-opacity="0.5" stroke="#bbf7d0" stroke-width="1"/>
+  <text x="45" y="280" font-size="13" font-weight="bold" fill="#166534">Phase 2: Session &amp; Credential Setup</text>
+  <text x="45" y="293" font-size="10" fill="#64748b">BTCPay config from operator env vars (BTCPAY_HOST, BTCPAY_STORE_ID, BTCPAY_API_KEY)</text>
 
-  <!-- 2a: Claude → thebrain-mcp: register_credentials -->
-  <line x1="115" y1="300" x2="482" y2="300" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
-  <text x="298" y="295" text-anchor="middle" font-size="11" fill="#16a34a">register_credentials(api_key, passphrase)</text>
-  <text x="298" y="308" text-anchor="middle" font-size="9" fill="#64748b">via Horizon — Bearer token attached</text>
+  <!-- 2a: Claude → thebrain-mcp: register_credentials (first time) -->
+  <line x1="115" y1="315" x2="482" y2="315" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <text x="298" y="310" text-anchor="middle" font-size="11" fill="#16a34a">register_credentials(api_key, brain_id, passphrase)</text>
 
-  <!-- 2b: thebrain-mcp stores in vault -->
-  <rect x="448" y="320" width="84" height="20" rx="3" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
-  <text x="490" y="334" text-anchor="middle" font-size="10" fill="#166534">encrypt + store</text>
+  <!-- 2b: thebrain-mcp → TheBrain API: store encrypted -->
+  <line x1="498" y1="335" x2="887" y2="335" stroke="#e11d48" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <text x="692" y="330" text-anchor="middle" font-size="11" fill="#e11d48">encrypt + store in credential vault</text>
+  <text x="692" y="348" text-anchor="middle" font-size="9" fill="#64748b">first-time only — one-time setup</text>
 
-  <!-- 2c: Claude → thebrain-mcp: register_btcpay_store -->
-  <line x1="115" y1="355" x2="482" y2="355" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
-  <text x="298" y="350" text-anchor="middle" font-size="11" fill="#16a34a">register_btcpay_store(store_id, api_key)</text>
+  <!-- divider -->
+  <line x1="60" y1="362" x2="1040" y2="362" stroke="#bbf7d0" stroke-width="0.5" stroke-dasharray="3,3"/>
 
-  <!-- 2d: thebrain-mcp stores in vault -->
-  <rect x="448" y="370" width="84" height="20" rx="3" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
-  <text x="490" y="384" text-anchor="middle" font-size="10" fill="#166534">encrypt + store</text>
+  <!-- 2c: Claude → thebrain-mcp: activate_session (each session) -->
+  <line x1="115" y1="382" x2="482" y2="382" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <text x="298" y="377" text-anchor="middle" font-size="11" fill="#16a34a">activate_session(passphrase)</text>
+
+  <!-- 2d: thebrain-mcp → TheBrain API: fetch + decrypt -->
+  <line x1="498" y1="400" x2="887" y2="400" stroke="#e11d48" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <text x="692" y="395" text-anchor="middle" font-size="11" fill="#e11d48">fetch + decrypt from vault → session active</text>
+  <text x="692" y="413" text-anchor="middle" font-size="9" fill="#64748b">each session — returns user's TheBrain credentials</text>
 
   <!-- ═══ Phase 3: Credit Purchase via Lightning ═══ -->
-  <rect x="30" y="415" width="1040" height="195" rx="4" fill="#faf5ff" fill-opacity="0.5" stroke="#e9d5ff" stroke-width="1"/>
-  <text x="45" y="435" font-size="13" font-weight="bold" fill="#581c87">Phase 3: Credit Purchase via Lightning</text>
+  <rect x="30" y="435" width="1040" height="270" rx="4" fill="#faf5ff" fill-opacity="0.5" stroke="#e9d5ff" stroke-width="1"/>
+  <text x="45" y="455" font-size="13" font-weight="bold" fill="#581c87">Phase 3: Credit Purchase via Lightning</text>
 
   <!-- 3a: Claude → thebrain-mcp: purchase_credits -->
-  <line x1="115" y1="455" x2="482" y2="455" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-  <text x="298" y="450" text-anchor="middle" font-size="11" fill="#7c3aed">purchase_credits(amount=$1.00)</text>
+  <line x1="115" y1="478" x2="482" y2="478" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <text x="298" y="473" text-anchor="middle" font-size="11" fill="#7c3aed">purchase_credits(amount_sats=1000)</text>
 
   <!-- 3b: thebrain-mcp → BTCPay: POST /invoices -->
-  <line x1="498" y1="480" x2="687" y2="480" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-  <text x="592" y="475" text-anchor="middle" font-size="11" fill="#7c3aed">POST /api/v1/stores/{id}/invoices</text>
+  <line x1="498" y1="498" x2="687" y2="498" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <text x="592" y="493" text-anchor="middle" font-size="11" fill="#7c3aed">POST /stores/{id}/invoices (1000 SATS)</text>
 
-  <!-- 3c: BTCPay → thebrain-mcp: invoice + BOLT11 -->
-  <line x1="688" y1="505" x2="498" y2="505" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-purple)"/>
-  <text x="592" y="500" text-anchor="middle" font-size="11" fill="#7c3aed">invoice_id + BOLT11 + checkoutLink</text>
+  <!-- 3c: BTCPay → thebrain-mcp: invoice response -->
+  <line x1="688" y1="518" x2="498" y2="518" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-purple)"/>
+  <text x="592" y="513" text-anchor="middle" font-size="11" fill="#7c3aed">invoice_id + checkoutLink + expiration</text>
 
-  <!-- 3d: thebrain-mcp → Claude: payment details -->
-  <line x1="483" y1="530" x2="118" y2="530" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-purple)"/>
-  <text x="298" y="525" text-anchor="middle" font-size="11" fill="#7c3aed">BOLT11 invoice + checkout link</text>
+  <!-- 3d: thebrain-mcp stores pending -->
+  <rect x="435" y="527" width="110" height="18" rx="3" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
+  <text x="490" y="539" text-anchor="middle" font-size="9" fill="#166534">add to pending_invoices</text>
 
-  <!-- 3e: User pays externally -->
-  <rect x="55" y="545" width="110" height="22" rx="3" fill="#fae8ff" stroke="#7c3aed" stroke-width="1"/>
-  <text x="110" y="560" text-anchor="middle" font-size="10" fill="#581c87">User pays Lightning</text>
+  <!-- 3e: thebrain-mcp → Claude: return -->
+  <line x1="483" y1="558" x2="118" y2="558" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-purple)"/>
+  <text x="298" y="553" text-anchor="middle" font-size="11" fill="#7c3aed">invoice_id + checkout_link + expiry</text>
 
-  <!-- 3f: Claude → thebrain-mcp: check_payment -->
-  <line x1="115" y1="580" x2="482" y2="580" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-  <text x="298" y="575" text-anchor="middle" font-size="11" fill="#7c3aed">check_payment(invoice_id)</text>
+  <!-- 3f: User pays externally -->
+  <rect x="55" y="572" width="110" height="22" rx="3" fill="#fae8ff" stroke="#7c3aed" stroke-width="1"/>
+  <text x="110" y="587" text-anchor="middle" font-size="10" fill="#581c87">User pays Lightning</text>
 
-  <!-- 3g: thebrain-mcp: credit balance -->
-  <rect x="435" y="590" width="110" height="20" rx="3" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
-  <text x="490" y="604" text-anchor="middle" font-size="10" fill="#166534">Settled: +$1.00 credit</text>
+  <!-- 3g: Claude → thebrain-mcp: check_payment -->
+  <line x1="115" y1="608" x2="482" y2="608" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <text x="298" y="603" text-anchor="middle" font-size="11" fill="#7c3aed">check_payment(invoice_id)</text>
+
+  <!-- 3h: thebrain-mcp → BTCPay: GET invoice -->
+  <line x1="498" y1="628" x2="687" y2="628" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <text x="592" y="623" text-anchor="middle" font-size="11" fill="#7c3aed">GET /stores/{id}/invoices/{invoiceId}</text>
+
+  <!-- 3i: BTCPay → thebrain-mcp: settled status -->
+  <line x1="688" y1="648" x2="498" y2="648" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-purple)"/>
+  <text x="592" y="643" text-anchor="middle" font-size="11" fill="#7c3aed">status: Settled, amount: 1000</text>
+
+  <!-- 3j: thebrain-mcp: credit ledger -->
+  <rect x="420" y="658" width="140" height="18" rx="3" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
+  <text x="490" y="670" text-anchor="middle" font-size="9" fill="#166534">credit 1,000 × tier multiplier → LedgerCache</text>
+
+  <!-- 3k: thebrain-mcp → Claude: balance -->
+  <line x1="483" y1="690" x2="118" y2="690" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-green)"/>
+  <text x="298" y="685" text-anchor="middle" font-size="11" fill="#16a34a">+1,000 credits granted (balance: 1,000 sats)</text>
 
   <!-- ═══ Phase 4: Monetized Tool Execution ═══ -->
-  <rect x="30" y="620" width="1040" height="165" rx="4" fill="#fff7ed" fill-opacity="0.5" stroke="#fed7aa" stroke-width="1"/>
-  <text x="45" y="640" font-size="13" font-weight="bold" fill="#9a3412">Phase 4: Monetized Tool Execution</text>
+  <rect x="30" y="715" width="1040" height="150" rx="4" fill="#fff7ed" fill-opacity="0.5" stroke="#fed7aa" stroke-width="1"/>
+  <text x="45" y="735" font-size="13" font-weight="bold" fill="#9a3412">Phase 4: Monetized Tool Execution</text>
+  <text x="330" y="735" font-size="10" fill="#64748b">(tool gating — Task 21 Phase 2, planned)</text>
 
   <!-- 4a: Claude → thebrain-mcp: brain_query -->
-  <line x1="115" y1="660" x2="482" y2="660" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
-  <text x="298" y="655" text-anchor="middle" font-size="11" fill="#ea580c">brain_query("MATCH (p:Person) RETURN p")</text>
+  <line x1="115" y1="758" x2="482" y2="758" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+  <text x="298" y="753" text-anchor="middle" font-size="11" fill="#ea580c">brain_query("MATCH (p:Person) RETURN p")</text>
 
   <!-- 4b: middleware: check + deduct -->
-  <rect x="430" y="672" width="120" height="28" rx="3" fill="#fff7ed" stroke="#ea580c" stroke-width="1"/>
-  <text x="490" y="684" text-anchor="middle" font-size="10" fill="#9a3412">balance >= $0.005?</text>
-  <text x="490" y="695" text-anchor="middle" font-size="10" fill="#16a34a" font-weight="bold">deduct $0.005</text>
+  <rect x="430" y="768" width="120" height="28" rx="3" fill="#fff7ed" stroke="#ea580c" stroke-width="1"/>
+  <text x="490" y="780" text-anchor="middle" font-size="10" fill="#9a3412">LedgerCache: balance ≥ 10?</text>
+  <text x="490" y="792" text-anchor="middle" font-size="10" fill="#16a34a" font-weight="bold">debit 10 sats</text>
 
   <!-- 4c: thebrain-mcp → TheBrain API -->
-  <line x1="498" y1="710" x2="887" y2="710" stroke="#e11d48" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <text x="692" y="705" text-anchor="middle" font-size="11" fill="#e11d48">GET /thoughts (with user's API key)</text>
+  <line x1="498" y1="806" x2="887" y2="806" stroke="#e11d48" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <text x="692" y="801" text-anchor="middle" font-size="11" fill="#e11d48">execute query (with user's API key)</text>
 
   <!-- 4d: TheBrain API → thebrain-mcp: results -->
-  <line x1="888" y1="735" x2="498" y2="735" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
-  <text x="692" y="730" text-anchor="middle" font-size="11" fill="#e11d48">thought results</text>
+  <line x1="888" y1="826" x2="498" y2="826" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-red)"/>
+  <text x="692" y="821" text-anchor="middle" font-size="11" fill="#e11d48">thought results</text>
 
   <!-- 4e: thebrain-mcp → Claude: results -->
-  <line x1="483" y1="760" x2="118" y2="760" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-green)"/>
-  <text x="298" y="755" text-anchor="middle" font-size="11" fill="#16a34a">query results (balance: $0.995)</text>
+  <line x1="483" y1="850" x2="118" y2="850" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-green)"/>
+  <text x="298" y="845" text-anchor="middle" font-size="11" fill="#16a34a">query results (balance: 990 sats)</text>
 
   <!-- Legend -->
-  <rect x="30" y="810" width="1040" height="100" rx="4" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
-  <text x="50" y="832" font-size="12" font-weight="bold" fill="#334155">Key Principles</text>
+  <rect x="30" y="875" width="1040" height="105" rx="4" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="50" y="897" font-size="12" font-weight="bold" fill="#334155">Key Principles</text>
 
-  <circle cx="55" cy="852" r="4" fill="#2563eb"/>
-  <text x="68" y="856" font-size="11" fill="#334155">OAuth identity preserved throughout — every request carries Bearer token via Horizon</text>
+  <circle cx="55" cy="917" r="4" fill="#2563eb"/>
+  <text x="68" y="921" font-size="11" fill="#334155">OAuth identity preserved throughout — every request carries Bearer token via Horizon</text>
 
-  <circle cx="55" cy="872" r="4" fill="#7c3aed"/>
-  <text x="68" y="876" font-size="11" fill="#334155">Payment is complementary to auth, not a replacement — identity + payment are separate layers</text>
+  <circle cx="55" cy="937" r="4" fill="#7c3aed"/>
+  <text x="68" y="941" font-size="11" fill="#334155">Payment is complementary to auth — identity + payment are separate layers, not competing</text>
 
-  <circle cx="55" cy="892" r="4" fill="#16a34a"/>
-  <text x="68" y="896" font-size="11" fill="#334155">Self-sovereign: BTCPay Server + Lightning Node owned by operator — zero KYC, instant settlement</text>
+  <circle cx="55" cy="957" r="4" fill="#16a34a"/>
+  <text x="68" y="961" font-size="11" fill="#334155">Self-sovereign: BTCPay Server + Lightning Node owned by operator — zero KYC, instant settlement</text>
+
+  <circle cx="55" cy="977" r="4" fill="#ea580c"/>
+  <text x="68" y="981" font-size="11" fill="#334155">All amounts in satoshis — integer arithmetic only, no USD peg, no floats in the credit path</text>
 </svg>
