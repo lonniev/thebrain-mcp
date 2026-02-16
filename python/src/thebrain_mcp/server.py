@@ -8,8 +8,10 @@ from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
 from thebrain_mcp.api.client import TheBrainAPI
+from thebrain_mcp.btcpay_client import BTCPayClient
 from thebrain_mcp.config import get_settings
-from thebrain_mcp.tools import attachments, brains, links, notes, stats, thoughts
+from thebrain_mcp.ledger_cache import LedgerCache
+from thebrain_mcp.tools import attachments, brains, credits, links, notes, stats, thoughts
 from thebrain_mcp.vault import (
     CredentialNotFoundError,
     CredentialVault,
@@ -920,6 +922,10 @@ async def session_status() -> dict[str, Any]:
 
 _VAULT_HOME_THOUGHT_ID = "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
 
+# BTCPay / credit singletons (lazy-initialized)
+_btcpay_client: BTCPayClient | None = None
+_ledger_cache: LedgerCache | None = None
+
 
 def _require_user_id() -> str:
     """Get the current user ID, raising ValueError if not available."""
@@ -947,6 +953,101 @@ def _get_vault() -> CredentialVault:
         vault_brain_id=vault_brain_id,
         home_thought_id=_VAULT_HOME_THOUGHT_ID,
     )
+
+
+def _get_btcpay() -> BTCPayClient:
+    """Get or create the BTCPay client singleton.
+
+    Raises ValueError if BTCPay is not configured.
+    """
+    global _btcpay_client
+    if _btcpay_client is not None:
+        return _btcpay_client
+    settings = get_settings()
+    if not settings.btcpay_host or not settings.btcpay_store_id or not settings.btcpay_api_key:
+        raise ValueError(
+            "BTCPay not configured. Operator must set "
+            "BTCPAY_HOST, BTCPAY_STORE_ID, and BTCPAY_API_KEY."
+        )
+    _btcpay_client = BTCPayClient(
+        settings.btcpay_host, settings.btcpay_api_key, settings.btcpay_store_id
+    )
+    return _btcpay_client
+
+
+def _get_ledger_cache() -> LedgerCache:
+    """Get or create the ledger cache singleton."""
+    global _ledger_cache
+    if _ledger_cache is not None:
+        return _ledger_cache
+    vault = _get_vault()
+    _ledger_cache = LedgerCache(vault)
+    return _ledger_cache
+
+
+# Credit Management Tools
+
+
+@mcp.tool()
+async def purchase_credits(amount_sats: int) -> dict[str, Any]:
+    """Create a BTCPay invoice to purchase credits via Bitcoin/Lightning.
+
+    Returns a checkout link and invoice ID. After paying, call
+    check_payment with the invoice_id to credit your balance.
+
+    Args:
+        amount_sats: Number of satoshis to purchase (minimum 1)
+    """
+    try:
+        user_id = _require_user_id()
+        btcpay = _get_btcpay()
+        cache = _get_ledger_cache()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    return await credits.purchase_credits_tool(btcpay, cache, user_id, amount_sats)
+
+
+@mcp.tool()
+async def check_payment(invoice_id: str) -> dict[str, Any]:
+    """Check the status of a BTCPay invoice and credit balance on settlement.
+
+    Call this after paying a purchase_credits invoice. Credits are granted
+    automatically when payment settles. Safe to call multiple times —
+    credits are only granted once per invoice.
+
+    Args:
+        invoice_id: The invoice ID returned by purchase_credits
+    """
+    try:
+        user_id = _require_user_id()
+        btcpay = _get_btcpay()
+        cache = _get_ledger_cache()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    settings = get_settings()
+    return await credits.check_payment_tool(
+        btcpay, cache, user_id, invoice_id,
+        tier_config_json=settings.btcpay_tier_config,
+        user_tiers_json=settings.btcpay_user_tiers,
+    )
+
+
+@mcp.tool()
+async def check_balance() -> dict[str, Any]:
+    """Check your current credit balance and usage summary.
+
+    Shows balance in satoshis, total deposited/consumed, pending invoices,
+    and today's per-tool usage breakdown.
+    """
+    try:
+        user_id = _require_user_id()
+        cache = _get_ledger_cache()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    return await credits.check_balance_tool(cache, user_id)
 
 
 def main() -> None:
