@@ -11,6 +11,7 @@ from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools.credits import (
     _get_multiplier,
+    _get_tier_info,
     check_balance_tool,
     check_payment_tool,
     purchase_credits_tool,
@@ -76,6 +77,33 @@ class TestGetMultiplier:
         assert _get_multiplier("user1", "not json", "also not json") == 1
 
 
+class TestGetTierInfo:
+    def test_default_when_no_config(self) -> None:
+        name, mult = _get_tier_info("user1", None, None)
+        assert name == "default"
+        assert mult == 1
+
+    def test_vip_tier(self) -> None:
+        name, mult = _get_tier_info("user-vip", TIER_CONFIG, USER_TIERS)
+        assert name == "vip"
+        assert mult == 100
+
+    def test_standard_tier(self) -> None:
+        name, mult = _get_tier_info("user-standard", TIER_CONFIG, USER_TIERS)
+        assert name == "default"
+        assert mult == 1
+
+    def test_unknown_user(self) -> None:
+        name, mult = _get_tier_info("user-unknown", TIER_CONFIG, USER_TIERS)
+        assert name == "default"
+        assert mult == 1
+
+    def test_corrupt_json(self) -> None:
+        name, mult = _get_tier_info("user1", "bad", "bad")
+        assert name == "default"
+        assert mult == 1
+
+
 # ---------------------------------------------------------------------------
 # purchase_credits
 # ---------------------------------------------------------------------------
@@ -128,6 +156,30 @@ class TestPurchaseCredits:
         cache = _mock_cache(ledger)
         await purchase_credits_tool(btcpay, cache, "user1", 500)
         assert "inv-99" in ledger.pending_invoices
+
+    @pytest.mark.asyncio
+    async def test_default_tier_shown(self) -> None:
+        btcpay = _mock_btcpay({"id": "inv-1", "checkoutLink": "https://x.com"})
+        cache = _mock_cache()
+        result = await purchase_credits_tool(
+            btcpay, cache, "user1", 1000,
+            tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
+        )
+        assert result["tier"] == "default"
+        assert result["multiplier"] == 1
+        assert result["expected_credits"] == 1000
+
+    @pytest.mark.asyncio
+    async def test_vip_tier_shown(self) -> None:
+        btcpay = _mock_btcpay({"id": "inv-1", "checkoutLink": "https://x.com"})
+        cache = _mock_cache()
+        result = await purchase_credits_tool(
+            btcpay, cache, "user-vip", 500,
+            tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
+        )
+        assert result["tier"] == "vip"
+        assert result["multiplier"] == 100
+        assert result["expected_credits"] == 50000
 
 
 # ---------------------------------------------------------------------------
@@ -295,3 +347,23 @@ class TestCheckBalance:
         await check_balance_tool(cache, "user1")
         cache.mark_dirty.assert_not_called()
         assert ledger.balance_sats == 500
+
+    @pytest.mark.asyncio
+    async def test_default_tier_shown(self) -> None:
+        cache = _mock_cache()
+        result = await check_balance_tool(
+            cache, "user1",
+            tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
+        )
+        assert result["tier"] == "default"
+        assert result["multiplier"] == 1
+
+    @pytest.mark.asyncio
+    async def test_vip_tier_shown(self) -> None:
+        cache = _mock_cache()
+        result = await check_balance_tool(
+            cache, "user-vip",
+            tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
+        )
+        assert result["tier"] == "vip"
+        assert result["multiplier"] == 100

@@ -16,25 +16,38 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MULTIPLIER = 1
 
 
-def _get_multiplier(
+def _get_tier_info(
     user_id: str,
     tier_config_json: str | None,
     user_tiers_json: str | None,
-) -> int:
-    """Look up credit multiplier for a user based on tier config."""
+) -> tuple[str, int]:
+    """Look up tier name and credit multiplier for a user.
+
+    Returns (tier_name, multiplier).
+    """
     if not tier_config_json or not user_tiers_json:
-        return _DEFAULT_MULTIPLIER
+        return "default", _DEFAULT_MULTIPLIER
 
     try:
         tier_config = json.loads(tier_config_json)
         user_tiers = json.loads(user_tiers_json)
     except (json.JSONDecodeError, TypeError):
         logger.warning("Invalid tier config JSON; using default multiplier.")
-        return _DEFAULT_MULTIPLIER
+        return "default", _DEFAULT_MULTIPLIER
 
     tier_name = user_tiers.get(user_id, "default")
     tier = tier_config.get(tier_name, tier_config.get("default", {}))
-    return int(tier.get("credit_multiplier", _DEFAULT_MULTIPLIER))
+    return tier_name, int(tier.get("credit_multiplier", _DEFAULT_MULTIPLIER))
+
+
+def _get_multiplier(
+    user_id: str,
+    tier_config_json: str | None,
+    user_tiers_json: str | None,
+) -> int:
+    """Look up credit multiplier for a user based on tier config."""
+    _, multiplier = _get_tier_info(user_id, tier_config_json, user_tiers_json)
+    return multiplier
 
 
 async def purchase_credits_tool(
@@ -42,6 +55,8 @@ async def purchase_credits_tool(
     cache: LedgerCache,
     user_id: str,
     amount_sats: int,
+    tier_config_json: str | None = None,
+    user_tiers_json: str | None = None,
 ) -> dict[str, Any]:
     """Create a BTCPay invoice and record it as pending in the user's ledger."""
     if amount_sats <= 0:
@@ -64,19 +79,28 @@ async def purchase_credits_tool(
     ledger.pending_invoices.append(invoice_id)
     cache.mark_dirty(user_id)
 
-    return {
+    tier_name, multiplier = _get_tier_info(user_id, tier_config_json, user_tiers_json)
+    expected_credits = amount_sats * multiplier
+
+    result: dict[str, Any] = {
         "success": True,
         "invoice_id": invoice_id,
         "amount_sats": amount_sats,
         "checkout_link": checkout_link,
         "expiration": expiry,
+        "tier": tier_name,
+        "multiplier": multiplier,
+        "expected_credits": expected_credits,
         "message": (
             f"Invoice created for {amount_sats:,} sats.\n\n"
             f"Pay here: {checkout_link}\n"
-            f"Expires: {expiry}\n\n"
+            f"Expires: {expiry}\n"
+            f"Tier: {tier_name} ({multiplier}x) — "
+            f"you will receive {expected_credits:,} credits on settlement.\n\n"
             f'After paying, call check_payment with invoice_id: "{invoice_id}"'
         ),
     }
+    return result
 
 
 async def check_payment_tool(
@@ -149,13 +173,19 @@ async def check_payment_tool(
 async def check_balance_tool(
     cache: LedgerCache,
     user_id: str,
+    tier_config_json: str | None = None,
+    user_tiers_json: str | None = None,
 ) -> dict[str, Any]:
     """Return the user's current credit balance and usage summary."""
     ledger = await cache.get(user_id)
     today = date.today().isoformat()
 
+    tier_name, multiplier = _get_tier_info(user_id, tier_config_json, user_tiers_json)
+
     result: dict[str, Any] = {
         "success": True,
+        "tier": tier_name,
+        "multiplier": multiplier,
         "balance_sats": ledger.balance_sats,
         "total_deposited_sats": ledger.total_deposited_sats,
         "total_consumed_sats": ledger.total_consumed_sats,
