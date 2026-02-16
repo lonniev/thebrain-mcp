@@ -1,4 +1,4 @@
-"""Credit management tools: purchase_credits, check_payment, check_balance."""
+"""Credit management tools: purchase_credits, check_payment, check_balance, btcpay_status."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import logging
 from datetime import date
 from typing import Any
 
-from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayError
+from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayAuthError, BTCPayError
+from thebrain_mcp.config import Settings
 from thebrain_mcp.ledger_cache import LedgerCache
 
 logger = logging.getLogger(__name__)
@@ -200,5 +201,68 @@ async def check_balance_tool(
             tool: {"calls": u.calls, "sats": u.sats}
             for tool, u in today_log.items()
         }
+
+    return result
+
+
+async def btcpay_status_tool(
+    settings: Settings,
+    btcpay: BTCPayClient | None,
+) -> dict[str, Any]:
+    """Report BTCPay configuration state and connectivity for diagnostics."""
+    result: dict[str, Any] = {
+        "btcpay_host": settings.btcpay_host or None,
+        "btcpay_store_id": settings.btcpay_store_id or None,
+        "btcpay_api_key_status": "present" if settings.btcpay_api_key else "missing",
+    }
+
+    # Tier config
+    if settings.btcpay_tier_config:
+        try:
+            tiers = json.loads(settings.btcpay_tier_config)
+            result["tier_config"] = f"{len(tiers)} tier(s)"
+        except (json.JSONDecodeError, TypeError):
+            result["tier_config"] = "invalid JSON"
+    else:
+        result["tier_config"] = "missing"
+
+    # User tiers
+    if settings.btcpay_user_tiers:
+        try:
+            users = json.loads(settings.btcpay_user_tiers)
+            result["user_tiers"] = f"{len(users)} user(s)"
+        except (json.JSONDecodeError, TypeError):
+            result["user_tiers"] = "invalid JSON"
+    else:
+        result["user_tiers"] = "missing"
+
+    # Connectivity checks — only if all 3 connection vars present and client available
+    connection_vars_present = bool(
+        settings.btcpay_host and settings.btcpay_store_id and settings.btcpay_api_key
+    )
+
+    if connection_vars_present and btcpay is not None:
+        # Health check
+        try:
+            await btcpay.health_check()
+            result["server_reachable"] = True
+        except BTCPayError:
+            result["server_reachable"] = False
+        except Exception:
+            result["server_reachable"] = False
+
+        # Store check
+        try:
+            store = await btcpay.get_store()
+            result["store_name"] = store.get("name", "unknown")
+        except BTCPayAuthError:
+            result["store_name"] = "unauthorized"
+        except BTCPayError:
+            result["store_name"] = None
+        except Exception:
+            result["store_name"] = None
+    else:
+        result["server_reachable"] = None
+        result["store_name"] = None
 
     return result

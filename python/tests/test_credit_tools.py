@@ -1,4 +1,4 @@
-"""Tests for credit management tools: purchase_credits, check_payment, check_balance."""
+"""Tests for credit management tools: purchase_credits, check_payment, check_balance, btcpay_status."""
 
 import json
 from datetime import date
@@ -6,12 +6,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayConnectionError, BTCPayServerError
+from thebrain_mcp.btcpay_client import (
+    BTCPayAuthError,
+    BTCPayClient,
+    BTCPayConnectionError,
+    BTCPayServerError,
+)
 from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools.credits import (
     _get_multiplier,
     _get_tier_info,
+    btcpay_status_tool,
     check_balance_tool,
     check_payment_tool,
     purchase_credits_tool,
@@ -524,3 +530,105 @@ class TestRefreshConfig:
             await srv._refresh_config_impl()
 
         assert call_order == ["snapshot_all", "flush_all"]
+
+
+# ---------------------------------------------------------------------------
+# btcpay_status
+# ---------------------------------------------------------------------------
+
+
+def _mock_settings(**overrides):
+    """Create a mock Settings object with sensible defaults."""
+    defaults = {
+        "btcpay_host": "https://btcpay.example.com",
+        "btcpay_store_id": "store-123",
+        "btcpay_api_key": "key-abc",
+        "btcpay_tier_config": TIER_CONFIG,
+        "btcpay_user_tiers": USER_TIERS,
+    }
+    defaults.update(overrides)
+    settings = MagicMock()
+    for k, v in defaults.items():
+        setattr(settings, k, v)
+    return settings
+
+
+class TestBTCPayStatus:
+    @pytest.mark.asyncio
+    async def test_all_configured_and_reachable(self) -> None:
+        """Full config, server reachable, store accessible."""
+        settings = _mock_settings()
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.health_check = AsyncMock(return_value={"synchronized": True})
+        btcpay.get_store = AsyncMock(return_value={"name": "My Store"})
+
+        result = await btcpay_status_tool(settings, btcpay)
+
+        assert result["btcpay_host"] == "https://btcpay.example.com"
+        assert result["btcpay_store_id"] == "store-123"
+        assert result["btcpay_api_key_status"] == "present"
+        assert result["tier_config"] == "2 tier(s)"
+        assert result["user_tiers"] == "2 user(s)"
+        assert result["server_reachable"] is True
+        assert result["store_name"] == "My Store"
+
+    @pytest.mark.asyncio
+    async def test_api_key_missing(self) -> None:
+        """Missing API key — network checks skipped."""
+        settings = _mock_settings(btcpay_api_key=None)
+
+        result = await btcpay_status_tool(settings, None)
+
+        assert result["btcpay_api_key_status"] == "missing"
+        assert result["server_reachable"] is None
+        assert result["store_name"] is None
+
+    @pytest.mark.asyncio
+    async def test_host_missing(self) -> None:
+        """Missing host — network checks skipped."""
+        settings = _mock_settings(btcpay_host=None)
+
+        result = await btcpay_status_tool(settings, None)
+
+        assert result["btcpay_host"] is None
+        assert result["server_reachable"] is None
+        assert result["store_name"] is None
+
+    @pytest.mark.asyncio
+    async def test_invalid_tier_config_json(self) -> None:
+        """Invalid tier config JSON reported."""
+        settings = _mock_settings(btcpay_tier_config="not valid json{")
+
+        result = await btcpay_status_tool(settings, None)
+
+        assert result["tier_config"] == "invalid JSON"
+
+    @pytest.mark.asyncio
+    async def test_server_unreachable(self) -> None:
+        """Server unreachable — health check fails."""
+        settings = _mock_settings()
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.health_check = AsyncMock(
+            side_effect=BTCPayConnectionError("DNS failed")
+        )
+        btcpay.get_store = AsyncMock(return_value={"name": "My Store"})
+
+        result = await btcpay_status_tool(settings, btcpay)
+
+        assert result["server_reachable"] is False
+        assert result["store_name"] == "My Store"
+
+    @pytest.mark.asyncio
+    async def test_store_auth_failure(self) -> None:
+        """Store returns 401 — reported as unauthorized."""
+        settings = _mock_settings()
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.health_check = AsyncMock(return_value={"synchronized": True})
+        btcpay.get_store = AsyncMock(
+            side_effect=BTCPayAuthError("Unauthorized", status_code=401)
+        )
+
+        result = await btcpay_status_tool(settings, btcpay)
+
+        assert result["server_reachable"] is True
+        assert result["store_name"] == "unauthorized"
