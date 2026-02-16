@@ -2,6 +2,7 @@
 
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastmcp import FastMCP
@@ -943,6 +944,12 @@ async def _refresh_config_impl() -> dict[str, Any]:
     global active_brain_id, _settings_loaded
 
     refreshed: list[str] = []
+
+    # 0. Snapshot all cached ledgers before teardown
+    if _ledger_cache is not None:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        snapped = await _ledger_cache.snapshot_all(ts)
+        refreshed.append(f"ledger snapshots created ({snapped})")
 
     # 1. Flush dirty ledger entries so no credits are lost
     if _ledger_cache is not None:

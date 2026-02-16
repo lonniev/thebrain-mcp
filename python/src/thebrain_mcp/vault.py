@@ -242,6 +242,30 @@ class CredentialVault:
 
         return thought_id
 
+    async def snapshot_ledger(self, user_id: str, ledger_json: str, timestamp: str) -> str | None:
+        """Create a timestamped snapshot of a user's ledger as a child of the ledger thought.
+
+        Returns the snapshot thought ID, or None if no ledger thought exists.
+        """
+        index = await self._read_index()
+        ledger_key = f"{user_id}/ledger"
+        ledger_thought_id = index.get(ledger_key)
+        if not ledger_thought_id:
+            return None
+
+        result = await self._api.create_thought(self._brain_id, {
+            "name": timestamp,
+            "kind": 1,
+            "acType": 1,  # Private
+            "sourceThoughtId": ledger_thought_id,
+            "relation": 1,  # Child
+        })
+        snapshot_id = result["id"]
+        await self._api.create_or_update_note(
+            self._brain_id, snapshot_id, ledger_json
+        )
+        return snapshot_id
+
     async def fetch_ledger(self, user_id: str) -> str | None:
         """Fetch a user's ledger JSON. Returns None if no ledger exists."""
         index = await self._read_index()

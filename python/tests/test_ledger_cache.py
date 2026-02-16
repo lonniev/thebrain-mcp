@@ -206,6 +206,62 @@ class TestLedgerCacheFlush:
 
 
 # ---------------------------------------------------------------------------
+# Snapshot all
+# ---------------------------------------------------------------------------
+
+
+class TestLedgerCacheSnapshotAll:
+    @pytest.mark.asyncio
+    async def test_snapshot_all_iterates_entries(self) -> None:
+        vault = _mock_vault()
+        vault.snapshot_ledger = AsyncMock(return_value="snap-id")
+        cache = LedgerCache(vault, maxsize=5)
+        await cache.get("user1")
+        await cache.get("user2")
+        count = await cache.snapshot_all("2026-02-16T12:00:00Z")
+        assert count == 2
+        assert vault.snapshot_ledger.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_snapshot_all_empty_cache(self) -> None:
+        vault = _mock_vault()
+        vault.snapshot_ledger = AsyncMock(return_value="snap-id")
+        cache = LedgerCache(vault, maxsize=5)
+        count = await cache.snapshot_all("2026-02-16T12:00:00Z")
+        assert count == 0
+        vault.snapshot_ledger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_snapshot_all_skips_failures(self) -> None:
+        vault = _mock_vault()
+        call_count = 0
+
+        async def snapshot_side_effect(user_id, ledger_json, ts):
+            nonlocal call_count
+            call_count += 1
+            if user_id == "user1":
+                raise Exception("vault error")
+            return "snap-id"
+
+        vault.snapshot_ledger = AsyncMock(side_effect=snapshot_side_effect)
+        cache = LedgerCache(vault, maxsize=5)
+        await cache.get("user1")
+        await cache.get("user2")
+        count = await cache.snapshot_all("2026-02-16T12:00:00Z")
+        assert count == 1  # user1 failed, user2 succeeded
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_snapshot_all_counts_none_as_skipped(self) -> None:
+        vault = _mock_vault()
+        vault.snapshot_ledger = AsyncMock(return_value=None)
+        cache = LedgerCache(vault, maxsize=5)
+        await cache.get("user1")
+        count = await cache.snapshot_all("2026-02-16T12:00:00Z")
+        assert count == 0  # None means no ledger thought existed
+
+
+# ---------------------------------------------------------------------------
 # Background flush
 # ---------------------------------------------------------------------------
 

@@ -123,6 +123,20 @@ class LedgerCache:
                     flushed += 1
         return flushed
 
+    async def snapshot_all(self, timestamp: str) -> int:
+        """Snapshot all cached ledgers to vault. Returns count of snapshots created."""
+        snapped = 0
+        for user_id, entry in list(self._entries.items()):
+            try:
+                result = await self._vault.snapshot_ledger(
+                    user_id, entry.ledger.to_json(), timestamp
+                )
+                if result is not None:
+                    snapped += 1
+            except Exception:
+                logger.warning("Failed to snapshot ledger for %s.", user_id)
+        return snapped
+
     async def flush_all(self) -> int:
         """Flush every dirty entry (used during shutdown). Returns flush count."""
         return await self.flush_dirty()
