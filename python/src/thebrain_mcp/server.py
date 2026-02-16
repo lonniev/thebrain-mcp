@@ -1149,6 +1149,27 @@ async def check_balance() -> dict[str, Any]:
     )
 
 
+@mcp.tool()
+async def btcpay_status() -> dict[str, Any]:
+    """Check BTCPay Server configuration and connectivity.
+
+    Reports which env vars are set (never exposes the API key itself),
+    tier config validity, and — if fully configured — whether the server
+    is reachable and the store is accessible. Free diagnostic tool that
+    requires no user authentication.
+    """
+    _ensure_settings_loaded()
+    settings = get_settings()
+
+    btcpay_client: BTCPayClient | None = None
+    try:
+        btcpay_client = _get_btcpay()
+    except ValueError:
+        pass
+
+    return await credits.btcpay_status_tool(settings, btcpay_client)
+
+
 def main() -> None:
     """Main entry point for the server."""
     mcp.run()
