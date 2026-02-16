@@ -385,6 +385,7 @@ class TestRefreshConfig:
         # Set up non-None singletons
         mock_btcpay = AsyncMock(spec=BTCPayClient)
         mock_ledger_cache = AsyncMock(spec=LedgerCache)
+        mock_ledger_cache.snapshot_all = AsyncMock(return_value=0)
         mock_ledger_cache.flush_all = AsyncMock(return_value=0)
         mock_ledger_cache.stop = AsyncMock()
         mock_operator_api = AsyncMock()
@@ -409,12 +410,13 @@ class TestRefreshConfig:
             result = await srv._refresh_config_impl()
 
         assert result["success"] is True
-        assert len(result["refreshed"]) == 4
+        assert len(result["refreshed"]) == 5
         assert result["config_summary"]["btcpay_configured"] is True
         assert result["config_summary"]["tier_config_present"] is True
         assert result["config_summary"]["vault_brain_id"] == "vault-brain-id"
 
         # Verify cleanup was called
+        mock_ledger_cache.snapshot_all.assert_called_once()
         mock_ledger_cache.flush_all.assert_called_once()
         mock_ledger_cache.stop.assert_called_once()
         mock_btcpay.close.assert_called_once()
@@ -460,6 +462,7 @@ class TestRefreshConfig:
         import thebrain_mcp.server as srv
 
         mock_ledger_cache = AsyncMock(spec=LedgerCache)
+        mock_ledger_cache.snapshot_all = AsyncMock(return_value=2)
         mock_ledger_cache.flush_all = AsyncMock(return_value=3)
         mock_ledger_cache.stop = AsyncMock()
         srv._ledger_cache = mock_ledger_cache
@@ -478,6 +481,46 @@ class TestRefreshConfig:
 
             result = await srv._refresh_config_impl()
 
+        assert "ledger snapshots created (2)" in result["refreshed"]
         assert "ledger_cache flushed (3 dirty entries)" in result["refreshed"]
+        mock_ledger_cache.snapshot_all.assert_called_once()
         mock_ledger_cache.flush_all.assert_called_once()
         mock_ledger_cache.stop.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_snapshot_called_before_flush(self) -> None:
+        """Snapshot must happen before flush to capture pre-overwrite state."""
+        import thebrain_mcp.server as srv
+
+        call_order: list[str] = []
+
+        mock_ledger_cache = AsyncMock(spec=LedgerCache)
+
+        async def mock_snapshot_all(ts):
+            call_order.append("snapshot_all")
+            return 1
+
+        async def mock_flush_all():
+            call_order.append("flush_all")
+            return 1
+
+        mock_ledger_cache.snapshot_all = AsyncMock(side_effect=mock_snapshot_all)
+        mock_ledger_cache.flush_all = AsyncMock(side_effect=mock_flush_all)
+        mock_ledger_cache.stop = AsyncMock()
+        srv._ledger_cache = mock_ledger_cache
+        srv._btcpay_client = None
+        srv._operator_api_client = None
+
+        with patch.object(srv, "_ensure_settings_loaded"), \
+             patch.object(srv, "get_settings") as mock_get_settings:
+            mock_settings = MagicMock()
+            mock_settings.btcpay_host = ""
+            mock_settings.btcpay_store_id = ""
+            mock_settings.btcpay_api_key = ""
+            mock_settings.btcpay_tier_config = None
+            mock_settings.thebrain_vault_brain_id = None
+            mock_get_settings.return_value = mock_settings
+
+            await srv._refresh_config_impl()
+
+        assert call_order == ["snapshot_all", "flush_all"]

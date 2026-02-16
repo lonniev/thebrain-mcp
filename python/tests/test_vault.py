@@ -219,6 +219,31 @@ class TestCredentialVault:
             await vault.fetch("unknown-user")
 
     @pytest.mark.asyncio
+    async def test_snapshot_ledger_creates_child(self) -> None:
+        api = _mock_vault_api(index={"user1/ledger": "ledger-thought-1"})
+        vault = CredentialVault(api, "vault-brain", "home")
+        snapshot_id = await vault.snapshot_ledger(
+            "user1", '{"balance_sats": 500}', "2026-02-16T12:00:00Z"
+        )
+        assert snapshot_id == "new-thought-id"
+        api.create_thought.assert_called_once()
+        call_args = api.create_thought.call_args[0]
+        assert call_args[1]["name"] == "2026-02-16T12:00:00Z"
+        assert call_args[1]["sourceThoughtId"] == "ledger-thought-1"
+        assert call_args[1]["relation"] == 1  # Child
+        api.create_or_update_note.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_snapshot_ledger_no_ledger_returns_none(self) -> None:
+        api = _mock_vault_api(index={})
+        vault = CredentialVault(api, "vault-brain", "home")
+        result = await vault.snapshot_ledger(
+            "user1", '{"balance_sats": 0}', "2026-02-16T12:00:00Z"
+        )
+        assert result is None
+        api.create_thought.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_fetch_empty_note(self) -> None:
         api = _mock_vault_api(
             index={"user1": "thought-1"},
