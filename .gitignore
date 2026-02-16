@@ -1,25 +1,23 @@
-# Dependencies
-node_modules/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+.venv/
 
 # Environment variables
 .env
 .env.local
 .env.*.local
 
-# Logs
-logs/
-*.log
-npm-debug.log*
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Test coverage
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
 coverage/
-.nyc_output/
 
 # IDE
 .idea/
@@ -31,10 +29,6 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
-
-# Build outputs
-dist/
-build/
 
 # Temporary files
 tmp/
