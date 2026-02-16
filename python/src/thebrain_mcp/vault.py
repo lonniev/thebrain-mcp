@@ -208,6 +208,56 @@ class CredentialVault:
 
         return note.markdown
 
+    # -- ledger storage -------------------------------------------------------
+
+    async def store_ledger(self, user_id: str, ledger_json: str) -> str:
+        """Store a user's ledger JSON as a child thought of their credential thought.
+
+        Uses index key ``"{user_id}/ledger"`` to track the ledger thought ID.
+        Returns the thought ID where the ledger is stored.
+        """
+        index = await self._read_index()
+        ledger_key = f"{user_id}/ledger"
+        thought_id = index.get(ledger_key)
+
+        if thought_id:
+            await self._api.create_or_update_note(
+                self._brain_id, thought_id, ledger_json
+            )
+        else:
+            cred_thought_id = index.get(user_id, self._home_thought_id)
+            result = await self._api.create_thought(self._brain_id, {
+                "name": f"{user_id}/ledger",
+                "kind": 1,
+                "acType": 1,  # Private
+                "sourceThoughtId": cred_thought_id,
+                "relation": 1,  # Child
+            })
+            thought_id = result["id"]
+            await self._api.create_or_update_note(
+                self._brain_id, thought_id, ledger_json
+            )
+            index[ledger_key] = thought_id
+            await self._write_index(index)
+
+        return thought_id
+
+    async def fetch_ledger(self, user_id: str) -> str | None:
+        """Fetch a user's ledger JSON. Returns None if no ledger exists."""
+        index = await self._read_index()
+        ledger_key = f"{user_id}/ledger"
+        thought_id = index.get(ledger_key)
+        if not thought_id:
+            return None
+
+        try:
+            note = await self._api.get_note(self._brain_id, thought_id, "markdown")
+        except TheBrainAPIError:
+            logger.warning("Ledger thought exists but could not be read for %s.", user_id)
+            return None
+
+        return note.markdown if note.markdown else None
+
 
 # ---------------------------------------------------------------------------
 # In-memory session store
