@@ -1015,7 +1015,12 @@ async def purchase_credits(amount_sats: int) -> dict[str, Any]:
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
 
-    return await credits.purchase_credits_tool(btcpay, cache, user_id, amount_sats)
+    settings = get_settings()
+    return await credits.purchase_credits_tool(
+        btcpay, cache, user_id, amount_sats,
+        tier_config_json=settings.btcpay_tier_config,
+        user_tiers_json=settings.btcpay_user_tiers,
+    )
 
 
 @mcp.tool()
@@ -1057,7 +1062,12 @@ async def check_balance() -> dict[str, Any]:
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
 
-    return await credits.check_balance_tool(cache, user_id)
+    settings = get_settings()
+    return await credits.check_balance_tool(
+        cache, user_id,
+        tier_config_json=settings.btcpay_tier_config,
+        user_tiers_json=settings.btcpay_user_tiers,
+    )
 
 
 def main() -> None:
