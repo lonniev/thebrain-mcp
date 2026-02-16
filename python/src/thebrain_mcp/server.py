@@ -769,6 +769,14 @@ async def brain_query(
     DELETE is two-phase: first call returns a preview (dry-run), then call
     again with confirm=true to execute the deletion.
 
+    Path Scoping: Generic names (e.g., "In-Progress", "TASKS", "Done") may
+    exist in multiple sub-graphs. Always anchor queries from a unique ancestor
+    and traverse down rather than matching a generic name directly.
+
+    BAD:  MATCH (p {name: "In-Progress"})-[:CHILD]->(t) RETURN t
+    GOOD: MATCH (proj {name: "thebrain-mcp"})-[:CHILD*2..3]->(ip)
+          WHERE ip.name = "In-Progress" RETURN ip
+
     Examples:
         MATCH (p:Person) WHERE p.name =~ "Lonnie" RETURN p
         MATCH (a {name: "My Thoughts"})-[:CHILD*1..2]->(b) RETURN b
@@ -777,6 +785,8 @@ async def brain_query(
         MATCH (n) WHERE n.name CONTAINS "MCP" AND NOT n.name ENDS WITH "Old" RETURN n
         MATCH (n {name: "Old Note"}) DELETE n
         MATCH (a)-[r:JUMP]->(b {name: "Bob"}) DELETE r
+        MATCH (proj {name: "thebrain-mcp"})-[:CHILD]->(tasks {name: "TASKS"})-[:CHILD]->(col)-[:CHILD]->(t) RETURN t
+        MATCH (root {name: "Claude Thoughts"})-[:CHILD*1..3]->(d) WHERE d.name CONTAINS "MCP" RETURN d
 
     If results are unexpectedly empty, retry with get_thought_by_name or
     search_thoughts.
