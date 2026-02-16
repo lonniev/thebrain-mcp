@@ -544,6 +544,53 @@ MATCH (a {name: "A"}), (b {name: "B"}) DELETE a, b
 - DETACH DELETE is accepted for Cypher compatibility but behaves identically to DELETE (TheBrain handles orphan cleanup).
 - The `confirm` parameter must be set to `true` to actually execute the deletion. Without it, a preview of what would be deleted is returned.
 
+## Best Practices: Query Scoping
+
+Generic names like "In-Progress", "Done", "TASKS", and "Proposed" appear in multiple sub-graphs when a Brain has several projects following the same structural pattern (e.g., Kanban boards, date hierarchies). BQL's search index returns whichever match it finds first — often the wrong one.
+
+### Always scope from a unique name
+
+Anchor your query at a thought with a globally unique name and traverse down to the target. This is the BQL equivalent of schema-qualifying table names in SQL.
+
+```cypher
+-- BAD: "In-Progress" exists under every project's TASKS board
+MATCH (p {name: "In-Progress"})-[:CHILD]->(t) RETURN t
+
+-- GOOD: scope from the unique project name
+MATCH (proj {name: "thebrain-mcp"})-[:CHILD]->(tasks {name: "TASKS"})
+      -[:CHILD]->(ip {name: "In-Progress"})-[:CHILD]->(t)
+RETURN t
+```
+
+### Use wildcard hops to bridge structural layers
+
+When a path crosses several intermediate layers (Project → TASKS → Column → Task), use `*N..M` to skip layers you don't need to name individually.
+
+```cypher
+-- Bridge 2-3 layers without naming each intermediate
+MATCH (proj {name: "thebrain-mcp"})-[:CHILD*2..3]->(ip)
+WHERE ip.name = "In-Progress"
+RETURN ip
+
+-- Explore a subtree without knowing exact depth
+MATCH (root {name: "Claude Thoughts"})-[:CHILD*1..3]->(d)
+WHERE d.name CONTAINS "MCP"
+RETURN d
+```
+
+### Filter at the leaf, not the root
+
+Anchor on the unique ancestor, fan out with wildcards, and use WHERE to filter the results. This avoids ambiguous root matches.
+
+```cypher
+-- Find all tasks tagged "urgent" under a specific project
+MATCH (proj {name: "thebrain-mcp"})-[:CHILD*1..4]->(t)
+WHERE t.name CONTAINS "urgent"
+RETURN t
+```
+
+---
+
 ## Resolution Strategy
 
 When executing a MATCH, the query planner resolves nodes by operator:
