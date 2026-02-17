@@ -10,9 +10,7 @@ Built with [FastMCP](https://github.com/jlowin/fastmcp). Deployed on FastMCP Clo
 
 ---
 
-## Tollbooth — An MCP Server That Pays for Itself
-
-the Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates
+## Tollbooth — the Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates
 
 Tollbooth is the built-in monetization layer that gates AI agent access behind Bitcoin Lightning micropayments. No subscriptions, no API keys tied to billing accounts, no fiat payment processors.
 
