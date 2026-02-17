@@ -217,6 +217,58 @@ class TestGracefulShutdown:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Opportunistic flush (request-driven)
+# ---------------------------------------------------------------------------
+
+
+class TestOpportunisticFlush:
+    @pytest.mark.asyncio
+    async def test_opportunistic_flush_after_interval(self) -> None:
+        """get() triggers flush when interval has elapsed and entries are dirty."""
+        cache = _make_cache(flush_interval_secs=0)  # interval=0 → flush on every get()
+        ledger = await cache.get("user-1")
+        ledger.balance_sats = 500
+        cache.mark_dirty("user-1")
+
+        # Next get() should trigger opportunistic flush
+        await cache.get("user-1")
+        cache._vault.store_ledger.assert_called_once()
+        assert cache._total_flushes == 1
+
+    @pytest.mark.asyncio
+    async def test_no_flush_before_interval(self) -> None:
+        """get() does NOT flush when interval has not elapsed."""
+        cache = _make_cache(flush_interval_secs=9999)
+        ledger = await cache.get("user-1")
+        cache.mark_dirty("user-1")
+
+        await cache.get("user-1")
+        cache._vault.store_ledger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_flush_when_clean(self) -> None:
+        """get() does NOT flush when nothing is dirty, even if interval elapsed."""
+        cache = _make_cache(flush_interval_secs=0)
+        await cache.get("user-1")  # not marked dirty
+
+        await cache.get("user-1")
+        cache._vault.store_ledger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_health_includes_flush_check_age(self) -> None:
+        """health() includes last_flush_check_age_secs."""
+        cache = _make_cache()
+        h = cache.health()
+        assert "last_flush_check_age_secs" in h
+        assert isinstance(h["last_flush_check_age_secs"], float)
+
+
+# ---------------------------------------------------------------------------
+# check_balance includes cache_health
+# ---------------------------------------------------------------------------
+
+
 class TestCheckBalanceCacheHealth:
     @pytest.mark.asyncio
     async def test_check_balance_includes_cache_health(self) -> None:
