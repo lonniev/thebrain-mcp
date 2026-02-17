@@ -165,20 +165,32 @@ ruff check src/ tests/
 - **Large files**: Very large attachments may timeout
 - **Long notes**: Keep notes under 10,000 characters for best results
 
+## Prior Art & Attribution
+
+The methods, algorithms, and implementations contained in this repository may represent original work by Lonnie VanZandt, first published on February 16, 2026. This public disclosure establishes prior art under U.S. patent law (35 U.S.C. 102).
+
+All use, reproduction, or derivative work must comply with the Apache License 2.0 included in this repository and must provide proper attribution to the original author per the NOTICE file.
+
+### How to Attribute
+
+If you use or build upon this work, please include the following in your documentation or source:
+
+    Based on original work by Lonnie VanZandt and Claude.ai
+    Originally published: February 16, 2026
+    Source: https://github.com/lonniev/thebrain-mcp
+    Licensed under Apache License 2.0
+
+### Patent Notice
+
+The author reserves all rights to seek patent protection for the novel methods and systems described herein. Public disclosure of this work establishes a priority date of February 16, 2026. Under the America Invents Act, the author retains a one-year grace period from the date of first public disclosure to file patent applications.
+
+**Note to potential filers:** This public repository and its full Git history serve as evidence of prior art. Any patent application covering substantially similar methods filed after the publication date of this repository may be subject to invalidation under 35 U.S.C. 102(a).
+
 ## License
 
-MIT License - see [LICENSE](../LICENSE) file for details.
+Apache License 2.0 - see [LICENSE](../LICENSE) and [NOTICE](../NOTICE) files for details.
 
 ## Support
 
 - **TheBrain API Documentation**: https://api.bra.in
-- **Issues**: https://github.com/redmorestudio/thebrain-mcp/issues
-- **Original Node.js version**: See parent directory
-
-## Differences from Node.js Version
-
-This Python implementation uses:
-- **FastMCP** instead of MCP SDK for simpler tool registration
-- **httpx** for modern async HTTP requests
-- **Pydantic** for robust data validation and type safety
-- **Type hints** throughout for better IDE support and static analysis
+- **Issues**: https://github.com/lonniev/thebrain-mcp/issues
