@@ -75,10 +75,12 @@ async def purchase_credits_tool(
     checkout_link = invoice.get("checkoutLink", "")
     expiry = invoice.get("expirationTime", "")
 
-    # Record pending invoice
+    # Record pending invoice — flush immediately so the invoice survives cache loss
     ledger = await cache.get(user_id)
     ledger.pending_invoices.append(invoice_id)
     cache.mark_dirty(user_id)
+    if not await cache.flush_user(user_id):
+        logger.warning("Failed to flush pending invoice %s for %s.", invoice_id, user_id)
 
     tier_name, multiplier = _get_tier_info(user_id, tier_config_json, user_tiers_json)
     expected_credits = amount_sats * multiplier
@@ -138,13 +140,19 @@ async def check_payment_tool(
 
     elif status == "Settled":
         if invoice_id in ledger.pending_invoices:
-            # Credit the user
+            # Credit the user — flush immediately so credits survive cache loss
             amount_str = invoice.get("amount", "0")
             amount_sats = int(float(amount_str))
             multiplier = _get_multiplier(user_id, tier_config_json, user_tiers_json)
             credited = amount_sats * multiplier
             ledger.credit_deposit(credited, invoice_id)
             cache.mark_dirty(user_id)
+            if not await cache.flush_user(user_id):
+                logger.error(
+                    "CRITICAL: Failed to flush %d credits for %s (invoice %s). "
+                    "Credits are in memory but may be lost on restart.",
+                    credited, user_id, invoice_id,
+                )
             result["credits_granted"] = credited
             result["multiplier"] = multiplier
             result["message"] = f"Payment settled! {credited:,} credits added to your balance."
@@ -156,12 +164,14 @@ async def check_payment_tool(
         if invoice_id in ledger.pending_invoices:
             ledger.pending_invoices.remove(invoice_id)
             cache.mark_dirty(user_id)
+            await cache.flush_user(user_id)
         result["message"] = "Invoice expired. Create a new one with purchase_credits."
 
     elif status == "Invalid":
         if invoice_id in ledger.pending_invoices:
             ledger.pending_invoices.remove(invoice_id)
             cache.mark_dirty(user_id)
+            await cache.flush_user(user_id)
         result["message"] = "Payment invalid."
 
     else:
