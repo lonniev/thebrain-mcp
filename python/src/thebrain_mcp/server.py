@@ -1313,8 +1313,8 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
     if not ledger.debit(tool_name, cost):
         return {
             "success": False,
-            "error": f"Insufficient balance ({ledger.balance_sats} sats) "
-                     f"for {tool_name} ({cost} sats). "
+            "error": f"Insufficient balance ({ledger.balance_api_sats} api_sats) "
+                     f"for {tool_name} ({cost} api_sats). "
                      f"Use purchase_credits to add funds.",
         }
 
@@ -1400,7 +1400,7 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
 async def check_balance() -> dict[str, Any]:
     """Check your current credit balance and usage summary.
 
-    Shows balance in satoshis, total deposited/consumed, pending invoices,
+    Shows balance in api_sats, total deposited/consumed, pending invoices,
     and today's per-tool usage breakdown.
     """
     try:

@@ -223,7 +223,7 @@ class TestCredentialVault:
         api = _mock_vault_api(index={"user1/ledger": "ledger-thought-1"})
         vault = CredentialVault(api, "vault-brain", "home")
         snapshot_id = await vault.snapshot_ledger(
-            "user1", '{"balance_sats": 500}', "2026-02-16T12:00:00Z"
+            "user1", '{"balance_api_sats": 500}', "2026-02-16T12:00:00Z"
         )
         assert snapshot_id == "new-thought-id"
         api.create_thought.assert_called_once()
@@ -238,7 +238,7 @@ class TestCredentialVault:
         api = _mock_vault_api(index={})
         vault = CredentialVault(api, "vault-brain", "home")
         result = await vault.snapshot_ledger(
-            "user1", '{"balance_sats": 0}', "2026-02-16T12:00:00Z"
+            "user1", '{"balance_api_sats": 0}', "2026-02-16T12:00:00Z"
         )
         assert result is None
         api.create_thought.assert_not_called()

@@ -51,14 +51,14 @@ class TestDebitOrError:
         """Read-tier tool debits 1 sat and marks dirty."""
         from thebrain_mcp.server import _debit_or_error
 
-        ledger = UserLedger(balance_sats=100)
+        ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             result = await _debit_or_error("search_thoughts")
 
         assert result is None
-        assert ledger.balance_sats == 99
+        assert ledger.balance_api_sats == 99
         cache.mark_dirty.assert_called_once_with("user-1")
 
     @pytest.mark.asyncio
@@ -66,35 +66,35 @@ class TestDebitOrError:
         """Write-tier tool debits 5 sats."""
         from thebrain_mcp.server import _debit_or_error
 
-        ledger = UserLedger(balance_sats=100)
+        ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             result = await _debit_or_error("create_thought")
 
         assert result is None
-        assert ledger.balance_sats == 95
+        assert ledger.balance_api_sats == 95
 
     @pytest.mark.asyncio
     async def test_heavy_tool_debits_10_sats(self) -> None:
         """Heavy-tier tool debits 10 sats."""
         from thebrain_mcp.server import _debit_or_error
 
-        ledger = UserLedger(balance_sats=100)
+        ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             result = await _debit_or_error("brain_query")
 
         assert result is None
-        assert ledger.balance_sats == 90
+        assert ledger.balance_api_sats == 90
 
     @pytest.mark.asyncio
     async def test_insufficient_balance_returns_error(self) -> None:
         """Insufficient balance returns an error dict with a hint."""
         from thebrain_mcp.server import _debit_or_error
 
-        ledger = UserLedger(balance_sats=0)
+        ledger = UserLedger(balance_api_sats=0)
         cache = _mock_cache(ledger)
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
@@ -105,7 +105,7 @@ class TestDebitOrError:
         assert "Insufficient balance" in result["error"]
         assert "purchase_credits" in result["error"]
         # Balance unchanged
-        assert ledger.balance_sats == 0
+        assert ledger.balance_api_sats == 0
         cache.mark_dirty.assert_not_called()
 
     @pytest.mark.asyncio
@@ -138,17 +138,17 @@ class TestRollbackDebit:
         """Rollback after a failed API call restores balance."""
         from thebrain_mcp.server import _debit_or_error, _rollback_debit
 
-        ledger = UserLedger(balance_sats=100)
+        ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             # Debit first
             await _debit_or_error("search_thoughts")
-            assert ledger.balance_sats == 99
+            assert ledger.balance_api_sats == 99
 
             # Rollback
             await _rollback_debit("search_thoughts")
-            assert ledger.balance_sats == 100
+            assert ledger.balance_api_sats == 100
 
         # mark_dirty called twice (once for debit, once for rollback)
         assert cache.mark_dirty.call_count == 2
