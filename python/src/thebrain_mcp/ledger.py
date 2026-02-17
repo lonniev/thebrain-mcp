@@ -15,7 +15,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +43,50 @@ class ToolUsage:
 
 
 # ---------------------------------------------------------------------------
+# InvoiceRecord
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class InvoiceRecord:
+    """Append-only record of a single BTCPay invoice."""
+
+    invoice_id: str
+    amount_sats: int  # Real BTC satoshis (never rename to api_sats)
+    api_sats_credited: int = 0  # Multiplied credits granted
+    multiplier: int = 1
+    status: str = "Pending"  # Pending | Settled | Expired | Invalid
+    created_at: str = ""  # ISO datetime
+    settled_at: str | None = None
+    btcpay_status: str | None = None  # Raw BTCPay status string
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "invoice_id": self.invoice_id,
+            "amount_sats": self.amount_sats,
+            "api_sats_credited": self.api_sats_credited,
+            "multiplier": self.multiplier,
+            "status": self.status,
+            "created_at": self.created_at,
+            "settled_at": self.settled_at,
+            "btcpay_status": self.btcpay_status,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> InvoiceRecord:
+        return cls(
+            invoice_id=str(data.get("invoice_id", "")),
+            amount_sats=int(data.get("amount_sats", 0)),
+            api_sats_credited=int(data.get("api_sats_credited", 0)),
+            multiplier=int(data.get("multiplier", 1)),
+            status=str(data.get("status", "Pending")),
+            created_at=str(data.get("created_at", "")),
+            settled_at=data.get("settled_at"),
+            btcpay_status=data.get("btcpay_status"),
+        )
+
+
+# ---------------------------------------------------------------------------
 # UserLedger
 # ---------------------------------------------------------------------------
 
@@ -64,6 +108,61 @@ class UserLedger:
     last_deposit_at: str | None = None
     daily_log: dict[str, dict[str, ToolUsage]] = field(default_factory=dict)
     history: dict[str, ToolUsage] = field(default_factory=dict)
+    invoices: dict[str, InvoiceRecord] = field(default_factory=dict)
+
+    # -- invoice record helpers ------------------------------------------------
+
+    def record_invoice_created(
+        self, invoice_id: str, amount_sats: int, multiplier: int, created_at: str,
+    ) -> None:
+        """Record a newly created invoice (Pending status)."""
+        self.invoices[invoice_id] = InvoiceRecord(
+            invoice_id=invoice_id,
+            amount_sats=amount_sats,
+            multiplier=multiplier,
+            status="Pending",
+            created_at=created_at,
+            btcpay_status="New",
+        )
+
+    def record_invoice_settled(
+        self,
+        invoice_id: str,
+        api_sats_credited: int,
+        settled_at: str,
+        btcpay_status: str = "Settled",
+    ) -> None:
+        """Update an existing invoice record to Settled with credit info.
+
+        Creates a retroactive record if the invoice wasn't tracked at creation
+        (e.g. invoices created before this feature was deployed).
+        """
+        rec = self.invoices.get(invoice_id)
+        if rec:
+            rec.status = "Settled"
+            rec.api_sats_credited = api_sats_credited
+            rec.settled_at = settled_at
+            rec.btcpay_status = btcpay_status
+        else:
+            self.invoices[invoice_id] = InvoiceRecord(
+                invoice_id=invoice_id,
+                amount_sats=0,  # Unknown — wasn't tracked at creation
+                api_sats_credited=api_sats_credited,
+                multiplier=0,  # Unknown
+                status="Settled",
+                created_at="",  # Unknown
+                settled_at=settled_at,
+                btcpay_status=btcpay_status,
+            )
+
+    def record_invoice_terminal(
+        self, invoice_id: str, status: str, btcpay_status: str,
+    ) -> None:
+        """Update an existing invoice record to a terminal state (Expired/Invalid)."""
+        rec = self.invoices.get(invoice_id)
+        if rec:
+            rec.status = status
+            rec.btcpay_status = btcpay_status
 
     # -- mutations ------------------------------------------------------------
 
@@ -146,6 +245,9 @@ class UserLedger:
             "history": {
                 tool: u.to_dict() for tool, u in self.history.items()
             },
+            "invoices": {
+                iid: rec.to_dict() for iid, rec in self.invoices.items()
+            },
         })
 
     @classmethod
@@ -184,6 +286,13 @@ class UserLedger:
                 if isinstance(u, dict)
             }
 
+        invoices: dict[str, InvoiceRecord] = {}
+        raw_invoices = obj.get("invoices", {})
+        if isinstance(raw_invoices, dict):
+            for iid, rec_data in raw_invoices.items():
+                if isinstance(rec_data, dict):
+                    invoices[iid] = InvoiceRecord.from_dict(rec_data)
+
         # Migration: accept v1 keys (*_sats) or v2 keys (*_api_sats)
         def _get_int(new_key: str, old_key: str) -> int:
             return int(obj.get(new_key, obj.get(old_key, 0)))
@@ -197,4 +306,5 @@ class UserLedger:
             last_deposit_at=obj.get("last_deposit_at"),
             daily_log=daily_log,
             history=history,
+            invoices=invoices,
         )
