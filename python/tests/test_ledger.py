@@ -151,7 +151,7 @@ class TestLedgerSerialization:
     def test_schema_version(self) -> None:
         ledger = UserLedger()
         obj = json.loads(ledger.to_json())
-        assert obj["v"] == 2
+        assert obj["v"] == 3
 
     def test_from_json_missing_fields(self) -> None:
         restored = UserLedger.from_json('{"v": 1}')

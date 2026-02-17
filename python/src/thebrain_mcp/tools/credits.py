@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayAuthError, BTCPayError
@@ -75,15 +75,21 @@ async def purchase_credits_tool(
     checkout_link = invoice.get("checkoutLink", "")
     expiry = invoice.get("expirationTime", "")
 
+    tier_name, multiplier = _get_tier_info(user_id, tier_config_json, user_tiers_json)
+    expected_credits = amount_sats * multiplier
+
     # Record pending invoice — flush immediately so the invoice survives cache loss
     ledger = await cache.get(user_id)
     ledger.pending_invoices.append(invoice_id)
+    ledger.record_invoice_created(
+        invoice_id=invoice_id,
+        amount_sats=amount_sats,
+        multiplier=multiplier,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
     cache.mark_dirty(user_id)
     if not await cache.flush_user(user_id):
         logger.warning("Failed to flush pending invoice %s for %s.", invoice_id, user_id)
-
-    tier_name, multiplier = _get_tier_info(user_id, tier_config_json, user_tiers_json)
-    expected_credits = amount_sats * multiplier
 
     result: dict[str, Any] = {
         "success": True,
@@ -150,6 +156,12 @@ async def check_payment_tool(
             multiplier = _get_multiplier(user_id, tier_config_json, user_tiers_json)
             credited = amount_sats * multiplier
             ledger.credit_deposit(credited, invoice_id)
+            ledger.record_invoice_settled(
+                invoice_id=invoice_id,
+                api_sats_credited=credited,
+                settled_at=datetime.now(timezone.utc).isoformat(),
+                btcpay_status=status,
+            )
             cache.mark_dirty(user_id)
             if not await cache.flush_user(user_id):
                 logger.error(
@@ -164,15 +176,17 @@ async def check_payment_tool(
     elif status == "Expired":
         if invoice_id in ledger.pending_invoices:
             ledger.pending_invoices.remove(invoice_id)
-            cache.mark_dirty(user_id)
-            await cache.flush_user(user_id)
+        ledger.record_invoice_terminal(invoice_id, "Expired", status)
+        cache.mark_dirty(user_id)
+        await cache.flush_user(user_id)
         result["message"] = "Invoice expired. Create a new one with purchase_credits."
 
     elif status == "Invalid":
         if invoice_id in ledger.pending_invoices:
             ledger.pending_invoices.remove(invoice_id)
-            cache.mark_dirty(user_id)
-            await cache.flush_user(user_id)
+        ledger.record_invoice_terminal(invoice_id, "Invalid", status)
+        cache.mark_dirty(user_id)
+        await cache.flush_user(user_id)
         result["message"] = "Payment invalid."
 
     else:
@@ -213,6 +227,18 @@ async def check_balance_tool(
             for tool, u in today_log.items()
         }
 
+    # Invoice history summary
+    if ledger.invoices:
+        settled = [r for r in ledger.invoices.values() if r.status == "Settled"]
+        pending = [r for r in ledger.invoices.values() if r.status == "Pending"]
+        result["invoice_summary"] = {
+            "total_invoices": len(ledger.invoices),
+            "settled_count": len(settled),
+            "pending_count": len(pending),
+            "total_real_sats": sum(r.amount_sats for r in settled),
+            "total_api_sats_credited": sum(r.api_sats_credited for r in settled),
+        }
+
     return result
 
 
@@ -240,7 +266,30 @@ async def restore_credits_tool(
             "message": "Invoice already credited — no duplicate credits applied.",
         }
 
-    # Verify with BTCPay
+    # Vault-first: check if we have a settled invoice record in the ledger
+    vault_record = ledger.invoices.get(invoice_id)
+    if vault_record and vault_record.status == "Settled" and vault_record.api_sats_credited > 0:
+        # Restore from vault record — no BTCPay call needed
+        credited = vault_record.api_sats_credited
+        ledger.credit_deposit(credited, invoice_id)
+        cache.mark_dirty(user_id)
+        if not await cache.flush_user(user_id):
+            logger.error(
+                "CRITICAL: Failed to flush vault-restored %d credits for %s (invoice %s).",
+                credited, user_id, invoice_id,
+            )
+        return {
+            "success": True,
+            "invoice_id": invoice_id,
+            "source": "vault_record",
+            "amount_sats": vault_record.amount_sats,
+            "multiplier": vault_record.multiplier,
+            "credits_granted": credited,
+            "balance_api_sats": ledger.balance_api_sats,
+            "message": f"Restored {credited:,} credits from vault invoice record.",
+        }
+
+    # Fall back to BTCPay verification
     try:
         invoice = await btcpay.get_invoice(invoice_id)
     except BTCPayError as e:
@@ -261,6 +310,12 @@ async def restore_credits_tool(
     credited = amount_sats * multiplier
 
     ledger.credit_deposit(credited, invoice_id)
+    ledger.record_invoice_settled(
+        invoice_id=invoice_id,
+        api_sats_credited=credited,
+        settled_at=datetime.now(timezone.utc).isoformat(),
+        btcpay_status=status,
+    )
     cache.mark_dirty(user_id)
     if not await cache.flush_user(user_id):
         logger.error(
@@ -271,6 +326,7 @@ async def restore_credits_tool(
     return {
         "success": True,
         "invoice_id": invoice_id,
+        "source": "btcpay",
         "amount_sats": amount_sats,
         "multiplier": multiplier,
         "credits_granted": credited,
