@@ -1569,6 +1569,51 @@ async def btcpay_status() -> dict[str, Any]:
     return result
 
 
+async def _test_low_balance_warning_impl(simulated_balance_api_sats: int = 50) -> dict[str, Any]:
+    """Core logic for test_low_balance_warning.
+
+    Extracted so tests can call it directly (the @mcp.tool wrapper
+    produces a FunctionTool, not a plain coroutine).
+    """
+    import dataclasses
+
+    try:
+        user_id = _require_user_id()
+        cache = _get_ledger_cache()
+        ledger = await cache.get(user_id)
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    fake_ledger = dataclasses.replace(ledger, balance_api_sats=simulated_balance_api_sats)
+    settings = get_settings()
+    warning = credits.compute_low_balance_warning(fake_ledger, settings.seed_balance_sats)
+
+    result: dict[str, Any] = {
+        "success": True,
+        "simulated_tool": "get_types",
+        "note": "This is a simulation — no real tool was called and no credits were debited.",
+        "simulated_balance_api_sats": simulated_balance_api_sats,
+        "real_balance_api_sats": ledger.balance_api_sats,
+    }
+    if warning:
+        result["low_balance_warning"] = warning
+    return result
+
+
+@mcp.tool()
+async def test_low_balance_warning(simulated_balance_api_sats: int = 50) -> dict[str, Any]:
+    """Simulate a low-balance tool response with an overridden balance.
+
+    Operator diagnostic: uses your real ledger data but substitutes the
+    balance so you can see exactly what an agent would see when balance
+    is low. Read-only — never mutates your real ledger.
+
+    Args:
+        simulated_balance_api_sats: The fake balance to use for the warning check
+    """
+    return await _test_low_balance_warning_impl(simulated_balance_api_sats)
+
+
 def main() -> None:
     """Main entry point for the server."""
     mcp.run()
