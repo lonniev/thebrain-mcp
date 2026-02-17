@@ -9,7 +9,9 @@ from typing import Any
 
 from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayAuthError, BTCPayError
 from thebrain_mcp.config import Settings
+from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
+from thebrain_mcp.utils.constants import LOW_BALANCE_FLOOR_API_SATS, MAX_INVOICE_SATS
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,12 @@ async def purchase_credits_tool(
     """Create a BTCPay invoice and record it as pending in the user's ledger."""
     if amount_sats <= 0:
         return {"success": False, "error": "amount_sats must be positive."}
+
+    if amount_sats > MAX_INVOICE_SATS:
+        return {
+            "success": False,
+            "error": f"amount_sats exceeds maximum of {MAX_INVOICE_SATS:,} sats (0.01 BTC) per invoice.",
+        }
 
     try:
         invoice = await btcpay.create_invoice(
@@ -335,6 +343,52 @@ async def restore_credits_tool(
         "credits_granted": credited,
         "balance_api_sats": ledger.balance_api_sats,
         "message": f"Restored {credited:,} credits from invoice {invoice_id}.",
+    }
+
+
+def compute_low_balance_warning(
+    ledger: UserLedger,
+    seed_balance_sats: int,
+    low_balance_floor: int = LOW_BALANCE_FLOOR_API_SATS,
+) -> dict[str, Any] | None:
+    """Compute a low-balance warning dict if balance is running low.
+
+    Returns None if balance is healthy (>= threshold).
+    """
+    # Find reference amount from last settled invoice
+    settled = [r for r in ledger.invoices.values() if r.status == "Settled"]
+    if settled:
+        last = settled[-1]
+        reference = last.api_sats_credited
+    elif seed_balance_sats > 0 and "seed_balance_v1" in ledger.credited_invoices:
+        reference = seed_balance_sats
+    else:
+        reference = low_balance_floor
+
+    threshold = max(reference // 5, low_balance_floor)
+
+    if ledger.balance_api_sats >= threshold:
+        return None
+
+    # Suggested top-up: last invoice's real amount_sats, capped
+    if settled:
+        suggested = settled[-1].amount_sats
+        if suggested <= 0:
+            suggested = 1000
+    else:
+        suggested = 1000
+    suggested = min(suggested, MAX_INVOICE_SATS)
+
+    return {
+        "balance_api_sats": ledger.balance_api_sats,
+        "threshold_api_sats": threshold,
+        "suggested_top_up_sats": suggested,
+        "purchase_command": f'Use purchase_credits with amount_sats={suggested}',
+        "message": (
+            f"Low balance: {ledger.balance_api_sats} api_sats remaining "
+            f"(warning threshold: {threshold}). "
+            f"Consider topping up with purchase_credits."
+        ),
     }
 
 
