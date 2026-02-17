@@ -12,6 +12,8 @@ Built with [FastMCP](https://github.com/jlowin/fastmcp). Deployed on FastMCP Clo
 
 ## Tollbooth — An MCP Server That Pays for Itself
 
+the Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates
+
 Tollbooth is the built-in monetization layer that gates AI agent access behind Bitcoin Lightning micropayments. No subscriptions, no API keys tied to billing accounts, no fiat payment processors.
 
 **The flow:**
@@ -56,13 +58,22 @@ MATCH (root {name: "Company"})-[:CHILD*1..3]->(d) WHERE d.name CONTAINS "Budget"
 
 Variable-length paths, multi-hop chains, compound `WHERE` with `AND`/`OR`/`NOT`/`XOR`, similarity search, and property existence checks. Full grammar in [python/BRAINQUERY.md](python/BRAINQUERY.md).
 
-## Quick Start
+## Getting Started
 
 Connect any MCP-compatible client to the live endpoint:
 
 ```
 https://personal-brain.fastmcp.app/mcp
 ```
+
+No configuration needed — Horizon OAuth handles authentication automatically.
+
+**First-time setup:**
+
+1. Get a TheBrain API key at [api.bra.in](https://api.bra.in)
+2. On first connection, call `session_status` to check your session
+3. Register with `register_credentials(api_key, brain_id, passphrase)` — a seed balance is granted automatically
+4. Start exploring: `list_brains` → `set_active_brain` → `brain_query`
 
 For local installation, configuration, and the full tool reference, see [python/README.md](python/README.md).
 
@@ -95,6 +106,8 @@ If you use or build upon this work, please include the following in your documen
     Originally published: February 16, 2026
     Source: https://github.com/lonniev/thebrain-mcp
     Licensed under Apache License 2.0
+
+Visit the technologist's virtual cafe for Bitcoin advocates and coffee aficionados at [stablecoin.myshopify.com](https://stablecoin.myshopify.com).
 
 ### Patent Notice
 
