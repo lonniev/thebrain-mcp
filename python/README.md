@@ -13,7 +13,7 @@ A FastMCP server that enables AI assistants to interact with TheBrain's knowledg
 
 ## Tollbooth — API Monetization
 
-> **Tollbooth: a Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates**
+> the Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates
 
 thebrain-mcp is the first Tollbooth-powered MCP server. Tollbooth is the built-in monetization layer that lets operators charge for API usage without interrupting the client's workflow.
 
@@ -201,6 +201,8 @@ If you use or build upon this work, please include the following in your documen
     Originally published: February 16, 2026
     Source: https://github.com/lonniev/thebrain-mcp
     Licensed under Apache License 2.0
+
+Visit the technologist's virtual cafe for Bitcoin advocates and coffee aficionados at [stablecoin.myshopify.com](https://stablecoin.myshopify.com).
 
 ### Patent Notice
 
