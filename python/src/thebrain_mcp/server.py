@@ -199,7 +199,7 @@ async def get_brain(brain_id: str) -> dict[str, Any]:
     if gate:
         return gate
     try:
-        return await brains.get_brain_tool(get_api(), brain_id)
+        return await _with_warning(await brains.get_brain_tool(get_api(), brain_id))
     except Exception:
         await _rollback_debit("get_brain")
         raise
@@ -227,9 +227,9 @@ async def set_active_brain(brain_id: str) -> dict[str, Any]:
             session = get_session(user_id)
             if session:
                 session.active_brain_id = brain_id
-                return result
+                return await _with_warning(result)
         active_brain_id = brain_id
-    return result
+    return await _with_warning(result)
 
 
 @mcp.tool()
@@ -243,7 +243,7 @@ async def get_brain_stats(brain_id: str | None = None) -> dict[str, Any]:
     if gate:
         return gate
     try:
-        return await brains.get_brain_stats_tool(get_api(), get_brain_id(brain_id))
+        return await _with_warning(await brains.get_brain_stats_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
         await _rollback_debit("get_brain_stats")
         raise
@@ -288,7 +288,7 @@ async def create_thought(
     if gate:
         return gate
     try:
-        return await thoughts.create_thought_tool(
+        return await _with_warning(await thoughts.create_thought_tool(
             get_api(),
             get_brain_id(brain_id),
             name,
@@ -300,7 +300,7 @@ async def create_thought(
             source_thought_id,
             relation,
             ac_type,
-        )
+        ))
     except Exception:
         await _rollback_debit("create_thought")
         raise
@@ -318,7 +318,7 @@ async def get_thought(thought_id: str, brain_id: str | None = None) -> dict[str,
     if gate:
         return gate
     try:
-        return await thoughts.get_thought_tool(get_api(), get_brain_id(brain_id), thought_id)
+        return await _with_warning(await thoughts.get_thought_tool(get_api(), get_brain_id(brain_id), thought_id))
     except Exception:
         await _rollback_debit("get_thought")
         raise
@@ -346,9 +346,9 @@ async def get_thought_by_name(
     if gate:
         return gate
     try:
-        return await thoughts.get_thought_by_name_tool(
+        return await _with_warning(await thoughts.get_thought_by_name_tool(
             get_api(), get_brain_id(brain_id), name_exact
-        )
+        ))
     except Exception:
         await _rollback_debit("get_thought_by_name")
         raise
@@ -386,7 +386,7 @@ async def update_thought(
     if gate:
         return gate
     try:
-        return await thoughts.update_thought_tool(
+        return await _with_warning(await thoughts.update_thought_tool(
             get_api(),
             get_brain_id(brain_id),
             thought_id,
@@ -397,7 +397,7 @@ async def update_thought(
             kind,
             ac_type,
             type_id,
-        )
+        ))
     except Exception:
         await _rollback_debit("update_thought")
         raise
@@ -419,7 +419,7 @@ async def delete_thought(thought_id: str, brain_id: str | None = None) -> dict[s
     if gate:
         return gate
     try:
-        return await thoughts.delete_thought_tool(get_api(), get_brain_id(brain_id), thought_id)
+        return await _with_warning(await thoughts.delete_thought_tool(get_api(), get_brain_id(brain_id), thought_id))
     except Exception:
         await _rollback_debit("delete_thought")
         raise
@@ -451,9 +451,9 @@ async def search_thoughts(
     if gate:
         return gate
     try:
-        return await thoughts.search_thoughts_tool(
+        return await _with_warning(await thoughts.search_thoughts_tool(
             get_api(), get_brain_id(brain_id), query_text, max_results, only_search_thought_names
-        )
+        ))
     except Exception:
         await _rollback_debit("search_thoughts")
         raise
@@ -483,9 +483,9 @@ async def get_thought_graph(
     if gate:
         return gate
     try:
-        return await thoughts.get_thought_graph_tool(
+        return await _with_warning(await thoughts.get_thought_graph_tool(
             get_api(), get_brain_id(brain_id), thought_id, include_siblings
-        )
+        ))
     except Exception:
         await _rollback_debit("get_thought_graph")
         raise
@@ -527,10 +527,10 @@ async def get_thought_graph_paginated(
     if gate:
         return gate
     try:
-        return await thoughts.get_thought_graph_paginated_tool(
+        return await _with_warning(await thoughts.get_thought_graph_paginated_tool(
             get_api(), get_brain_id(brain_id), thought_id,
             page_size, cursor, direction, relation_filter,
-        )
+        ))
     except Exception:
         await _rollback_debit("get_thought_graph_paginated")
         raise
@@ -551,7 +551,7 @@ async def get_types(brain_id: str | None = None) -> dict[str, Any]:
     if gate:
         return gate
     try:
-        return await thoughts.get_types_tool(get_api(), get_brain_id(brain_id))
+        return await _with_warning(await thoughts.get_types_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
         await _rollback_debit("get_types")
         raise
@@ -568,7 +568,7 @@ async def get_tags(brain_id: str | None = None) -> dict[str, Any]:
     if gate:
         return gate
     try:
-        return await thoughts.get_tags_tool(get_api(), get_brain_id(brain_id))
+        return await _with_warning(await thoughts.get_tags_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
         await _rollback_debit("get_tags")
         raise
@@ -613,7 +613,7 @@ async def create_link(
     if gate:
         return gate
     try:
-        return await links.create_link_tool(
+        return await _with_warning(await links.create_link_tool(
             get_api(),
             get_brain_id(brain_id),
             thought_id_a,
@@ -624,7 +624,7 @@ async def create_link(
             thickness,
             direction,
             type_id,
-        )
+        ))
     except Exception:
         await _rollback_debit("create_link")
         raise
@@ -655,9 +655,9 @@ async def update_link(
     if gate:
         return gate
     try:
-        return await links.update_link_tool(
+        return await _with_warning(await links.update_link_tool(
             get_api(), get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
-        )
+        ))
     except Exception:
         await _rollback_debit("update_link")
         raise
@@ -675,7 +675,7 @@ async def get_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
     if gate:
         return gate
     try:
-        return await links.get_link_tool(get_api(), get_brain_id(brain_id), link_id)
+        return await _with_warning(await links.get_link_tool(get_api(), get_brain_id(brain_id), link_id))
     except Exception:
         await _rollback_debit("get_link")
         raise
@@ -696,7 +696,7 @@ async def delete_link(link_id: str, brain_id: str | None = None) -> dict[str, An
     if gate:
         return gate
     try:
-        return await links.delete_link_tool(get_api(), get_brain_id(brain_id), link_id)
+        return await _with_warning(await links.delete_link_tool(get_api(), get_brain_id(brain_id), link_id))
     except Exception:
         await _rollback_debit("delete_link")
         raise
@@ -724,9 +724,9 @@ async def add_file_attachment(
     if gate:
         return gate
     try:
-        return await attachments.add_file_attachment_tool(
+        return await _with_warning(await attachments.add_file_attachment_tool(
             get_api(), get_brain_id(brain_id), thought_id, file_path, file_name
-        )
+        ))
     except Exception:
         await _rollback_debit("add_file_attachment")
         raise
@@ -748,9 +748,9 @@ async def add_url_attachment(
     if gate:
         return gate
     try:
-        return await attachments.add_url_attachment_tool(
+        return await _with_warning(await attachments.add_url_attachment_tool(
             get_api(), get_brain_id(brain_id), thought_id, url, name
-        )
+        ))
     except Exception:
         await _rollback_debit("add_url_attachment")
         raise
@@ -768,7 +768,7 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None) -> dic
     if gate:
         return gate
     try:
-        return await attachments.get_attachment_tool(get_api(), get_brain_id(brain_id), attachment_id)
+        return await _with_warning(await attachments.get_attachment_tool(get_api(), get_brain_id(brain_id), attachment_id))
     except Exception:
         await _rollback_debit("get_attachment")
         raise
@@ -789,9 +789,9 @@ async def get_attachment_content(
     if gate:
         return gate
     try:
-        return await attachments.get_attachment_content_tool(
+        return await _with_warning(await attachments.get_attachment_content_tool(
             get_api(), get_brain_id(brain_id), attachment_id, save_to_path
-        )
+        ))
     except Exception:
         await _rollback_debit("get_attachment_content")
         raise
@@ -809,9 +809,9 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None) -> 
     if gate:
         return gate
     try:
-        return await attachments.delete_attachment_tool(
+        return await _with_warning(await attachments.delete_attachment_tool(
             get_api(), get_brain_id(brain_id), attachment_id
-        )
+        ))
     except Exception:
         await _rollback_debit("delete_attachment")
         raise
@@ -829,9 +829,9 @@ async def list_attachments(thought_id: str, brain_id: str | None = None) -> dict
     if gate:
         return gate
     try:
-        return await attachments.list_attachments_tool(
+        return await _with_warning(await attachments.list_attachments_tool(
             get_api(), get_brain_id(brain_id), thought_id
-        )
+        ))
     except Exception:
         await _rollback_debit("list_attachments")
         raise
@@ -855,7 +855,7 @@ async def get_note(
     if gate:
         return gate
     try:
-        return await notes.get_note_tool(get_api(), get_brain_id(brain_id), thought_id, format)
+        return await _with_warning(await notes.get_note_tool(get_api(), get_brain_id(brain_id), thought_id, format))
     except Exception:
         await _rollback_debit("get_note")
         raise
@@ -876,9 +876,9 @@ async def create_or_update_note(
     if gate:
         return gate
     try:
-        return await notes.create_or_update_note_tool(
+        return await _with_warning(await notes.create_or_update_note_tool(
             get_api(), get_brain_id(brain_id), thought_id, markdown
-        )
+        ))
     except Exception:
         await _rollback_debit("create_or_update_note")
         raise
@@ -899,9 +899,9 @@ async def append_to_note(
     if gate:
         return gate
     try:
-        return await notes.append_to_note_tool(
+        return await _with_warning(await notes.append_to_note_tool(
             get_api(), get_brain_id(brain_id), thought_id, markdown
-        )
+        ))
     except Exception:
         await _rollback_debit("append_to_note")
         raise
@@ -929,9 +929,9 @@ async def get_modifications(
     if gate:
         return gate
     try:
-        return await stats.get_modifications_tool(
+        return await _with_warning(await stats.get_modifications_tool(
             get_api(), get_brain_id(brain_id), max_logs, start_time, end_time
-        )
+        ))
     except Exception:
         await _rollback_debit("get_modifications")
         raise
@@ -1012,7 +1012,7 @@ async def brain_query(
 
     try:
         result = await execute(api, bid, parsed)
-        return result.to_dict()
+        return await _with_warning(result.to_dict())
     except Exception:
         await _rollback_debit("brain_query")
         raise
@@ -1351,6 +1351,29 @@ def _register_shutdown_handlers() -> None:
 
 
 # Tool Gating Middleware
+
+
+async def _with_warning(result: dict[str, Any]) -> dict[str, Any]:
+    """Attach a low-balance warning to a paid tool result if balance is low.
+
+    Decorative only — exceptions never block the tool response.
+    """
+    try:
+        user_id = _get_current_user_id()
+        if not user_id:
+            return result
+        cache = _get_ledger_cache()
+        ledger = await cache.get(user_id)
+        settings = get_settings()
+        warning = credits.compute_low_balance_warning(
+            ledger, settings.seed_balance_sats,
+        )
+        if warning:
+            result = dict(result)
+            result["low_balance_warning"] = warning
+    except Exception:
+        pass
+    return result
 
 
 async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:

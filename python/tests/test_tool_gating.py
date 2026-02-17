@@ -221,3 +221,93 @@ class TestToolCostsCompleteness:
         heavy_tools = ["brain_query", "get_modifications", "get_thought_graph_paginated"]
         for tool in heavy_tools:
             assert TOOL_COSTS[tool] == 10, f"{tool} should cost 10 sats"
+
+
+# ---------------------------------------------------------------------------
+# _with_warning integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestWithWarning:
+    @pytest.mark.asyncio
+    async def test_stdio_mode_unchanged(self) -> None:
+        """STDIO mode (no user_id): result returned unchanged."""
+        from thebrain_mcp.server import _with_warning
+
+        original = {"success": True, "data": "hello"}
+        with _patch_cloud_user(None):
+            result = await _with_warning(original)
+        assert result is original
+        assert "low_balance_warning" not in result
+
+    @pytest.mark.asyncio
+    async def test_healthy_balance_no_warning(self) -> None:
+        """Healthy balance: no warning key added."""
+        from thebrain_mcp.server import _with_warning
+
+        ledger = UserLedger(balance_api_sats=5000, credited_invoices=["seed_balance_v1"])
+        cache = _mock_cache(ledger)
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 1000
+
+        with _patch_cloud_user("user-1"), \
+             _patch_ledger_cache(cache), \
+             patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
+            result = await _with_warning({"success": True})
+
+        assert "low_balance_warning" not in result
+
+    @pytest.mark.asyncio
+    async def test_low_balance_warning_present(self) -> None:
+        """Low balance: warning key injected."""
+        from thebrain_mcp.server import _with_warning
+
+        ledger = UserLedger(balance_api_sats=10, credited_invoices=["seed_balance_v1"])
+        cache = _mock_cache(ledger)
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 1000
+
+        with _patch_cloud_user("user-1"), \
+             _patch_ledger_cache(cache), \
+             patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
+            result = await _with_warning({"success": True})
+
+        assert "low_balance_warning" in result
+        assert result["low_balance_warning"]["balance_api_sats"] == 10
+        assert "purchase_credits" in result["low_balance_warning"]["purchase_command"]
+
+    @pytest.mark.asyncio
+    async def test_exception_returns_original(self) -> None:
+        """Exception in warning path: original result returned unmodified."""
+        from thebrain_mcp.server import _with_warning
+
+        original = {"success": True, "data": "important"}
+        with _patch_cloud_user("user-1"), \
+             patch("thebrain_mcp.server._get_ledger_cache", side_effect=RuntimeError("boom")):
+            result = await _with_warning(original)
+
+        assert result is original
+        assert "low_balance_warning" not in result
+
+    @pytest.mark.asyncio
+    async def test_result_not_mutated_in_place(self) -> None:
+        """Original dict should not be mutated when warning is added."""
+        from thebrain_mcp.server import _with_warning
+
+        ledger = UserLedger(balance_api_sats=10, credited_invoices=["seed_balance_v1"])
+        cache = _mock_cache(ledger)
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 1000
+
+        original = {"success": True}
+        with _patch_cloud_user("user-1"), \
+             _patch_ledger_cache(cache), \
+             patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
+            result = await _with_warning(original)
+
+        # result should have the warning, but original should not
+        assert "low_balance_warning" in result
+        assert "low_balance_warning" not in original

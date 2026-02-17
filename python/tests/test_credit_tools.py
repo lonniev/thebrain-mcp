@@ -20,8 +20,10 @@ from thebrain_mcp.tools.credits import (
     btcpay_status_tool,
     check_balance_tool,
     check_payment_tool,
+    compute_low_balance_warning,
     purchase_credits_tool,
 )
+from thebrain_mcp.utils.constants import MAX_INVOICE_SATS
 
 
 # ---------------------------------------------------------------------------
@@ -661,6 +663,128 @@ class TestRefreshConfig:
             await srv._refresh_config_impl()
 
         assert call_order == ["snapshot_all", "flush_all"]
+
+
+# ---------------------------------------------------------------------------
+# compute_low_balance_warning
+# ---------------------------------------------------------------------------
+
+
+class TestComputeLowBalanceWarning:
+    def test_above_threshold_returns_none(self) -> None:
+        """Balance well above threshold → no warning."""
+        ledger = UserLedger(balance_api_sats=5000)
+        assert compute_low_balance_warning(ledger, seed_balance_sats=1000) is None
+
+    def test_at_threshold_returns_none(self) -> None:
+        """Balance exactly at threshold → no warning (>= means safe)."""
+        # seed_balance_sats=500, threshold = max(500//5, 100) = 100
+        ledger = UserLedger(
+            balance_api_sats=100,
+            credited_invoices=["seed_balance_v1"],
+        )
+        assert compute_low_balance_warning(ledger, seed_balance_sats=500) is None
+
+    def test_below_threshold_returns_warning(self) -> None:
+        """Balance below threshold → warning dict."""
+        ledger = UserLedger(
+            balance_api_sats=50,
+            credited_invoices=["seed_balance_v1"],
+        )
+        warning = compute_low_balance_warning(ledger, seed_balance_sats=500)
+        assert warning is not None
+        assert warning["balance_api_sats"] == 50
+        assert warning["threshold_api_sats"] == 100
+        assert "purchase_credits" in warning["purchase_command"]
+        assert "message" in warning
+
+    def test_settled_invoice_reference(self) -> None:
+        """Threshold is 20% of last settled invoice's api_sats_credited."""
+        ledger = UserLedger(balance_api_sats=50)
+        ledger.record_invoice_created("inv-1", amount_sats=1000, multiplier=1, created_at="")
+        ledger.record_invoice_settled("inv-1", api_sats_credited=1000, settled_at="")
+        warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
+        assert warning is not None
+        # threshold = max(1000 // 5, 100) = 200
+        assert warning["threshold_api_sats"] == 200
+
+    def test_seed_only_user(self) -> None:
+        """Seed-only user: reference is seed_balance_sats."""
+        ledger = UserLedger(
+            balance_api_sats=10,
+            credited_invoices=["seed_balance_v1"],
+        )
+        warning = compute_low_balance_warning(ledger, seed_balance_sats=1000)
+        assert warning is not None
+        # threshold = max(1000 // 5, 100) = 200
+        assert warning["threshold_api_sats"] == 200
+
+    def test_no_history_uses_floor(self) -> None:
+        """No invoices, no seed: reference is the floor."""
+        ledger = UserLedger(balance_api_sats=50)
+        warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
+        assert warning is not None
+        # reference = floor (100), threshold = max(100//5, 100) = 100
+        assert warning["threshold_api_sats"] == 100
+
+    def test_retroactive_invoice_suggested_defaults(self) -> None:
+        """Retroactive invoice (amount_sats=0) → suggested defaults to 1000."""
+        ledger = UserLedger(balance_api_sats=5)
+        ledger.record_invoice_settled("inv-retro", api_sats_credited=500, settled_at="")
+        # retroactive: amount_sats=0 in the record
+        warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
+        assert warning is not None
+        assert warning["suggested_top_up_sats"] == 1000
+
+    def test_suggested_capped_at_max(self) -> None:
+        """Suggested top-up capped at MAX_INVOICE_SATS."""
+        ledger = UserLedger(balance_api_sats=5)
+        ledger.record_invoice_created(
+            "inv-big", amount_sats=5_000_000, multiplier=1, created_at="",
+        )
+        ledger.record_invoice_settled("inv-big", api_sats_credited=5_000_000, settled_at="")
+        warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
+        assert warning is not None
+        assert warning["suggested_top_up_sats"] == MAX_INVOICE_SATS
+
+    def test_zero_seed_no_invoices(self) -> None:
+        """Zero seed + no invoices → floor path."""
+        ledger = UserLedger(balance_api_sats=50)
+        warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
+        assert warning is not None
+        assert warning["threshold_api_sats"] == 100
+        assert warning["suggested_top_up_sats"] == 1000
+
+
+# ---------------------------------------------------------------------------
+# purchase cap
+# ---------------------------------------------------------------------------
+
+
+class TestPurchaseCap:
+    @pytest.mark.asyncio
+    async def test_max_accepted(self) -> None:
+        """Exactly MAX_INVOICE_SATS is accepted."""
+        btcpay = _mock_btcpay({
+            "id": "inv-max", "checkoutLink": "https://pay.example.com/inv-max",
+        })
+        cache = _mock_cache()
+        result = await purchase_credits_tool(
+            btcpay, cache, "user1", MAX_INVOICE_SATS,
+        )
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_over_max_rejected(self) -> None:
+        """MAX_INVOICE_SATS + 1 is rejected."""
+        btcpay = _mock_btcpay()
+        cache = _mock_cache()
+        result = await purchase_credits_tool(
+            btcpay, cache, "user1", MAX_INVOICE_SATS + 1,
+        )
+        assert result["success"] is False
+        assert "maximum" in result["error"]
+        assert "1,000,000" in result["error"]
 
 
 # ---------------------------------------------------------------------------
