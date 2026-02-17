@@ -51,7 +51,15 @@ mcp = FastMCP(
         "add_url_attachment — note and attachment operations not covered by BQL.\n\n"
         "5. create_thought, create_link, update_thought, update_link, delete_thought, "
         "delete_link — direct CRUD when you need precise control or BQL doesn't support "
-        "the operation yet."
+        "the operation yet.\n\n"
+        "## Low-Balance Warning\n\n"
+        "Any paid tool response may include a `low_balance_warning` key when the user's "
+        "credit balance is running low. When you see this field, proactively inform the "
+        "user (or relay to an agent-to-agent partner) that their balance is getting low "
+        "and suggest they purchase a new credit bundle soon. Include the "
+        "`purchase_command` hint from the warning so they can act immediately. Do not "
+        "suppress or ignore this warning — it is the user's only advance notice before "
+        "tool calls start being rejected for insufficient balance."
     ),
 )
 
