@@ -13,6 +13,7 @@ from thebrain_mcp.btcpay_client import BTCPayClient
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools import attachments, brains, credits, links, notes, stats, thoughts
+from thebrain_mcp.utils.constants import TOOL_COSTS
 from thebrain_mcp.vault import (
     CredentialNotFoundError,
     CredentialVault,
@@ -190,7 +191,14 @@ async def get_brain(brain_id: str) -> dict[str, Any]:
     Args:
         brain_id: The ID of the brain
     """
-    return await brains.get_brain_tool(get_api(), brain_id)
+    gate = await _debit_or_error("get_brain")
+    if gate:
+        return gate
+    try:
+        return await brains.get_brain_tool(get_api(), brain_id)
+    except Exception:
+        await _rollback_debit("get_brain")
+        raise
 
 
 @mcp.tool()
@@ -200,8 +208,15 @@ async def set_active_brain(brain_id: str) -> dict[str, Any]:
     Args:
         brain_id: The ID of the brain to set as active
     """
+    gate = await _debit_or_error("set_active_brain")
+    if gate:
+        return gate
     global active_brain_id
-    result = await brains.set_active_brain_tool(get_api(), brain_id)
+    try:
+        result = await brains.set_active_brain_tool(get_api(), brain_id)
+    except Exception:
+        await _rollback_debit("set_active_brain")
+        raise
     if result.get("success"):
         user_id = _get_current_user_id()
         if user_id:
@@ -220,7 +235,14 @@ async def get_brain_stats(brain_id: str | None = None) -> dict[str, Any]:
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await brains.get_brain_stats_tool(get_api(), get_brain_id(brain_id))
+    gate = await _debit_or_error("get_brain_stats")
+    if gate:
+        return gate
+    try:
+        return await brains.get_brain_stats_tool(get_api(), get_brain_id(brain_id))
+    except Exception:
+        await _rollback_debit("get_brain_stats")
+        raise
 
 
 # Thought Operations
@@ -258,19 +280,26 @@ async def create_thought(
         relation: Relation type if linking (1=Child, 2=Parent, 3=Jump, 4=Sibling)
         ac_type: Access type (0=Public, 1=Private)
     """
-    return await thoughts.create_thought_tool(
-        get_api(),
-        get_brain_id(brain_id),
-        name,
-        kind,
-        label,
-        foreground_color,
-        background_color,
-        type_id,
-        source_thought_id,
-        relation,
-        ac_type,
-    )
+    gate = await _debit_or_error("create_thought")
+    if gate:
+        return gate
+    try:
+        return await thoughts.create_thought_tool(
+            get_api(),
+            get_brain_id(brain_id),
+            name,
+            kind,
+            label,
+            foreground_color,
+            background_color,
+            type_id,
+            source_thought_id,
+            relation,
+            ac_type,
+        )
+    except Exception:
+        await _rollback_debit("create_thought")
+        raise
 
 
 @mcp.tool()
@@ -281,7 +310,14 @@ async def get_thought(thought_id: str, brain_id: str | None = None) -> dict[str,
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await thoughts.get_thought_tool(get_api(), get_brain_id(brain_id), thought_id)
+    gate = await _debit_or_error("get_thought")
+    if gate:
+        return gate
+    try:
+        return await thoughts.get_thought_tool(get_api(), get_brain_id(brain_id), thought_id)
+    except Exception:
+        await _rollback_debit("get_thought")
+        raise
 
 
 @mcp.tool()
@@ -302,9 +338,16 @@ async def get_thought_by_name(
         name_exact: The exact name to match (case-sensitive)
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await thoughts.get_thought_by_name_tool(
-        get_api(), get_brain_id(brain_id), name_exact
-    )
+    gate = await _debit_or_error("get_thought_by_name")
+    if gate:
+        return gate
+    try:
+        return await thoughts.get_thought_by_name_tool(
+            get_api(), get_brain_id(brain_id), name_exact
+        )
+    except Exception:
+        await _rollback_debit("get_thought_by_name")
+        raise
 
 
 @mcp.tool()
@@ -335,18 +378,25 @@ async def update_thought(
         ac_type: New access type
         type_id: New type ID to assign
     """
-    return await thoughts.update_thought_tool(
-        get_api(),
-        get_brain_id(brain_id),
-        thought_id,
-        name,
-        label,
-        foreground_color,
-        background_color,
-        kind,
-        ac_type,
-        type_id,
-    )
+    gate = await _debit_or_error("update_thought")
+    if gate:
+        return gate
+    try:
+        return await thoughts.update_thought_tool(
+            get_api(),
+            get_brain_id(brain_id),
+            thought_id,
+            name,
+            label,
+            foreground_color,
+            background_color,
+            kind,
+            ac_type,
+            type_id,
+        )
+    except Exception:
+        await _rollback_debit("update_thought")
+        raise
 
 
 @mcp.tool()
@@ -361,7 +411,14 @@ async def delete_thought(thought_id: str, brain_id: str | None = None) -> dict[s
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await thoughts.delete_thought_tool(get_api(), get_brain_id(brain_id), thought_id)
+    gate = await _debit_or_error("delete_thought")
+    if gate:
+        return gate
+    try:
+        return await thoughts.delete_thought_tool(get_api(), get_brain_id(brain_id), thought_id)
+    except Exception:
+        await _rollback_debit("delete_thought")
+        raise
 
 
 @mcp.tool()
@@ -386,9 +443,16 @@ async def search_thoughts(
         max_results: Maximum number of results
         only_search_thought_names: Only search in thought names (not content)
     """
-    return await thoughts.search_thoughts_tool(
-        get_api(), get_brain_id(brain_id), query_text, max_results, only_search_thought_names
-    )
+    gate = await _debit_or_error("search_thoughts")
+    if gate:
+        return gate
+    try:
+        return await thoughts.search_thoughts_tool(
+            get_api(), get_brain_id(brain_id), query_text, max_results, only_search_thought_names
+        )
+    except Exception:
+        await _rollback_debit("search_thoughts")
+        raise
 
 
 @mcp.tool()
@@ -411,9 +475,16 @@ async def get_thought_graph(
         brain_id: The ID of the brain (uses active brain if not specified)
         include_siblings: Include sibling thoughts in the graph
     """
-    return await thoughts.get_thought_graph_tool(
-        get_api(), get_brain_id(brain_id), thought_id, include_siblings
-    )
+    gate = await _debit_or_error("get_thought_graph")
+    if gate:
+        return gate
+    try:
+        return await thoughts.get_thought_graph_tool(
+            get_api(), get_brain_id(brain_id), thought_id, include_siblings
+        )
+    except Exception:
+        await _rollback_debit("get_thought_graph")
+        raise
 
 
 @mcp.tool()
@@ -448,10 +519,17 @@ async def get_thought_graph_paginated(
         relation_filter: Filter by relation: "child", "parent", "jump", "sibling", or omit for all
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await thoughts.get_thought_graph_paginated_tool(
-        get_api(), get_brain_id(brain_id), thought_id,
-        page_size, cursor, direction, relation_filter,
-    )
+    gate = await _debit_or_error("get_thought_graph_paginated")
+    if gate:
+        return gate
+    try:
+        return await thoughts.get_thought_graph_paginated_tool(
+            get_api(), get_brain_id(brain_id), thought_id,
+            page_size, cursor, direction, relation_filter,
+        )
+    except Exception:
+        await _rollback_debit("get_thought_graph_paginated")
+        raise
 
 
 @mcp.tool()
@@ -465,7 +543,14 @@ async def get_types(brain_id: str | None = None) -> dict[str, Any]:
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await thoughts.get_types_tool(get_api(), get_brain_id(brain_id))
+    gate = await _debit_or_error("get_types")
+    if gate:
+        return gate
+    try:
+        return await thoughts.get_types_tool(get_api(), get_brain_id(brain_id))
+    except Exception:
+        await _rollback_debit("get_types")
+        raise
 
 
 @mcp.tool()
@@ -475,7 +560,14 @@ async def get_tags(brain_id: str | None = None) -> dict[str, Any]:
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await thoughts.get_tags_tool(get_api(), get_brain_id(brain_id))
+    gate = await _debit_or_error("get_tags")
+    if gate:
+        return gate
+    try:
+        return await thoughts.get_tags_tool(get_api(), get_brain_id(brain_id))
+    except Exception:
+        await _rollback_debit("get_tags")
+        raise
 
 
 # Link Operations
@@ -513,18 +605,25 @@ async def create_link(
         direction: Direction flags (0=Undirected, 1=Directed, etc.)
         type_id: ID of link type
     """
-    return await links.create_link_tool(
-        get_api(),
-        get_brain_id(brain_id),
-        thought_id_a,
-        thought_id_b,
-        relation,
-        name,
-        color,
-        thickness,
-        direction,
-        type_id,
-    )
+    gate = await _debit_or_error("create_link")
+    if gate:
+        return gate
+    try:
+        return await links.create_link_tool(
+            get_api(),
+            get_brain_id(brain_id),
+            thought_id_a,
+            thought_id_b,
+            relation,
+            name,
+            color,
+            thickness,
+            direction,
+            type_id,
+        )
+    except Exception:
+        await _rollback_debit("create_link")
+        raise
 
 
 @mcp.tool()
@@ -548,9 +647,16 @@ async def update_link(
         direction: New direction flags
         relation: New relation type
     """
-    return await links.update_link_tool(
-        get_api(), get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
-    )
+    gate = await _debit_or_error("update_link")
+    if gate:
+        return gate
+    try:
+        return await links.update_link_tool(
+            get_api(), get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
+        )
+    except Exception:
+        await _rollback_debit("update_link")
+        raise
 
 
 @mcp.tool()
@@ -561,7 +667,14 @@ async def get_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
         link_id: The ID of the link
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await links.get_link_tool(get_api(), get_brain_id(brain_id), link_id)
+    gate = await _debit_or_error("get_link")
+    if gate:
+        return gate
+    try:
+        return await links.get_link_tool(get_api(), get_brain_id(brain_id), link_id)
+    except Exception:
+        await _rollback_debit("get_link")
+        raise
 
 
 @mcp.tool()
@@ -575,7 +688,14 @@ async def delete_link(link_id: str, brain_id: str | None = None) -> dict[str, An
         link_id: The ID of the link
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await links.delete_link_tool(get_api(), get_brain_id(brain_id), link_id)
+    gate = await _debit_or_error("delete_link")
+    if gate:
+        return gate
+    try:
+        return await links.delete_link_tool(get_api(), get_brain_id(brain_id), link_id)
+    except Exception:
+        await _rollback_debit("delete_link")
+        raise
 
 
 # Attachment Operations
@@ -596,9 +716,16 @@ async def add_file_attachment(
         brain_id: The ID of the brain (uses active brain if not specified)
         file_name: Name for the attachment (optional, uses filename if not provided)
     """
-    return await attachments.add_file_attachment_tool(
-        get_api(), get_brain_id(brain_id), thought_id, file_path, file_name
-    )
+    gate = await _debit_or_error("add_file_attachment")
+    if gate:
+        return gate
+    try:
+        return await attachments.add_file_attachment_tool(
+            get_api(), get_brain_id(brain_id), thought_id, file_path, file_name
+        )
+    except Exception:
+        await _rollback_debit("add_file_attachment")
+        raise
 
 
 @mcp.tool()
@@ -613,9 +740,16 @@ async def add_url_attachment(
         brain_id: The ID of the brain (uses active brain if not specified)
         name: Name for the URL attachment (auto-fetched from page title if not provided)
     """
-    return await attachments.add_url_attachment_tool(
-        get_api(), get_brain_id(brain_id), thought_id, url, name
-    )
+    gate = await _debit_or_error("add_url_attachment")
+    if gate:
+        return gate
+    try:
+        return await attachments.add_url_attachment_tool(
+            get_api(), get_brain_id(brain_id), thought_id, url, name
+        )
+    except Exception:
+        await _rollback_debit("add_url_attachment")
+        raise
 
 
 @mcp.tool()
@@ -626,7 +760,14 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None) -> dic
         attachment_id: The ID of the attachment
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await attachments.get_attachment_tool(get_api(), get_brain_id(brain_id), attachment_id)
+    gate = await _debit_or_error("get_attachment")
+    if gate:
+        return gate
+    try:
+        return await attachments.get_attachment_tool(get_api(), get_brain_id(brain_id), attachment_id)
+    except Exception:
+        await _rollback_debit("get_attachment")
+        raise
 
 
 @mcp.tool()
@@ -640,9 +781,16 @@ async def get_attachment_content(
         brain_id: The ID of the brain (uses active brain if not specified)
         save_to_path: Optional path to save the file locally
     """
-    return await attachments.get_attachment_content_tool(
-        get_api(), get_brain_id(brain_id), attachment_id, save_to_path
-    )
+    gate = await _debit_or_error("get_attachment_content")
+    if gate:
+        return gate
+    try:
+        return await attachments.get_attachment_content_tool(
+            get_api(), get_brain_id(brain_id), attachment_id, save_to_path
+        )
+    except Exception:
+        await _rollback_debit("get_attachment_content")
+        raise
 
 
 @mcp.tool()
@@ -653,9 +801,16 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None) -> 
         attachment_id: The ID of the attachment
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await attachments.delete_attachment_tool(
-        get_api(), get_brain_id(brain_id), attachment_id
-    )
+    gate = await _debit_or_error("delete_attachment")
+    if gate:
+        return gate
+    try:
+        return await attachments.delete_attachment_tool(
+            get_api(), get_brain_id(brain_id), attachment_id
+        )
+    except Exception:
+        await _rollback_debit("delete_attachment")
+        raise
 
 
 @mcp.tool()
@@ -666,9 +821,16 @@ async def list_attachments(thought_id: str, brain_id: str | None = None) -> dict
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await attachments.list_attachments_tool(
-        get_api(), get_brain_id(brain_id), thought_id
-    )
+    gate = await _debit_or_error("list_attachments")
+    if gate:
+        return gate
+    try:
+        return await attachments.list_attachments_tool(
+            get_api(), get_brain_id(brain_id), thought_id
+        )
+    except Exception:
+        await _rollback_debit("list_attachments")
+        raise
 
 
 # Note Operations
@@ -685,7 +847,14 @@ async def get_note(
         brain_id: The ID of the brain (uses active brain if not specified)
         format: Output format (markdown, html, or text)
     """
-    return await notes.get_note_tool(get_api(), get_brain_id(brain_id), thought_id, format)
+    gate = await _debit_or_error("get_note")
+    if gate:
+        return gate
+    try:
+        return await notes.get_note_tool(get_api(), get_brain_id(brain_id), thought_id, format)
+    except Exception:
+        await _rollback_debit("get_note")
+        raise
 
 
 @mcp.tool()
@@ -699,9 +868,16 @@ async def create_or_update_note(
         markdown: Markdown content for the note
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await notes.create_or_update_note_tool(
-        get_api(), get_brain_id(brain_id), thought_id, markdown
-    )
+    gate = await _debit_or_error("create_or_update_note")
+    if gate:
+        return gate
+    try:
+        return await notes.create_or_update_note_tool(
+            get_api(), get_brain_id(brain_id), thought_id, markdown
+        )
+    except Exception:
+        await _rollback_debit("create_or_update_note")
+        raise
 
 
 @mcp.tool()
@@ -715,9 +891,16 @@ async def append_to_note(
         markdown: Markdown content to append
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    return await notes.append_to_note_tool(
-        get_api(), get_brain_id(brain_id), thought_id, markdown
-    )
+    gate = await _debit_or_error("append_to_note")
+    if gate:
+        return gate
+    try:
+        return await notes.append_to_note_tool(
+            get_api(), get_brain_id(brain_id), thought_id, markdown
+        )
+    except Exception:
+        await _rollback_debit("append_to_note")
+        raise
 
 
 # Advanced Operations
@@ -738,9 +921,16 @@ async def get_modifications(
         start_time: Start time for logs (ISO format)
         end_time: End time for logs (ISO format)
     """
-    return await stats.get_modifications_tool(
-        get_api(), get_brain_id(brain_id), max_logs, start_time, end_time
-    )
+    gate = await _debit_or_error("get_modifications")
+    if gate:
+        return gate
+    try:
+        return await stats.get_modifications_tool(
+            get_api(), get_brain_id(brain_id), max_logs, start_time, end_time
+        )
+    except Exception:
+        await _rollback_debit("get_modifications")
+        raise
 
 
 # BrainQuery Tool
@@ -798,11 +988,16 @@ async def brain_query(
         confirm: Set to true to confirm and execute a DELETE operation.
                  Without this, DELETE returns a preview of what would be deleted.
     """
+    gate = await _debit_or_error("brain_query")
+    if gate:
+        return gate
+
     from thebrain_mcp.brainquery import BrainQuerySyntaxError, execute, parse
 
     try:
         parsed = parse(query)
     except BrainQuerySyntaxError as e:
+        await _rollback_debit("brain_query")
         return {"success": False, "error": str(e)}
 
     if parsed.action == "match_delete":
@@ -811,8 +1006,12 @@ async def brain_query(
     api = get_api()
     bid = get_brain_id(brain_id)
 
-    result = await execute(api, bid, parsed)
-    return result.to_dict()
+    try:
+        result = await execute(api, bid, parsed)
+        return result.to_dict()
+    except Exception:
+        await _rollback_debit("brain_query")
+        raise
 
 
 # Credential Vault Tools
@@ -1072,6 +1271,63 @@ def _get_ledger_cache() -> LedgerCache:
     vault = _get_vault()
     _ledger_cache = LedgerCache(vault)
     return _ledger_cache
+
+
+# Tool Gating Middleware
+
+
+async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
+    """Check balance and debit credits for a paid tool call.
+
+    Returns None if the tool is free or STDIO mode (proceed with execution).
+    Returns an error dict if the user has insufficient balance.
+    """
+    cost = TOOL_COSTS.get(tool_name, 0)
+    if cost == 0:
+        return None
+
+    user_id = _get_current_user_id()
+    if not user_id:
+        # STDIO mode (local dev) — no gating
+        return None
+
+    try:
+        cache = _get_ledger_cache()
+        ledger = await cache.get(user_id)
+    except Exception:
+        # Vault not configured — skip gating
+        return None
+
+    if not ledger.debit(tool_name, cost):
+        return {
+            "success": False,
+            "error": f"Insufficient balance ({ledger.balance_sats} sats) "
+                     f"for {tool_name} ({cost} sats). "
+                     f"Use purchase_credits to add funds.",
+        }
+
+    cache.mark_dirty(user_id)
+    return None
+
+
+async def _rollback_debit(tool_name: str) -> None:
+    """Undo a debit when the downstream API call fails."""
+    cost = TOOL_COSTS.get(tool_name, 0)
+    if cost == 0:
+        return
+
+    user_id = _get_current_user_id()
+    if not user_id:
+        return
+
+    try:
+        cache = _get_ledger_cache()
+        ledger = await cache.get(user_id)
+    except Exception:
+        return
+
+    ledger.rollback_debit(tool_name, cost)
+    cache.mark_dirty(user_id)
 
 
 # Credit Management Tools

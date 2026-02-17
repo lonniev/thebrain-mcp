@@ -156,7 +156,7 @@
   <!-- ═══ Phase 4: Monetized Tool Execution ═══ -->
   <rect x="30" y="803" width="1040" height="150" rx="4" fill="#fff7ed" fill-opacity="0.5" stroke="#fed7aa" stroke-width="1"/>
   <text x="45" y="823" font-size="13" font-weight="bold" fill="#9a3412">Phase 4: Monetized Tool Execution</text>
-  <text x="330" y="823" font-size="10" fill="#64748b">(tool gating — Task 21 Phase 2, planned)</text>
+  <text x="330" y="823" font-size="10" fill="#64748b">(tool gating — Task 21 Phase 2, implemented)</text>
 
   <line x1="115" y1="846" x2="482" y2="846" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
   <text x="298" y="841" text-anchor="middle" font-size="11" fill="#ea580c">brain_query("MATCH (p:Person) RETURN p")</text>

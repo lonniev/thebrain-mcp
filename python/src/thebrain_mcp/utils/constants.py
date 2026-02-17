@@ -145,6 +145,61 @@ class NoteFormat(str):
     TEXT = "text"
 
 
+class ToolTier(IntEnum):
+    """Cost tiers for tool-call metering (satoshis per call)."""
+
+    FREE = 0
+    READ = 1
+    WRITE = 5
+    HEAVY = 10
+
+
+TOOL_COSTS: dict[str, int] = {
+    # Free (0 sats) — never gated
+    "whoami": ToolTier.FREE,
+    "session_status": ToolTier.FREE,
+    "register_credentials": ToolTier.FREE,
+    "activate_session": ToolTier.FREE,
+    "list_brains": ToolTier.FREE,
+    "purchase_credits": ToolTier.FREE,
+    "check_payment": ToolTier.FREE,
+    "check_balance": ToolTier.FREE,
+    "btcpay_status": ToolTier.FREE,
+    "refresh_config": ToolTier.FREE,
+    # Read (1 sat)
+    "get_brain": ToolTier.READ,
+    "get_brain_stats": ToolTier.READ,
+    "set_active_brain": ToolTier.READ,
+    "get_thought": ToolTier.READ,
+    "get_thought_by_name": ToolTier.READ,
+    "search_thoughts": ToolTier.READ,
+    "get_thought_graph": ToolTier.READ,
+    "get_types": ToolTier.READ,
+    "get_tags": ToolTier.READ,
+    "get_note": ToolTier.READ,
+    "get_link": ToolTier.READ,
+    "get_attachment": ToolTier.READ,
+    "get_attachment_content": ToolTier.READ,
+    "list_attachments": ToolTier.READ,
+    # Write (5 sats)
+    "create_thought": ToolTier.WRITE,
+    "update_thought": ToolTier.WRITE,
+    "delete_thought": ToolTier.WRITE,
+    "create_link": ToolTier.WRITE,
+    "update_link": ToolTier.WRITE,
+    "delete_link": ToolTier.WRITE,
+    "create_or_update_note": ToolTier.WRITE,
+    "append_to_note": ToolTier.WRITE,
+    "add_file_attachment": ToolTier.WRITE,
+    "add_url_attachment": ToolTier.WRITE,
+    "delete_attachment": ToolTier.WRITE,
+    # Heavy (10 sats)
+    "brain_query": ToolTier.HEAVY,
+    "get_modifications": ToolTier.HEAVY,
+    "get_thought_graph_paginated": ToolTier.HEAVY,
+}
+
+
 # MIME type mapping for file uploads
 MIME_TYPES = {
     ".jpg": "image/jpeg",

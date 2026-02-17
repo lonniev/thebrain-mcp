@@ -1,0 +1,223 @@
+"""Tests for the tool gating middleware (_debit_or_error / _rollback_debit)."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from thebrain_mcp.ledger import UserLedger
+from thebrain_mcp.ledger_cache import LedgerCache
+from thebrain_mcp.utils.constants import TOOL_COSTS, ToolTier
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _mock_cache(ledger: UserLedger | None = None) -> AsyncMock:
+    cache = AsyncMock(spec=LedgerCache)
+    cache.get = AsyncMock(return_value=ledger or UserLedger())
+    cache.mark_dirty = MagicMock()
+    return cache
+
+
+def _patch_cloud_user(user_id: str | None):
+    """Patch _get_current_user_id to return the given user_id."""
+    return patch("thebrain_mcp.server._get_current_user_id", return_value=user_id)
+
+
+def _patch_ledger_cache(cache: AsyncMock):
+    """Patch _get_ledger_cache to return a mock cache."""
+    return patch("thebrain_mcp.server._get_ledger_cache", return_value=cache)
+
+
+# ---------------------------------------------------------------------------
+# _debit_or_error
+# ---------------------------------------------------------------------------
+
+
+class TestDebitOrError:
+    @pytest.mark.asyncio
+    async def test_free_tool_no_debit(self) -> None:
+        """Free tools (cost 0) should return None without touching the ledger."""
+        from thebrain_mcp.server import _debit_or_error
+
+        # No mocks needed — free tools short-circuit before checking user_id
+        result = await _debit_or_error("whoami")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_read_tool_debits_1_sat(self) -> None:
+        """Read-tier tool debits 1 sat and marks dirty."""
+        from thebrain_mcp.server import _debit_or_error
+
+        ledger = UserLedger(balance_sats=100)
+        cache = _mock_cache(ledger)
+
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+            result = await _debit_or_error("search_thoughts")
+
+        assert result is None
+        assert ledger.balance_sats == 99
+        cache.mark_dirty.assert_called_once_with("user-1")
+
+    @pytest.mark.asyncio
+    async def test_write_tool_debits_5_sats(self) -> None:
+        """Write-tier tool debits 5 sats."""
+        from thebrain_mcp.server import _debit_or_error
+
+        ledger = UserLedger(balance_sats=100)
+        cache = _mock_cache(ledger)
+
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+            result = await _debit_or_error("create_thought")
+
+        assert result is None
+        assert ledger.balance_sats == 95
+
+    @pytest.mark.asyncio
+    async def test_heavy_tool_debits_10_sats(self) -> None:
+        """Heavy-tier tool debits 10 sats."""
+        from thebrain_mcp.server import _debit_or_error
+
+        ledger = UserLedger(balance_sats=100)
+        cache = _mock_cache(ledger)
+
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+            result = await _debit_or_error("brain_query")
+
+        assert result is None
+        assert ledger.balance_sats == 90
+
+    @pytest.mark.asyncio
+    async def test_insufficient_balance_returns_error(self) -> None:
+        """Insufficient balance returns an error dict with a hint."""
+        from thebrain_mcp.server import _debit_or_error
+
+        ledger = UserLedger(balance_sats=0)
+        cache = _mock_cache(ledger)
+
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+            result = await _debit_or_error("search_thoughts")
+
+        assert result is not None
+        assert result["success"] is False
+        assert "Insufficient balance" in result["error"]
+        assert "purchase_credits" in result["error"]
+        # Balance unchanged
+        assert ledger.balance_sats == 0
+        cache.mark_dirty.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stdio_mode_skips_gating(self) -> None:
+        """STDIO mode (no user_id) should skip gating even for paid tools."""
+        from thebrain_mcp.server import _debit_or_error
+
+        with _patch_cloud_user(None):
+            result = await _debit_or_error("brain_query")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_tool_treated_as_free(self) -> None:
+        """Unlisted tools default to cost 0 (free)."""
+        from thebrain_mcp.server import _debit_or_error
+
+        result = await _debit_or_error("some_unknown_tool")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _rollback_debit
+# ---------------------------------------------------------------------------
+
+
+class TestRollbackDebit:
+    @pytest.mark.asyncio
+    async def test_rollback_restores_balance(self) -> None:
+        """Rollback after a failed API call restores balance."""
+        from thebrain_mcp.server import _debit_or_error, _rollback_debit
+
+        ledger = UserLedger(balance_sats=100)
+        cache = _mock_cache(ledger)
+
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+            # Debit first
+            await _debit_or_error("search_thoughts")
+            assert ledger.balance_sats == 99
+
+            # Rollback
+            await _rollback_debit("search_thoughts")
+            assert ledger.balance_sats == 100
+
+        # mark_dirty called twice (once for debit, once for rollback)
+        assert cache.mark_dirty.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_rollback_free_tool_is_noop(self) -> None:
+        """Rollback on a free tool does nothing."""
+        from thebrain_mcp.server import _rollback_debit
+
+        # Should not raise or touch any state
+        await _rollback_debit("whoami")
+
+    @pytest.mark.asyncio
+    async def test_rollback_stdio_mode_is_noop(self) -> None:
+        """Rollback in STDIO mode does nothing."""
+        from thebrain_mcp.server import _rollback_debit
+
+        with _patch_cloud_user(None):
+            await _rollback_debit("brain_query")
+
+
+# ---------------------------------------------------------------------------
+# TOOL_COSTS completeness
+# ---------------------------------------------------------------------------
+
+
+class TestToolCostsCompleteness:
+    def test_all_tiers_have_correct_values(self) -> None:
+        """Verify tier values match expectations."""
+        assert ToolTier.FREE == 0
+        assert ToolTier.READ == 1
+        assert ToolTier.WRITE == 5
+        assert ToolTier.HEAVY == 10
+
+    def test_free_tools_cost_zero(self) -> None:
+        """All free tools should be cost 0."""
+        free_tools = [
+            "whoami", "session_status", "register_credentials",
+            "activate_session", "list_brains", "purchase_credits",
+            "check_payment", "check_balance", "btcpay_status", "refresh_config",
+        ]
+        for tool in free_tools:
+            assert TOOL_COSTS[tool] == 0, f"{tool} should be free"
+
+    def test_read_tools_cost_one(self) -> None:
+        """All read tools should cost 1 sat."""
+        read_tools = [
+            "get_brain", "get_brain_stats", "set_active_brain",
+            "get_thought", "get_thought_by_name", "search_thoughts",
+            "get_thought_graph", "get_types", "get_tags", "get_note",
+            "get_link", "get_attachment", "get_attachment_content",
+            "list_attachments",
+        ]
+        for tool in read_tools:
+            assert TOOL_COSTS[tool] == 1, f"{tool} should cost 1 sat"
+
+    def test_write_tools_cost_five(self) -> None:
+        """All write tools should cost 5 sats."""
+        write_tools = [
+            "create_thought", "update_thought", "delete_thought",
+            "create_link", "update_link", "delete_link",
+            "create_or_update_note", "append_to_note",
+            "add_file_attachment", "add_url_attachment", "delete_attachment",
+        ]
+        for tool in write_tools:
+            assert TOOL_COSTS[tool] == 5, f"{tool} should cost 5 sats"
+
+    def test_heavy_tools_cost_ten(self) -> None:
+        """All heavy tools should cost 10 sats."""
+        heavy_tools = ["brain_query", "get_modifications", "get_thought_graph_paginated"]
+        for tool in heavy_tools:
+            assert TOOL_COSTS[tool] == 10, f"{tool} should cost 10 sats"
