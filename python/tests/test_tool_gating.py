@@ -189,6 +189,7 @@ class TestToolCostsCompleteness:
             "whoami", "session_status", "register_credentials",
             "activate_session", "list_brains", "purchase_credits",
             "check_payment", "check_balance", "btcpay_status", "refresh_config",
+            "test_low_balance_warning",
         ]
         for tool in free_tools:
             assert TOOL_COSTS[tool] == 0, f"{tool} should be free"
@@ -311,3 +312,74 @@ class TestWithWarning:
         # result should have the warning, but original should not
         assert "low_balance_warning" in result
         assert "low_balance_warning" not in original
+
+
+# ---------------------------------------------------------------------------
+# test_low_balance_warning tool
+# ---------------------------------------------------------------------------
+
+
+class TestTestLowBalanceWarning:
+    @pytest.mark.asyncio
+    async def test_simulated_low_balance_shows_warning(self) -> None:
+        """Simulated balance below threshold should produce a warning."""
+        from thebrain_mcp.server import _test_low_balance_warning_impl
+
+        ledger = UserLedger(balance_api_sats=999_999, credited_invoices=["seed_balance_v1"])
+        cache = _mock_cache(ledger)
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 1000
+
+        with _patch_cloud_user("user-1"), \
+             _patch_ledger_cache(cache), \
+             patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
+            result = await _test_low_balance_warning_impl(simulated_balance_api_sats=10)
+
+        assert result["success"] is True
+        assert result["simulated_balance_api_sats"] == 10
+        assert result["real_balance_api_sats"] == 999_999
+        assert "low_balance_warning" in result
+        assert result["low_balance_warning"]["balance_api_sats"] == 10
+
+    @pytest.mark.asyncio
+    async def test_simulated_healthy_balance_no_warning(self) -> None:
+        """Simulated balance above threshold should not produce a warning."""
+        from thebrain_mcp.server import _test_low_balance_warning_impl
+
+        ledger = UserLedger(balance_api_sats=999_999, credited_invoices=["seed_balance_v1"])
+        cache = _mock_cache(ledger)
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 1000
+
+        with _patch_cloud_user("user-1"), \
+             _patch_ledger_cache(cache), \
+             patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
+            result = await _test_low_balance_warning_impl(simulated_balance_api_sats=5000)
+
+        assert result["success"] is True
+        assert result["simulated_balance_api_sats"] == 5000
+        assert "low_balance_warning" not in result
+
+    def test_tool_is_free_in_tool_costs(self) -> None:
+        """test_low_balance_warning must be FREE tier."""
+        assert TOOL_COSTS["test_low_balance_warning"] == ToolTier.FREE
+
+    @pytest.mark.asyncio
+    async def test_real_ledger_not_mutated(self) -> None:
+        """The real ledger balance must not change after simulation."""
+        from thebrain_mcp.server import _test_low_balance_warning_impl
+
+        ledger = UserLedger(balance_api_sats=500, credited_invoices=["seed_balance_v1"])
+        cache = _mock_cache(ledger)
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 1000
+
+        with _patch_cloud_user("user-1"), \
+             _patch_ledger_cache(cache), \
+             patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
+            await _test_low_balance_warning_impl(simulated_balance_api_sats=5)
+
+        assert ledger.balance_api_sats == 500
