@@ -139,7 +139,11 @@ async def check_payment_tool(
         result["message"] = "Payment seen, waiting for confirmation."
 
     elif status == "Settled":
-        if invoice_id in ledger.pending_invoices:
+        if invoice_id in ledger.credited_invoices:
+            # Already credited — true idempotency check
+            result["message"] = "Payment already credited."
+            result["credits_granted"] = 0
+        else:
             # Credit the user — flush immediately so credits survive cache loss
             amount_str = invoice.get("amount", "0")
             amount_sats = int(float(amount_str))
@@ -156,9 +160,6 @@ async def check_payment_tool(
             result["credits_granted"] = credited
             result["multiplier"] = multiplier
             result["message"] = f"Payment settled! {credited:,} credits added to your balance."
-        else:
-            result["message"] = "Payment already credited."
-            result["credits_granted"] = 0
 
     elif status == "Expired":
         if invoice_id in ledger.pending_invoices:
@@ -213,6 +214,69 @@ async def check_balance_tool(
         }
 
     return result
+
+
+async def restore_credits_tool(
+    btcpay: BTCPayClient,
+    cache: LedgerCache,
+    user_id: str,
+    invoice_id: str,
+    tier_config_json: str | None = None,
+    user_tiers_json: str | None = None,
+) -> dict[str, Any]:
+    """Restore credits from a paid invoice that was lost due to cache/vault issues.
+
+    Verifies the invoice is Settled with BTCPay, then credits the balance.
+    Idempotent via credited_invoices — won't double-credit.
+    """
+    # Check idempotency first
+    ledger = await cache.get(user_id)
+    if invoice_id in ledger.credited_invoices:
+        return {
+            "success": True,
+            "invoice_id": invoice_id,
+            "credits_granted": 0,
+            "balance_sats": ledger.balance_sats,
+            "message": "Invoice already credited — no duplicate credits applied.",
+        }
+
+    # Verify with BTCPay
+    try:
+        invoice = await btcpay.get_invoice(invoice_id)
+    except BTCPayError as e:
+        return {"success": False, "error": f"BTCPay error: {e}"}
+
+    status = invoice.get("status", "Unknown")
+    if status != "Settled":
+        return {
+            "success": False,
+            "error": f"Invoice status is '{status}', not 'Settled'. Cannot restore.",
+            "invoice_id": invoice_id,
+        }
+
+    # Credit the balance
+    amount_str = invoice.get("amount", "0")
+    amount_sats = int(float(amount_str))
+    multiplier = _get_multiplier(user_id, tier_config_json, user_tiers_json)
+    credited = amount_sats * multiplier
+
+    ledger.credit_deposit(credited, invoice_id)
+    cache.mark_dirty(user_id)
+    if not await cache.flush_user(user_id):
+        logger.error(
+            "CRITICAL: Failed to flush restored %d credits for %s (invoice %s).",
+            credited, user_id, invoice_id,
+        )
+
+    return {
+        "success": True,
+        "invoice_id": invoice_id,
+        "amount_sats": amount_sats,
+        "multiplier": multiplier,
+        "credits_granted": credited,
+        "balance_sats": ledger.balance_sats,
+        "message": f"Restored {credited:,} credits from invoice {invoice_id}.",
+    }
 
 
 async def btcpay_status_tool(

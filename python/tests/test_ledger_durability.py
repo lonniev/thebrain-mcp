@@ -225,8 +225,12 @@ class TestCreditPathFlushing:
         """After cache loss + vault reload, check_payment should correctly say 'already credited'."""
         from thebrain_mcp.tools.credits import check_payment_tool
 
-        # Build a ledger where inv-1 was already credited (not in pending)
-        ledger = UserLedger(balance_sats=500, total_deposited_sats=500)
+        # Build a ledger where inv-1 was already credited
+        ledger = UserLedger(
+            balance_sats=500,
+            total_deposited_sats=500,
+            credited_invoices=["inv-1"],
+        )
         flushed_json = ledger.to_json()
 
         # New cache loads from vault
@@ -291,3 +295,146 @@ class TestBackgroundFlushStartup:
         assert cache is mock_cache
 
         srv._ledger_cache = None
+
+
+# ---------------------------------------------------------------------------
+# credited_invoices tracking
+# ---------------------------------------------------------------------------
+
+
+class TestCreditedInvoices:
+    def test_credit_deposit_tracks_invoice(self) -> None:
+        """credit_deposit adds invoice_id to credited_invoices."""
+        ledger = UserLedger()
+        ledger.credit_deposit(1000, "inv-1")
+        assert "inv-1" in ledger.credited_invoices
+
+    def test_credit_deposit_removes_from_pending(self) -> None:
+        """credit_deposit removes invoice from pending_invoices."""
+        ledger = UserLedger(pending_invoices=["inv-1"])
+        ledger.credit_deposit(1000, "inv-1")
+        assert "inv-1" not in ledger.pending_invoices
+        assert "inv-1" in ledger.credited_invoices
+
+    def test_credit_deposit_idempotent(self) -> None:
+        """credit_deposit doesn't duplicate invoice in credited_invoices."""
+        ledger = UserLedger()
+        ledger.credit_deposit(1000, "inv-1")
+        ledger.credit_deposit(500, "inv-1")  # duplicate call
+        assert ledger.credited_invoices.count("inv-1") == 1
+
+    def test_credited_invoices_serialization_roundtrip(self) -> None:
+        """credited_invoices survive to_json → from_json."""
+        ledger = UserLedger(credited_invoices=["inv-a", "inv-b"])
+        ledger.credit_deposit(100, "inv-c")
+        restored = UserLedger.from_json(ledger.to_json())
+        assert set(restored.credited_invoices) == {"inv-a", "inv-b", "inv-c"}
+
+    def test_from_json_missing_credited_invoices(self) -> None:
+        """Backwards compat: missing credited_invoices defaults to empty list."""
+        data = json.dumps({"v": 1, "balance_sats": 100})
+        ledger = UserLedger.from_json(data)
+        assert ledger.credited_invoices == []
+        assert ledger.balance_sats == 100
+
+
+# ---------------------------------------------------------------------------
+# restore_credits_tool
+# ---------------------------------------------------------------------------
+
+
+class TestRestoreCredits:
+    @pytest.mark.asyncio
+    async def test_restore_settled_invoice(self) -> None:
+        """restore_credits credits balance from a Settled invoice."""
+        from thebrain_mcp.tools.credits import restore_credits_tool
+
+        cache = _make_cache()
+        btcpay = _mock_btcpay({"id": "inv-1", "status": "Settled", "amount": "1000"})
+
+        result = await restore_credits_tool(btcpay, cache, "user-1", "inv-1")
+
+        assert result["success"] is True
+        assert result["credits_granted"] == 1000
+        assert result["balance_sats"] == 1000
+        # Verify flushed to vault
+        assert cache._vault.store_ledger.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_restore_idempotent(self) -> None:
+        """restore_credits won't double-credit an already-credited invoice."""
+        from thebrain_mcp.tools.credits import restore_credits_tool
+
+        cache = _make_cache()
+        # Pre-credit the invoice
+        ledger = await cache.get("user-1")
+        ledger.credit_deposit(1000, "inv-1")
+        cache.mark_dirty("user-1")
+        cache._vault.store_ledger.reset_mock()
+
+        btcpay = _mock_btcpay({"id": "inv-1", "status": "Settled", "amount": "1000"})
+        result = await restore_credits_tool(btcpay, cache, "user-1", "inv-1")
+
+        assert result["success"] is True
+        assert result["credits_granted"] == 0
+        assert result["balance_sats"] == 1000
+        assert "already credited" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_restore_non_settled_invoice_fails(self) -> None:
+        """restore_credits rejects invoices that aren't Settled."""
+        from thebrain_mcp.tools.credits import restore_credits_tool
+
+        cache = _make_cache()
+        btcpay = _mock_btcpay({"id": "inv-1", "status": "Processing", "amount": "1000"})
+
+        result = await restore_credits_tool(btcpay, cache, "user-1", "inv-1")
+
+        assert result["success"] is False
+        assert "Processing" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_restore_with_tier_multiplier(self) -> None:
+        """restore_credits applies tier multiplier."""
+        from thebrain_mcp.tools.credits import restore_credits_tool
+
+        cache = _make_cache()
+        btcpay = _mock_btcpay({"id": "inv-1", "status": "Settled", "amount": "100"})
+
+        tier_config = json.dumps({"premium": {"credit_multiplier": 3}})
+        user_tiers = json.dumps({"user-1": "premium"})
+
+        result = await restore_credits_tool(
+            btcpay, cache, "user-1", "inv-1",
+            tier_config_json=tier_config, user_tiers_json=user_tiers,
+        )
+
+        assert result["success"] is True
+        assert result["credits_granted"] == 300
+        assert result["multiplier"] == 3
+
+    @pytest.mark.asyncio
+    async def test_restore_survives_cache_rebuild(self) -> None:
+        """Restored credits survive cache loss via vault flush."""
+        from thebrain_mcp.tools.credits import restore_credits_tool
+
+        vault = AsyncMock()
+        vault.fetch_ledger = AsyncMock(return_value=None)
+        vault.store_ledger = AsyncMock()
+        cache = LedgerCache(vault)
+
+        btcpay = _mock_btcpay({"id": "inv-1", "status": "Settled", "amount": "750"})
+        await restore_credits_tool(btcpay, cache, "user-1", "inv-1")
+
+        # Capture flushed data
+        flushed_json = vault.store_ledger.call_args[0][1]
+
+        # Simulate cache loss
+        vault2 = AsyncMock()
+        vault2.fetch_ledger = AsyncMock(return_value=flushed_json)
+        vault2.store_ledger = AsyncMock()
+        cache2 = LedgerCache(vault2)
+
+        ledger2 = await cache2.get("user-1")
+        assert ledger2.balance_sats == 750
+        assert "inv-1" in ledger2.credited_invoices

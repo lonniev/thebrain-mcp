@@ -1418,6 +1418,31 @@ async def check_balance() -> dict[str, Any]:
 
 
 @mcp.tool()
+async def restore_credits(invoice_id: str) -> dict[str, Any]:
+    """Restore credits from a paid invoice that was lost due to cache/vault issues.
+
+    Verifies the invoice is Settled with BTCPay, then credits the balance.
+    Idempotent via credited_invoices — won't double-credit.
+
+    Args:
+        invoice_id: The invoice ID returned by purchase_credits
+    """
+    try:
+        user_id = _require_user_id()
+        btcpay = _get_btcpay()
+        cache = _get_ledger_cache()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    settings = get_settings()
+    return await credits.restore_credits_tool(
+        btcpay, cache, user_id, invoice_id,
+        tier_config_json=settings.btcpay_tier_config,
+        user_tiers_json=settings.btcpay_user_tiers,
+    )
+
+
+@mcp.tool()
 async def btcpay_status() -> dict[str, Any]:
     """Check BTCPay Server configuration and connectivity.
 

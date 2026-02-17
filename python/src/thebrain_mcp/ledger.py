@@ -57,6 +57,7 @@ class UserLedger:
     total_deposited_sats: int = 0
     total_consumed_sats: int = 0
     pending_invoices: list[str] = field(default_factory=list)
+    credited_invoices: list[str] = field(default_factory=list)
     last_deposit_at: str | None = None
     daily_log: dict[str, dict[str, ToolUsage]] = field(default_factory=dict)
     history: dict[str, ToolUsage] = field(default_factory=dict)
@@ -92,6 +93,8 @@ class UserLedger:
         self.last_deposit_at = date.today().isoformat()
         if invoice_id in self.pending_invoices:
             self.pending_invoices.remove(invoice_id)
+        if invoice_id not in self.credited_invoices:
+            self.credited_invoices.append(invoice_id)
 
     def rollback_debit(self, tool_name: str, sats: int) -> None:
         """Undo a previous debit (e.g. tool call failed)."""
@@ -131,6 +134,7 @@ class UserLedger:
             "total_deposited_sats": self.total_deposited_sats,
             "total_consumed_sats": self.total_consumed_sats,
             "pending_invoices": self.pending_invoices,
+            "credited_invoices": self.credited_invoices,
             "last_deposit_at": self.last_deposit_at,
             "daily_log": {
                 day: {tool: u.to_dict() for tool, u in tools.items()}
@@ -179,6 +183,7 @@ class UserLedger:
             total_deposited_sats=int(obj.get("total_deposited_sats", 0)),
             total_consumed_sats=int(obj.get("total_consumed_sats", 0)),
             pending_invoices=list(obj.get("pending_invoices", [])),
+            credited_invoices=list(obj.get("credited_invoices", [])),
             last_deposit_at=obj.get("last_deposit_at"),
             daily_log=daily_log,
             history=history,
