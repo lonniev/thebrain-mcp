@@ -24,7 +24,7 @@
   <rect width="1100" height="1070" fill="#fafafa" rx="8"/>
 
   <!-- Title -->
-  <text x="550" y="35" text-anchor="middle" font-size="20" font-weight="bold" fill="#0f172a">BTCPay Payment Middleware — Protocol Flow</text>
+  <text x="550" y="35" text-anchor="middle" font-size="20" font-weight="bold" fill="#0f172a">Tollbooth — Protocol Flow</text>
   <text x="550" y="55" text-anchor="middle" font-size="12" fill="#64748b">thebrain-mcp: OAuth identity + Lightning micropayments (sat-denominated)</text>
 
   <!-- Swim lane headers -->

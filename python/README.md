@@ -11,6 +11,28 @@ A FastMCP server that enables AI assistants to interact with TheBrain's knowledg
 - **Full-Text Search**: Search across thoughts, notes, and attachments
 - **Brain Management**: Switch between multiple brains seamlessly
 
+## Tollbooth — API Monetization
+
+> **Tollbooth: a Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates**
+
+thebrain-mcp is the first Tollbooth-powered MCP server. Tollbooth is the built-in monetization layer that lets operators charge for API usage without interrupting the client's workflow.
+
+**DPYC** is a direct rebuke of the Know Your Customer (KYC) mantra. Think of Tollbooth as the cash-only lane on an EZPass highway: sure, you *can* subject yourself and your traffic to automated scrutiny, but with Tollbooth and Lightning Network currency, you can monetize with BTC and never have to divulge your bank or financial details. Pre-fund, use, top up. No identity interrogation required.
+
+**How it works:**
+- Clients pre-fund an `api_sats` balance via Lightning Network (BTCPay Server)
+- Each tool call silently debits the balance — no per-request payment prompts
+- Free tools (auth, balance checks) are never gated
+- If the balance runs low, a single `purchase_credits` call tops it up
+
+**Key principles:**
+- **DPYC (Don't Pester Your Client)** — pre-funded balance means zero payment friction during conversations
+- **Lightning-native** — BTCPay Server + Lightning Network; no fiat rails, no bank details
+- **Identity-first** — layers on Horizon OAuth; never replaces auth with payment
+- **Serverless-aware** — ledger persists across ephemeral FastMCP Cloud deployments
+
+See the [Tollbooth protocol flow diagram](../docs/diagrams/tollbooth-protocol-flow.svg) for the full architecture.
+
 ## Installation
 
 ### Prerequisites

@@ -12,7 +12,7 @@ docs/
 
 ## Conventions
 
-- **Naming**: Use descriptive, purpose-scoped filenames (e.g., `btcpay-protocol-flow.svg`, not `diagram1.svg`)
+- **Naming**: Use descriptive, purpose-scoped filenames (e.g., `tollbooth-protocol-flow.svg`, not `diagram1.svg`)
 - **Format**: Prefer SVG for diagrams (scalable, versionable, diffable)
 - **Fonts**: Use system fonts only — no external font dependencies
 - **URL pattern**: Reference via `https://raw.githubusercontent.com/lonniev/thebrain-mcp/main/docs/diagrams/<filename>`
