@@ -82,6 +82,18 @@ class LedgerCache:
         if entry:
             entry.dirty = True
 
+    async def flush_user(self, user_id: str) -> bool:
+        """Immediately flush a single user's entry to vault.
+
+        Use for credit-critical paths (check_payment, purchase_credits)
+        where data MUST be durable before returning success.
+        Returns True on success, False on failure (logged, not raised).
+        """
+        entry = self._entries.get(user_id)
+        if not entry or not entry.dirty:
+            return True  # Nothing to flush
+        return await self._flush_entry(user_id, entry)
+
     async def _load_from_vault(self, user_id: str) -> UserLedger:
         """Load ledger JSON from vault, returning fresh ledger on miss/error."""
         try:

@@ -1264,12 +1264,24 @@ def _get_btcpay() -> BTCPayClient:
 
 
 def _get_ledger_cache() -> LedgerCache:
-    """Get or create the ledger cache singleton."""
+    """Get or create the ledger cache singleton.
+
+    Starts the background flush task on first creation so dirty
+    entries are periodically written to vault (safety net for debits).
+    """
     global _ledger_cache
     if _ledger_cache is not None:
         return _ledger_cache
     vault = _get_vault()
     _ledger_cache = LedgerCache(vault)
+    # Start background flush — schedule as a fire-and-forget coroutine.
+    # This runs inside the event loop that FastMCP/asyncio already provides.
+    import asyncio
+    try:
+        asyncio.ensure_future(_ledger_cache.start_background_flush())
+    except RuntimeError:
+        # No running event loop yet (e.g. during test setup) — skip
+        pass
     return _ledger_cache
 
 
@@ -1400,6 +1412,31 @@ async def check_balance() -> dict[str, Any]:
     settings = get_settings()
     return await credits.check_balance_tool(
         cache, user_id,
+        tier_config_json=settings.btcpay_tier_config,
+        user_tiers_json=settings.btcpay_user_tiers,
+    )
+
+
+@mcp.tool()
+async def restore_credits(invoice_id: str) -> dict[str, Any]:
+    """Restore credits from a paid invoice that was lost due to cache/vault issues.
+
+    Verifies the invoice is Settled with BTCPay, then credits the balance.
+    Idempotent via credited_invoices — won't double-credit.
+
+    Args:
+        invoice_id: The invoice ID returned by purchase_credits
+    """
+    try:
+        user_id = _require_user_id()
+        btcpay = _get_btcpay()
+        cache = _get_ledger_cache()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    settings = get_settings()
+    return await credits.restore_credits_tool(
+        btcpay, cache, user_id, invoice_id,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
     )

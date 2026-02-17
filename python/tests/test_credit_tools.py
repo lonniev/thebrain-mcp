@@ -247,7 +247,7 @@ class TestCheckPayment:
         btcpay = _mock_btcpay({
             "id": "inv-1", "status": "Settled", "amount": "1000",
         })
-        ledger = UserLedger(balance_sats=1000)  # already credited, not in pending
+        ledger = UserLedger(balance_sats=1000, credited_invoices=["inv-1"])
         cache = _mock_cache(ledger)
         result = await check_payment_tool(btcpay, cache, "user1", "inv-1")
         assert result["credits_granted"] == 0
