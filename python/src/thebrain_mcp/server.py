@@ -1,9 +1,13 @@
 """TheBrain MCP server using FastMCP."""
 
+import logging
+import signal
 import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
@@ -1268,6 +1272,7 @@ def _get_ledger_cache() -> LedgerCache:
 
     Starts the background flush task on first creation so dirty
     entries are periodically written to vault (safety net for debits).
+    Also registers SIGTERM/SIGINT handlers for graceful shutdown.
     """
     global _ledger_cache
     if _ledger_cache is not None:
@@ -1282,7 +1287,47 @@ def _get_ledger_cache() -> LedgerCache:
     except RuntimeError:
         # No running event loop yet (e.g. during test setup) — skip
         pass
+    _register_shutdown_handlers()
     return _ledger_cache
+
+
+_shutdown_triggered = False
+
+
+async def _graceful_shutdown() -> None:
+    """Flush all dirty ledger entries to vault before process exit."""
+    global _shutdown_triggered, _ledger_cache
+    if _shutdown_triggered:
+        return
+    _shutdown_triggered = True
+
+    if _ledger_cache is not None:
+        dirty = _ledger_cache.dirty_count
+        logger.info("Graceful shutdown: flushing %d dirty ledger entries...", dirty)
+        flushed = await _ledger_cache.flush_all()
+        await _ledger_cache.stop()
+        logger.info("Graceful shutdown complete: flushed %d entries.", flushed)
+
+
+def _register_shutdown_handlers() -> None:
+    """Register SIGTERM/SIGINT handlers for graceful ledger flush.
+
+    Called once when the ledger cache is first created. On signal receipt,
+    schedules an async flush before the process exits.
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(
+                sig,
+                lambda s=sig: asyncio.ensure_future(_graceful_shutdown()),
+            )
+        logger.info("Registered SIGTERM/SIGINT handlers for graceful ledger flush.")
+    except (NotImplementedError, RuntimeError):
+        # Windows doesn't support add_signal_handler; no loop during tests
+        pass
 
 
 # Tool Gating Middleware
@@ -1401,7 +1446,7 @@ async def check_balance() -> dict[str, Any]:
     """Check your current credit balance and usage summary.
 
     Shows balance in api_sats, total deposited/consumed, pending invoices,
-    and today's per-tool usage breakdown.
+    today's per-tool usage breakdown, and cache health metrics.
     """
     try:
         user_id = _require_user_id()
@@ -1410,11 +1455,13 @@ async def check_balance() -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
     settings = get_settings()
-    return await credits.check_balance_tool(
+    result = await credits.check_balance_tool(
         cache, user_id,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
     )
+    result["cache_health"] = cache.health()
+    return result
 
 
 @mcp.tool()
@@ -1447,9 +1494,9 @@ async def btcpay_status() -> dict[str, Any]:
     """Check BTCPay Server configuration and connectivity.
 
     Reports which env vars are set (never exposes the API key itself),
-    tier config validity, and — if fully configured — whether the server
-    is reachable and the store is accessible. Free diagnostic tool that
-    requires no user authentication.
+    tier config validity, cache health metrics, and — if fully configured —
+    whether the server is reachable and the store is accessible.
+    Free diagnostic tool that requires no user authentication.
     """
     _ensure_settings_loaded()
     settings = get_settings()
@@ -1460,7 +1507,15 @@ async def btcpay_status() -> dict[str, Any]:
     except ValueError:
         pass
 
-    return await credits.btcpay_status_tool(settings, btcpay_client)
+    result = await credits.btcpay_status_tool(settings, btcpay_client)
+
+    # Add cache health if ledger cache exists
+    if _ledger_cache is not None:
+        result["cache_health"] = _ledger_cache.health()
+    else:
+        result["cache_health"] = None
+
+    return result
 
 
 def main() -> None:

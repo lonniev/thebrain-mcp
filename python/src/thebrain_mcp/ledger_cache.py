@@ -50,6 +50,8 @@ class LedgerCache:
         self._entries: OrderedDict[str, _CacheEntry] = OrderedDict()
         self._locks: dict[str, asyncio.Lock] = {}
         self._flush_task: asyncio.Task[None] | None = None
+        self._last_flush_at: str | None = None
+        self._total_flushes: int = 0
 
     def _get_lock(self, user_id: str) -> asyncio.Lock:
         """Get or create a per-user lock."""
@@ -118,9 +120,13 @@ class LedgerCache:
 
     async def _flush_entry(self, user_id: str, entry: _CacheEntry) -> bool:
         """Flush a single entry to vault. Returns True on success."""
+        from datetime import datetime, timezone
+
         try:
             await self._vault.store_ledger(user_id, entry.ledger.to_json())
             entry.dirty = False
+            self._last_flush_at = datetime.now(timezone.utc).isoformat()
+            self._total_flushes += 1
             return True
         except Exception:
             logger.warning("Failed to flush ledger to vault for %s.", user_id)
@@ -161,12 +167,25 @@ class LedgerCache:
 
     async def _background_flush_loop(self) -> None:
         """Periodically flush dirty entries until cancelled."""
+        cycles = 0
         try:
             while True:
                 await asyncio.sleep(self._flush_interval)
                 count = await self.flush_dirty()
+                cycles += 1
                 if count > 0:
-                    logger.debug("Background flush: wrote %d ledger(s).", count)
+                    logger.info(
+                        "Background flush: wrote %d ledger(s) "
+                        "(cycle %d, total flushes: %d).",
+                        count, cycles, self._total_flushes,
+                    )
+                elif cycles % 10 == 0:
+                    # Heartbeat every 10 cycles even when idle
+                    logger.info(
+                        "Background flush heartbeat: cycle %d, "
+                        "cache size %d, dirty %d, total flushes %d.",
+                        cycles, self.size, self.dirty_count, self._total_flushes,
+                    )
         except asyncio.CancelledError:
             pass
 
@@ -185,3 +204,19 @@ class LedgerCache:
     def size(self) -> int:
         """Number of entries currently in cache."""
         return len(self._entries)
+
+    @property
+    def dirty_count(self) -> int:
+        """Number of dirty (unflushed) entries in cache."""
+        return sum(1 for e in self._entries.values() if e.dirty)
+
+    def health(self) -> dict[str, object]:
+        """Return cache health metrics for monitoring."""
+        return {
+            "cache_size": self.size,
+            "dirty_entries": self.dirty_count,
+            "last_flush_at": self._last_flush_at,
+            "total_flushes": self._total_flushes,
+            "background_flush_running": self._flush_task is not None
+                                        and not self._flush_task.done(),
+        }
