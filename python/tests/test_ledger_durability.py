@@ -44,7 +44,7 @@ class TestFlushUser:
         """flush_user writes a dirty entry to vault and clears dirty flag."""
         cache = _make_cache()
         ledger = await cache.get("user-1")
-        ledger.balance_sats = 500
+        ledger.balance_api_sats = 500
         cache.mark_dirty("user-1")
 
         result = await cache.flush_user("user-1")
@@ -109,7 +109,7 @@ class TestFlushUser:
         # Verify vault received the credited ledger
         stored_json = cache._vault.store_ledger.call_args[0][1]
         stored_ledger = UserLedger.from_json(stored_json)
-        assert stored_ledger.balance_sats == 1000
+        assert stored_ledger.balance_api_sats == 1000
         assert "inv-1" not in stored_ledger.pending_invoices
 
 
@@ -158,7 +158,7 @@ class TestCreditPathFlushing:
         assert cache._vault.store_ledger.call_count >= 1
         stored_json = cache._vault.store_ledger.call_args[0][1]
         stored_ledger = UserLedger.from_json(stored_json)
-        assert stored_ledger.balance_sats == 1000
+        assert stored_ledger.balance_api_sats == 1000
         assert "inv-1" not in stored_ledger.pending_invoices
 
     @pytest.mark.asyncio
@@ -216,9 +216,9 @@ class TestCreditPathFlushing:
         ledger2 = await cache2.get("user-1")
 
         # Step 5: Verify credits survived
-        assert ledger2.balance_sats == 500
+        assert ledger2.balance_api_sats == 500
         assert "inv-1" not in ledger2.pending_invoices
-        assert ledger2.total_deposited_sats == 500
+        assert ledger2.total_deposited_api_sats == 500
 
     @pytest.mark.asyncio
     async def test_idempotency_correct_after_cache_rebuild(self) -> None:
@@ -227,8 +227,8 @@ class TestCreditPathFlushing:
 
         # Build a ledger where inv-1 was already credited
         ledger = UserLedger(
-            balance_sats=500,
-            total_deposited_sats=500,
+            balance_api_sats=500,
+            total_deposited_api_sats=500,
             credited_invoices=["inv-1"],
         )
         flushed_json = ledger.to_json()
@@ -245,7 +245,7 @@ class TestCreditPathFlushing:
         assert result["credits_granted"] == 0
         assert "already credited" in result["message"]
         # Balance should be preserved, not zeroed
-        assert result["balance_sats"] == 500
+        assert result["balance_api_sats"] == 500
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +335,7 @@ class TestCreditedInvoices:
         data = json.dumps({"v": 1, "balance_sats": 100})
         ledger = UserLedger.from_json(data)
         assert ledger.credited_invoices == []
-        assert ledger.balance_sats == 100
+        assert ledger.balance_api_sats == 100
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +356,7 @@ class TestRestoreCredits:
 
         assert result["success"] is True
         assert result["credits_granted"] == 1000
-        assert result["balance_sats"] == 1000
+        assert result["balance_api_sats"] == 1000
         # Verify flushed to vault
         assert cache._vault.store_ledger.call_count >= 1
 
@@ -377,7 +377,7 @@ class TestRestoreCredits:
 
         assert result["success"] is True
         assert result["credits_granted"] == 0
-        assert result["balance_sats"] == 1000
+        assert result["balance_api_sats"] == 1000
         assert "already credited" in result["message"].lower()
 
     @pytest.mark.asyncio
@@ -436,5 +436,5 @@ class TestRestoreCredits:
         cache2 = LedgerCache(vault2)
 
         ledger2 = await cache2.get("user-1")
-        assert ledger2.balance_sats == 750
+        assert ledger2.balance_api_sats == 750
         assert "inv-1" in ledger2.credited_invoices

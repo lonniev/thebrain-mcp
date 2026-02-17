@@ -224,7 +224,7 @@ class TestCheckPayment:
         )
         assert result["success"] is True
         assert result["credits_granted"] == 1000  # default multiplier = 1
-        assert result["balance_sats"] == 1000
+        assert result["balance_api_sats"] == 1000
         assert "inv-1" not in ledger.pending_invoices
         cache.mark_dirty.assert_called()
 
@@ -247,11 +247,11 @@ class TestCheckPayment:
         btcpay = _mock_btcpay({
             "id": "inv-1", "status": "Settled", "amount": "1000",
         })
-        ledger = UserLedger(balance_sats=1000, credited_invoices=["inv-1"])
+        ledger = UserLedger(balance_api_sats=1000, credited_invoices=["inv-1"])
         cache = _mock_cache(ledger)
         result = await check_payment_tool(btcpay, cache, "user1", "inv-1")
         assert result["credits_granted"] == 0
-        assert result["balance_sats"] == 1000
+        assert result["balance_api_sats"] == 1000
         assert "already credited" in result["message"]
 
     @pytest.mark.asyncio
@@ -309,29 +309,29 @@ class TestCheckBalance:
         cache = _mock_cache()
         result = await check_balance_tool(cache, "user1")
         assert result["success"] is True
-        assert result["balance_sats"] == 0
+        assert result["balance_api_sats"] == 0
         assert result["pending_invoices"] == 0
 
     @pytest.mark.asyncio
     async def test_with_balance(self) -> None:
         ledger = UserLedger(
-            balance_sats=5000,
-            total_deposited_sats=10000,
-            total_consumed_sats=5000,
+            balance_api_sats=5000,
+            total_deposited_api_sats=10000,
+            total_consumed_api_sats=5000,
             pending_invoices=["inv-a"],
             last_deposit_at="2026-02-15",
         )
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
-        assert result["balance_sats"] == 5000
-        assert result["total_deposited_sats"] == 10000
-        assert result["total_consumed_sats"] == 5000
+        assert result["balance_api_sats"] == 5000
+        assert result["total_deposited_api_sats"] == 10000
+        assert result["total_consumed_api_sats"] == 5000
         assert result["pending_invoices"] == 1
         assert result["last_deposit_at"] == "2026-02-15"
 
     @pytest.mark.asyncio
     async def test_today_usage_included(self) -> None:
-        ledger = UserLedger(balance_sats=100)
+        ledger = UserLedger(balance_api_sats=100)
         ledger.debit("search", 10)
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
@@ -341,18 +341,18 @@ class TestCheckBalance:
 
     @pytest.mark.asyncio
     async def test_no_today_usage(self) -> None:
-        ledger = UserLedger(balance_sats=100)
+        ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
         assert "today_usage" not in result
 
     @pytest.mark.asyncio
     async def test_does_not_modify_state(self) -> None:
-        ledger = UserLedger(balance_sats=500)
+        ledger = UserLedger(balance_api_sats=500)
         cache = _mock_cache(ledger)
         await check_balance_tool(cache, "user1")
         cache.mark_dirty.assert_not_called()
-        assert ledger.balance_sats == 500
+        assert ledger.balance_api_sats == 500
 
     @pytest.mark.asyncio
     async def test_default_tier_shown(self) -> None:

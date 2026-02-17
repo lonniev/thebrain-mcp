@@ -178,7 +178,7 @@ async def check_payment_tool(
     else:
         result["message"] = f"Unknown invoice status: {status}"
 
-    result["balance_sats"] = ledger.balance_sats
+    result["balance_api_sats"] = ledger.balance_api_sats
     return result
 
 
@@ -198,9 +198,9 @@ async def check_balance_tool(
         "success": True,
         "tier": tier_name,
         "multiplier": multiplier,
-        "balance_sats": ledger.balance_sats,
-        "total_deposited_sats": ledger.total_deposited_sats,
-        "total_consumed_sats": ledger.total_consumed_sats,
+        "balance_api_sats": ledger.balance_api_sats,
+        "total_deposited_api_sats": ledger.total_deposited_api_sats,
+        "total_consumed_api_sats": ledger.total_consumed_api_sats,
         "pending_invoices": len(ledger.pending_invoices),
         "last_deposit_at": ledger.last_deposit_at,
     }
@@ -209,7 +209,7 @@ async def check_balance_tool(
     today_log = ledger.daily_log.get(today)
     if today_log:
         result["today_usage"] = {
-            tool: {"calls": u.calls, "sats": u.sats}
+            tool: {"calls": u.calls, "api_sats": u.api_sats}
             for tool, u in today_log.items()
         }
 
@@ -236,7 +236,7 @@ async def restore_credits_tool(
             "success": True,
             "invoice_id": invoice_id,
             "credits_granted": 0,
-            "balance_sats": ledger.balance_sats,
+            "balance_api_sats": ledger.balance_api_sats,
             "message": "Invoice already credited — no duplicate credits applied.",
         }
 
@@ -274,7 +274,7 @@ async def restore_credits_tool(
         "amount_sats": amount_sats,
         "multiplier": multiplier,
         "credits_granted": credited,
-        "balance_sats": ledger.balance_sats,
+        "balance_api_sats": ledger.balance_api_sats,
         "message": f"Restored {credited:,} credits from invoice {invoice_id}.",
     }
 
