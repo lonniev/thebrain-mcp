@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -52,6 +53,7 @@ class LedgerCache:
         self._flush_task: asyncio.Task[None] | None = None
         self._last_flush_at: str | None = None
         self._total_flushes: int = 0
+        self._last_flush_check: float = time.monotonic()
 
     def _get_lock(self, user_id: str) -> asyncio.Lock:
         """Get or create a per-user lock."""
@@ -59,8 +61,25 @@ class LedgerCache:
             self._locks[user_id] = asyncio.Lock()
         return self._locks[user_id]
 
+    async def _maybe_flush(self) -> None:
+        """Flush dirty entries if enough time has passed since the last flush.
+
+        Called from get() to piggyback on request-driven event loop activity.
+        In serverless environments where asyncio.sleep() doesn't advance
+        between requests, this ensures dirty entries are eventually persisted.
+        """
+        now = time.monotonic()
+        if now - self._last_flush_check < self._flush_interval:
+            return
+        self._last_flush_check = now
+        if self.dirty_count > 0:
+            count = await self.flush_dirty()
+            if count > 0:
+                logger.info("Opportunistic flush: wrote %d ledger(s).", count)
+
     async def get(self, user_id: str) -> UserLedger:
         """Return the cached ledger, loading from vault on miss."""
+        await self._maybe_flush()
         lock = self._get_lock(user_id)
         async with lock:
             if user_id in self._entries:
@@ -167,6 +186,11 @@ class LedgerCache:
 
     async def _background_flush_loop(self) -> None:
         """Periodically flush dirty entries until cancelled."""
+        logger.warning(
+            "Background flush loop started (interval=%ds). "
+            "In serverless envs, opportunistic flush handles persistence instead.",
+            self._flush_interval,
+        )
         cycles = 0
         try:
             while True:
@@ -219,4 +243,7 @@ class LedgerCache:
             "total_flushes": self._total_flushes,
             "background_flush_running": self._flush_task is not None
                                         and not self._flush_task.done(),
+            "last_flush_check_age_secs": round(
+                time.monotonic() - self._last_flush_check, 1
+            ),
         }
