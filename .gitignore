@@ -19,6 +19,9 @@ venv/
 htmlcov/
 coverage/
 
+# Claude Code
+.claude/
+
 # IDE
 .idea/
 .vscode/
@@ -29,6 +32,9 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+
+# Scripts (local)
+scripts/
 
 # Temporary files
 tmp/
