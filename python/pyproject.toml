@@ -5,7 +5,7 @@ description = "FastMCP server for TheBrain API - enables AI assistants to intera
 authors = [{name = "TheBrain MCP Contributors"}]
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 keywords = ["mcp", "thebrain", "knowledge-management", "ai", "claude", "fastmcp"]
 
 dependencies = [
