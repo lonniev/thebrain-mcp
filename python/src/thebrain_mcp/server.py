@@ -1060,13 +1060,33 @@ async def register_credentials(
     # Activate session immediately
     set_session(user_id, thebrain_api_key, brain_id)
 
-    return {
+    # Seed starter balance for new users (idempotent via sentinel)
+    seed_sats = get_settings().seed_balance_sats
+    seed_applied = False
+    if seed_sats > 0:
+        try:
+            cache = _get_ledger_cache()
+            ledger = await cache.get(user_id)
+            sentinel = "seed_balance_v1"
+            if sentinel not in ledger.credited_invoices:
+                ledger.credit_deposit(seed_sats, sentinel)
+                cache.mark_dirty(user_id)
+                await cache.flush_user(user_id)
+                seed_applied = True
+        except Exception:
+            pass  # Seed failure never blocks registration
+
+    result: dict[str, Any] = {
         "success": True,
         "message": "Credentials registered and session activated.",
         "userId": user_id,
         "brainId": brain_id,
         "vaultThoughtId": thought_id,
     }
+    if seed_applied:
+        result["seed_applied"] = True
+        result["seed_balance_api_sats"] = seed_sats
+    return result
 
 
 @mcp.tool()

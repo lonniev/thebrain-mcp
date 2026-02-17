@@ -219,6 +219,9 @@ async def check_balance_tool(
         "last_deposit_at": ledger.last_deposit_at,
     }
 
+    if "seed_balance_v1" in ledger.credited_invoices:
+        result["seed_balance_granted"] = True
+
     # Include today's usage if available
     today_log = ledger.daily_log.get(today)
     if today_log:

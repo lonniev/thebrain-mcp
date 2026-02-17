@@ -374,6 +374,137 @@ class TestCheckBalance:
         assert result["tier"] == "vip"
         assert result["multiplier"] == 100
 
+    @pytest.mark.asyncio
+    async def test_seed_balance_granted_shown(self) -> None:
+        """check_balance shows seed_balance_granted when seed sentinel is present."""
+        ledger = UserLedger(balance_api_sats=1000, credited_invoices=["seed_balance_v1"])
+        cache = _mock_cache(ledger)
+        result = await check_balance_tool(cache, "user1")
+        assert result["seed_balance_granted"] is True
+
+    @pytest.mark.asyncio
+    async def test_seed_balance_granted_absent(self) -> None:
+        """check_balance omits seed_balance_granted when no seed was applied."""
+        ledger = UserLedger(balance_api_sats=500)
+        cache = _mock_cache(ledger)
+        result = await check_balance_tool(cache, "user1")
+        assert "seed_balance_granted" not in result
+
+
+# ---------------------------------------------------------------------------
+# Seed Balance on Registration
+# ---------------------------------------------------------------------------
+
+
+class TestSeedBalance:
+    """Tests for seed balance logic in register_credentials."""
+
+    @pytest.mark.asyncio
+    async def test_new_user_gets_seed(self) -> None:
+        """New user receives seed balance on first registration."""
+        import thebrain_mcp.server as srv
+
+        mock_api = AsyncMock()
+        mock_api.get_brain = AsyncMock(return_value={"id": "brain-1"})
+        mock_api.close = AsyncMock()
+
+        ledger = UserLedger()
+        mock_cache = _mock_cache(ledger)
+
+        mock_vault = AsyncMock()
+        mock_vault.store = AsyncMock(return_value="thought-123")
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 1000
+
+        with patch.object(srv, "_require_user_id", return_value="user-new"), \
+             patch.object(srv, "_get_vault", return_value=mock_vault), \
+             patch.object(srv, "_get_ledger_cache", return_value=mock_cache), \
+             patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch("thebrain_mcp.server.TheBrainAPI", return_value=mock_api), \
+             patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
+             patch("thebrain_mcp.server.set_session"):
+            result = await srv.register_credentials.fn(
+                thebrain_api_key="key-1", brain_id="brain-1", passphrase="pass"
+            )
+
+        assert result["success"] is True
+        assert result["seed_applied"] is True
+        assert result["seed_balance_api_sats"] == 1000
+        assert ledger.balance_api_sats == 1000
+        assert "seed_balance_v1" in ledger.credited_invoices
+        mock_cache.mark_dirty.assert_called_with("user-new")
+
+    @pytest.mark.asyncio
+    async def test_re_registration_no_double_seed(self) -> None:
+        """Re-registering user does NOT get a second seed."""
+        import thebrain_mcp.server as srv
+
+        mock_api = AsyncMock()
+        mock_api.get_brain = AsyncMock(return_value={"id": "brain-1"})
+        mock_api.close = AsyncMock()
+
+        # User already has the seed sentinel
+        ledger = UserLedger(
+            balance_api_sats=500,
+            credited_invoices=["seed_balance_v1"],
+        )
+        mock_cache = _mock_cache(ledger)
+
+        mock_vault = AsyncMock()
+        mock_vault.store = AsyncMock(return_value="thought-123")
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 1000
+
+        with patch.object(srv, "_require_user_id", return_value="user-existing"), \
+             patch.object(srv, "_get_vault", return_value=mock_vault), \
+             patch.object(srv, "_get_ledger_cache", return_value=mock_cache), \
+             patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch("thebrain_mcp.server.TheBrainAPI", return_value=mock_api), \
+             patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
+             patch("thebrain_mcp.server.set_session"):
+            result = await srv.register_credentials.fn(
+                thebrain_api_key="key-1", brain_id="brain-1", passphrase="pass"
+            )
+
+        assert result["success"] is True
+        assert "seed_applied" not in result
+        assert ledger.balance_api_sats == 500  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_seed_disabled_when_zero(self) -> None:
+        """SEED_BALANCE_SATS=0 disables seeding."""
+        import thebrain_mcp.server as srv
+
+        mock_api = AsyncMock()
+        mock_api.get_brain = AsyncMock(return_value={"id": "brain-1"})
+        mock_api.close = AsyncMock()
+
+        ledger = UserLedger()
+        mock_cache = _mock_cache(ledger)
+
+        mock_vault = AsyncMock()
+        mock_vault.store = AsyncMock(return_value="thought-123")
+
+        mock_settings = MagicMock()
+        mock_settings.seed_balance_sats = 0
+
+        with patch.object(srv, "_require_user_id", return_value="user-new"), \
+             patch.object(srv, "_get_vault", return_value=mock_vault), \
+             patch.object(srv, "_get_ledger_cache", return_value=mock_cache), \
+             patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch("thebrain_mcp.server.TheBrainAPI", return_value=mock_api), \
+             patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
+             patch("thebrain_mcp.server.set_session"):
+            result = await srv.register_credentials.fn(
+                thebrain_api_key="key-1", brain_id="brain-1", passphrase="pass"
+            )
+
+        assert result["success"] is True
+        assert "seed_applied" not in result
+        assert ledger.balance_api_sats == 0
+
 
 # ---------------------------------------------------------------------------
 # refresh_config
