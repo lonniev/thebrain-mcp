@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     btcpay_tier_config: str | None = None
     btcpay_user_tiers: str | None = None
 
+    seed_balance_sats: int = 0  # 0 = disabled (current behavior)
+
 
 def get_settings() -> Settings:
     """Get application settings."""

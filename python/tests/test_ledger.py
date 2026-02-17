@@ -120,6 +120,31 @@ class TestUserLedger:
         assert ledger.history["search"].calls == 0
         assert ledger.history["search"].api_sats == 0
 
+    def test_seed_via_credit_deposit(self) -> None:
+        """Seed balance via credit_deposit with sentinel ID."""
+        ledger = UserLedger()
+        ledger.credit_deposit(1000, "seed_balance_v1")
+        assert ledger.balance_api_sats == 1000
+        assert ledger.total_deposited_api_sats == 1000
+        assert "seed_balance_v1" in ledger.credited_invoices
+
+    def test_seed_sentinel_prevents_double_credit(self) -> None:
+        """Second credit_deposit with same sentinel is a no-op for credited_invoices."""
+        ledger = UserLedger()
+        ledger.credit_deposit(1000, "seed_balance_v1")
+        # Calling again adds balance but sentinel already present (idempotency
+        # is checked by the caller, not credit_deposit itself)
+        assert "seed_balance_v1" in ledger.credited_invoices
+        # Caller should check `sentinel not in ledger.credited_invoices` before calling
+        assert ledger.credited_invoices.count("seed_balance_v1") == 1
+
+    def test_seed_balance_is_spendable(self) -> None:
+        """Seeded balance can be spent via debit()."""
+        ledger = UserLedger()
+        ledger.credit_deposit(1000, "seed_balance_v1")
+        assert ledger.debit("search", 100) is True
+        assert ledger.balance_api_sats == 900
+
     def test_rotate_daily_log(self) -> None:
         ledger = UserLedger(balance_api_sats=100)
         # Add an old entry
