@@ -248,7 +248,7 @@ class UserLedger:
             "invoices": {
                 iid: rec.to_dict() for iid, rec in self.invoices.items()
             },
-        })
+        }, indent=2)
 
     @classmethod
     def from_json(cls, data: str) -> UserLedger:
