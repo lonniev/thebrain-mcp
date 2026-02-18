@@ -136,6 +136,26 @@ class BTCPayClient:
             "GET", f"/stores/{self._store_id}/invoices/{invoice_id}"
         )
 
+    async def get_api_key_info(self) -> dict[str, Any]:
+        """GET /api-keys/current — current API key metadata and permissions."""
+        return await self._request("GET", "/api-keys/current")
+
+    async def create_payout(
+        self,
+        destination: str,
+        amount_sats: int,
+        payment_method: str = "BTC-LightningNetwork",
+    ) -> dict[str, Any]:
+        """POST /stores/{storeId}/payouts — create a store payout."""
+        payload: dict[str, Any] = {
+            "destination": destination,
+            "amount": str(amount_sats),
+            "paymentMethod": payment_method,
+        }
+        return await self._request(
+            "POST", f"/stores/{self._store_id}/payouts", json_data=payload
+        )
+
     # -- lifecycle ------------------------------------------------------------
 
     async def close(self) -> None:

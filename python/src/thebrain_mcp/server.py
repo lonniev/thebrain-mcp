@@ -1313,6 +1313,15 @@ def _get_btcpay() -> BTCPayClient:
     _btcpay_client = BTCPayClient(
         settings.btcpay_host, settings.btcpay_api_key, settings.btcpay_store_id
     )
+    if settings.tollbooth_royalty_address:
+        logger.info(
+            "BTCPay initialized — royalty payouts enabled: %s (%.1f%%, min %d sats)",
+            settings.tollbooth_royalty_address,
+            settings.tollbooth_royalty_percent * 100,
+            settings.tollbooth_royalty_min_sats,
+        )
+    else:
+        logger.info("BTCPay initialized — royalty payouts disabled (no address configured)")
     return _btcpay_client
 
 
@@ -1510,6 +1519,9 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
         btcpay, cache, user_id, invoice_id,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
+        royalty_address=settings.tollbooth_royalty_address,
+        royalty_percent=settings.tollbooth_royalty_percent,
+        royalty_min_sats=settings.tollbooth_royalty_min_sats,
     )
 
 

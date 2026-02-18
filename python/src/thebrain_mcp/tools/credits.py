@@ -19,6 +19,39 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MULTIPLIER = 1
 
 
+async def _attempt_royalty_payout(
+    btcpay: BTCPayClient,
+    invoice_amount_sats: int,
+    royalty_address: str,
+    royalty_percent: float,
+    royalty_min_sats: int,
+) -> dict[str, Any] | None:
+    """Attempt a royalty payout to the originator's Lightning Address.
+
+    Returns a result dict on success or partial failure, None if below minimum.
+    Never raises — catches all BTCPayError exceptions.
+    """
+    royalty_sats = int(invoice_amount_sats * royalty_percent)
+    if royalty_sats < royalty_min_sats:
+        return None
+
+    try:
+        payout = await btcpay.create_payout(royalty_address, royalty_sats)
+        return {
+            "royalty_sats": royalty_sats,
+            "royalty_address": royalty_address,
+            "payout_id": payout.get("id", ""),
+            "payout_state": payout.get("state", "Unknown"),
+        }
+    except BTCPayError as e:
+        logger.warning("Royalty payout failed: %s", e)
+        return {
+            "royalty_sats": royalty_sats,
+            "royalty_address": royalty_address,
+            "royalty_error": str(e),
+        }
+
+
 def _get_tier_info(
     user_id: str,
     tier_config_json: str | None,
@@ -127,6 +160,9 @@ async def check_payment_tool(
     invoice_id: str,
     tier_config_json: str | None = None,
     user_tiers_json: str | None = None,
+    royalty_address: str | None = None,
+    royalty_percent: float = 0.02,
+    royalty_min_sats: int = 10,
 ) -> dict[str, Any]:
     """Poll BTCPay invoice status. Credit balance on settlement (idempotent)."""
     try:
@@ -180,6 +216,15 @@ async def check_payment_tool(
             result["credits_granted"] = credited
             result["multiplier"] = multiplier
             result["message"] = f"Payment settled! {credited:,} credits added to your balance."
+
+            # Attempt royalty payout (never blocks credit settlement)
+            if royalty_address:
+                royalty_result = await _attempt_royalty_payout(
+                    btcpay, amount_sats, royalty_address,
+                    royalty_percent, royalty_min_sats,
+                )
+                if royalty_result is not None:
+                    result["royalty_payout"] = royalty_result
 
     elif status == "Expired":
         if invoice_id in ledger.pending_invoices:
@@ -428,6 +473,15 @@ async def btcpay_status_tool(
         settings.btcpay_host and settings.btcpay_store_id and settings.btcpay_api_key
     )
 
+    # Royalty config
+    royalty_enabled = bool(settings.tollbooth_royalty_address)
+    result["royalty_config"] = {
+        "enabled": royalty_enabled,
+        "address": settings.tollbooth_royalty_address,
+        "percent": settings.tollbooth_royalty_percent,
+        "min_sats": settings.tollbooth_royalty_min_sats,
+    }
+
     if connection_vars_present and btcpay is not None:
         # Health check
         try:
@@ -448,6 +502,26 @@ async def btcpay_status_tool(
             result["store_name"] = None
         except Exception:
             result["store_name"] = None
+
+        # API key permissions check
+        try:
+            key_info = await btcpay.get_api_key_info()
+            permissions = key_info.get("permissions", [])
+            required = ["btcpay.store.cancreateinvoice", "btcpay.store.canviewinvoices"]
+            if royalty_enabled:
+                required.append("btcpay.store.cancreatepullpayments")
+            present = [p for p in required if p in permissions]
+            missing = [p for p in required if p not in permissions]
+            result["api_key_permissions"] = {
+                "permissions": permissions,
+                "required": required,
+                "present": present,
+                "missing": missing,
+            }
+        except BTCPayError as e:
+            result["api_key_permissions"] = {"error": str(e)}
+        except Exception as e:
+            result["api_key_permissions"] = {"error": str(e)}
     else:
         result["server_reachable"] = None
         result["store_name"] = None

@@ -195,6 +195,84 @@ class TestBTCPayExceptionMapping:
 
 
 # ---------------------------------------------------------------------------
+# get_api_key_info
+# ---------------------------------------------------------------------------
+
+
+class TestGetApiKeyInfo:
+    @pytest.mark.asyncio
+    async def test_success(self) -> None:
+        client = BTCPayClient("https://x.com", "k", "s")
+        client._client.request = AsyncMock(
+            return_value=_mock_response(200, {
+                "apiKey": "k",
+                "permissions": ["btcpay.store.cancreateinvoice", "btcpay.store.canviewinvoices"],
+            })
+        )
+        result = await client.get_api_key_info()
+        assert "permissions" in result
+        assert len(result["permissions"]) == 2
+        client._client.request.assert_called_once_with("GET", "/api-keys/current", json=None)
+
+    @pytest.mark.asyncio
+    async def test_auth_error(self) -> None:
+        client = BTCPayClient("https://x.com", "bad-key", "s")
+        client._client.request = AsyncMock(return_value=_mock_response(401))
+        with pytest.raises(BTCPayAuthError) as exc_info:
+            await client.get_api_key_info()
+        assert exc_info.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# create_payout
+# ---------------------------------------------------------------------------
+
+
+class TestCreatePayout:
+    @pytest.mark.asyncio
+    async def test_success(self) -> None:
+        client = BTCPayClient("https://x.com", "k", "my-store")
+        client._client.request = AsyncMock(
+            return_value=_mock_response(200, {"id": "payout-1", "state": "AwaitingApproval"})
+        )
+        result = await client.create_payout("user@ln.addr", 100)
+        assert result["id"] == "payout-1"
+        assert result["state"] == "AwaitingApproval"
+        call_args = client._client.request.call_args
+        assert call_args[0] == ("POST", "/stores/my-store/payouts")
+        payload = call_args[1]["json"]
+        assert payload["destination"] == "user@ln.addr"
+        assert payload["amount"] == "100"
+        assert payload["paymentMethod"] == "BTC-LightningNetwork"
+
+    @pytest.mark.asyncio
+    async def test_custom_payment_method(self) -> None:
+        client = BTCPayClient("https://x.com", "k", "s")
+        client._client.request = AsyncMock(
+            return_value=_mock_response(200, {"id": "payout-2"})
+        )
+        await client.create_payout("addr", 50, payment_method="BTC")
+        payload = client._client.request.call_args[1]["json"]
+        assert payload["paymentMethod"] == "BTC"
+
+    @pytest.mark.asyncio
+    async def test_validation_error(self) -> None:
+        client = BTCPayClient("https://x.com", "k", "s")
+        client._client.request = AsyncMock(return_value=_mock_response(422))
+        with pytest.raises(BTCPayValidationError) as exc_info:
+            await client.create_payout("bad", 0)
+        assert exc_info.value.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_auth_error(self) -> None:
+        client = BTCPayClient("https://x.com", "k", "s")
+        client._client.request = AsyncMock(return_value=_mock_response(403))
+        with pytest.raises(BTCPayAuthError) as exc_info:
+            await client.create_payout("addr", 100)
+        assert exc_info.value.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # Context manager
 # ---------------------------------------------------------------------------
 
