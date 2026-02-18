@@ -23,6 +23,7 @@ from thebrain_mcp.vault import (
     CredentialVault,
     CredentialValidationError,
     DecryptionError,
+    PersonalBrainVault,
     VaultNotConfiguredError,
     decrypt_credentials,
     encrypt_credentials,
@@ -1304,6 +1305,24 @@ def _get_vault() -> CredentialVault:
     )
 
 
+def _get_commerce_vault() -> PersonalBrainVault:
+    """Get a configured PersonalBrainVault for commerce state (ledger storage).
+
+    Raises VaultNotConfiguredError if the operator hasn't set THEBRAIN_VAULT_BRAIN_ID.
+    """
+    settings = get_settings()
+    vault_brain_id = settings.thebrain_vault_brain_id
+    if not vault_brain_id:
+        raise VaultNotConfiguredError(
+            "Vault brain not configured. Operator must set THEBRAIN_VAULT_BRAIN_ID."
+        )
+    return PersonalBrainVault(
+        vault_api=_get_operator_api(),
+        vault_brain_id=vault_brain_id,
+        home_thought_id=_VAULT_HOME_THOUGHT_ID,
+    )
+
+
 def _get_btcpay() -> BTCPayClient:
     """Get or create the BTCPay client singleton.
 
@@ -1402,7 +1421,7 @@ def _get_ledger_cache() -> LedgerCache:
     global _ledger_cache
     if _ledger_cache is not None:
         return _ledger_cache
-    vault = _get_vault()
+    vault = _get_commerce_vault()
     _ledger_cache = LedgerCache(vault)
     # Start background flush — schedule as a fire-and-forget coroutine.
     # This runs inside the event loop that FastMCP/asyncio already provides.

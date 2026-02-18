@@ -10,6 +10,7 @@ from thebrain_mcp.vault import (
     CredentialNotFoundError,
     CredentialVault,
     DecryptionError,
+    PersonalBrainVault,
     UserSession,
     clear_session,
     decrypt_credentials,
@@ -221,7 +222,7 @@ class TestCredentialVault:
     @pytest.mark.asyncio
     async def test_snapshot_ledger_creates_child(self) -> None:
         api = _mock_vault_api(index={"user1/ledger": "ledger-thought-1"})
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         snapshot_id = await vault.snapshot_ledger(
             "user1", '{"balance_api_sats": 500}', "2026-02-16T12:00:00Z"
         )
@@ -236,7 +237,7 @@ class TestCredentialVault:
     @pytest.mark.asyncio
     async def test_snapshot_ledger_no_ledger_returns_none(self) -> None:
         api = _mock_vault_api(index={})
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         result = await vault.snapshot_ledger(
             "user1", '{"balance_api_sats": 0}', "2026-02-16T12:00:00Z"
         )
