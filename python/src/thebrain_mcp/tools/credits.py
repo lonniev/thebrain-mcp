@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 # Default credit multiplier for users not in tier config
 _DEFAULT_MULTIPLIER = 1
 
+# Sanity ceiling for royalty payouts (independent of sats_to_btc_string ceiling).
+# 2% of a 5M-sat purchase = 100,000 sats — anything above is suspect.
+ROYALTY_PAYOUT_MAX_SATS = 100_000
+
 
 async def _attempt_royalty_payout(
     btcpay: BTCPayClient,
@@ -34,6 +38,22 @@ async def _attempt_royalty_payout(
     royalty_sats = int(invoice_amount_sats * royalty_percent)
     if royalty_sats < royalty_min_sats:
         return None
+
+    if royalty_sats > ROYALTY_PAYOUT_MAX_SATS:
+        logger.error(
+            "Royalty payout %d sats exceeds ceiling of %d — refusing payout. "
+            "Check royalty_percent (%.4f) or invoice amount (%d).",
+            royalty_sats, ROYALTY_PAYOUT_MAX_SATS,
+            royalty_percent, invoice_amount_sats,
+        )
+        return {
+            "royalty_sats": royalty_sats,
+            "royalty_address": royalty_address,
+            "royalty_error": (
+                f"Royalty amount ({royalty_sats:,} sats) exceeds safety ceiling "
+                f"({ROYALTY_PAYOUT_MAX_SATS:,} sats). Payout refused."
+            ),
+        }
 
     try:
         payout = await btcpay.create_payout(royalty_address, royalty_sats)

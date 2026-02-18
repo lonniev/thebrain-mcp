@@ -17,6 +17,7 @@ from thebrain_mcp.btcpay_client import (
 from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools.credits import (
+    ROYALTY_PAYOUT_MAX_SATS,
     _attempt_royalty_payout,
     _get_multiplier,
     _get_tier_info,
@@ -858,6 +859,59 @@ class TestAttemptRoyaltyPayout:
 
 
 # ---------------------------------------------------------------------------
+# Royalty payout ceiling
+# ---------------------------------------------------------------------------
+
+
+class TestRoyaltyPayoutCeiling:
+    @pytest.mark.asyncio
+    async def test_above_ceiling_refused(self) -> None:
+        """Royalty exceeding ROYALTY_PAYOUT_MAX_SATS is refused without calling BTCPay."""
+        btcpay = AsyncMock(spec=BTCPayClient)
+        # 10M * 0.02 = 200,000 sats — above 100K ceiling
+        result = await _attempt_royalty_payout(btcpay, 10_000_000, "addr@ln", 0.02, 10)
+        assert result is not None
+        assert "royalty_error" in result
+        assert "safety ceiling" in result["royalty_error"]
+        assert result["royalty_sats"] == 200_000
+        btcpay.create_payout.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_at_ceiling_allowed(self) -> None:
+        """Royalty exactly at ROYALTY_PAYOUT_MAX_SATS is allowed."""
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.create_payout = AsyncMock(return_value={"id": "p-1", "state": "OK"})
+        # 5M * 0.02 = 100,000 sats — exactly at ceiling
+        result = await _attempt_royalty_payout(btcpay, 5_000_000, "addr@ln", 0.02, 10)
+        assert result is not None
+        assert "royalty_error" not in result
+        assert result["royalty_sats"] == ROYALTY_PAYOUT_MAX_SATS
+        btcpay.create_payout.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_just_below_ceiling_allowed(self) -> None:
+        """Royalty just below ceiling is allowed."""
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.create_payout = AsyncMock(return_value={"id": "p-2", "state": "OK"})
+        # 4,999,999 * 0.02 = 99,999.98 → int() = 99,999
+        result = await _attempt_royalty_payout(btcpay, 4_999_999, "addr@ln", 0.02, 10)
+        assert result is not None
+        assert "royalty_error" not in result
+        assert result["royalty_sats"] == 99_999
+
+    @pytest.mark.asyncio
+    async def test_ceiling_catches_bad_percentage(self) -> None:
+        """A mis-configured 100% royalty rate is caught by the ceiling."""
+        btcpay = AsyncMock(spec=BTCPayClient)
+        # 500,000 * 1.0 = 500,000 sats — way above ceiling
+        result = await _attempt_royalty_payout(btcpay, 500_000, "addr@ln", 1.0, 10)
+        assert result is not None
+        assert "royalty_error" in result
+        assert "safety ceiling" in result["royalty_error"]
+        btcpay.create_payout.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # check_payment with royalty
 # ---------------------------------------------------------------------------
 
@@ -1184,3 +1238,175 @@ class TestBTCPayStatus:
 
         assert result["server_reachable"] is True
         assert result["store_name"] == "unauthorized"
+
+
+# ---------------------------------------------------------------------------
+# Preflight permission check
+# ---------------------------------------------------------------------------
+
+
+class TestBTCPayPreflight:
+    @pytest.mark.asyncio
+    async def test_fails_when_royalty_configured_but_perm_missing(self) -> None:
+        """Preflight raises TollboothConfigError when royalty configured but payout perm missing."""
+        import thebrain_mcp.server as srv
+        from thebrain_mcp.server import TollboothConfigError
+
+        srv._btcpay_preflight_done = False
+
+        mock_settings = MagicMock()
+        mock_settings.tollbooth_royalty_address = "toll@ln"
+        mock_settings.btcpay_store_id = "store-123"
+
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": [
+                "btcpay.store.cancreateinvoice",
+                "btcpay.store.canviewinvoices",
+                # Missing: cancreatenonapprovedpullpayments
+            ]
+        })
+
+        with patch.object(srv, "get_settings", return_value=mock_settings):
+            with pytest.raises(TollboothConfigError, match="missing required permissions"):
+                await srv._ensure_btcpay_preflight(btcpay)
+
+        # Verify preflight was NOT marked done (so it retries)
+        assert srv._btcpay_preflight_done is False
+
+    @pytest.mark.asyncio
+    async def test_succeeds_when_all_perms_present(self) -> None:
+        """Preflight passes when all required permissions are granted."""
+        import thebrain_mcp.server as srv
+
+        srv._btcpay_preflight_done = False
+
+        mock_settings = MagicMock()
+        mock_settings.tollbooth_royalty_address = "toll@ln"
+        mock_settings.btcpay_store_id = "store-123"
+
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": [
+                "btcpay.store.cancreateinvoice",
+                "btcpay.store.canviewinvoices",
+                "btcpay.store.cancreatenonapprovedpullpayments",
+            ]
+        })
+
+        with patch.object(srv, "get_settings", return_value=mock_settings):
+            await srv._ensure_btcpay_preflight(btcpay)
+
+        assert srv._btcpay_preflight_done is True
+
+    @pytest.mark.asyncio
+    async def test_succeeds_when_no_royalty_configured(self) -> None:
+        """Preflight passes without payout perm when royalty is not configured."""
+        import thebrain_mcp.server as srv
+
+        srv._btcpay_preflight_done = False
+
+        mock_settings = MagicMock()
+        mock_settings.tollbooth_royalty_address = None  # No royalty
+        mock_settings.btcpay_store_id = "store-123"
+
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": [
+                "btcpay.store.cancreateinvoice",
+                "btcpay.store.canviewinvoices",
+                # No payout perm — but that's fine, no royalty configured
+            ]
+        })
+
+        with patch.object(srv, "get_settings", return_value=mock_settings):
+            await srv._ensure_btcpay_preflight(btcpay)
+
+        assert srv._btcpay_preflight_done is True
+
+    @pytest.mark.asyncio
+    async def test_store_scoped_permissions_accepted(self) -> None:
+        """Preflight accepts store-scoped permissions (e.g. 'canX:storeId')."""
+        import thebrain_mcp.server as srv
+
+        srv._btcpay_preflight_done = False
+
+        mock_settings = MagicMock()
+        mock_settings.tollbooth_royalty_address = "toll@ln"
+        mock_settings.btcpay_store_id = "store-123"
+
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": [
+                "btcpay.store.cancreateinvoice:store-123",
+                "btcpay.store.canviewinvoices:store-123",
+                "btcpay.store.cancreatenonapprovedpullpayments:store-123",
+            ]
+        })
+
+        with patch.object(srv, "get_settings", return_value=mock_settings):
+            await srv._ensure_btcpay_preflight(btcpay)
+
+        assert srv._btcpay_preflight_done is True
+
+    @pytest.mark.asyncio
+    async def test_api_error_raises_config_error(self) -> None:
+        """Preflight raises TollboothConfigError when API call fails."""
+        import thebrain_mcp.server as srv
+        from thebrain_mcp.server import TollboothConfigError
+
+        srv._btcpay_preflight_done = False
+
+        mock_settings = MagicMock()
+        mock_settings.tollbooth_royalty_address = "toll@ln"
+        mock_settings.btcpay_store_id = "store-123"
+
+        btcpay = AsyncMock(spec=BTCPayClient)
+        btcpay.get_api_key_info = AsyncMock(
+            side_effect=BTCPayConnectionError("DNS failed")
+        )
+
+        with patch.object(srv, "get_settings", return_value=mock_settings):
+            with pytest.raises(TollboothConfigError, match="Cannot verify"):
+                await srv._ensure_btcpay_preflight(btcpay)
+
+    @pytest.mark.asyncio
+    async def test_skips_when_already_done(self) -> None:
+        """Preflight is a no-op after first successful run."""
+        import thebrain_mcp.server as srv
+
+        srv._btcpay_preflight_done = True
+
+        btcpay = AsyncMock(spec=BTCPayClient)
+        await srv._ensure_btcpay_preflight(btcpay)
+
+        # Should not have called the API at all
+        btcpay.get_api_key_info.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_purchase_credits_blocked_by_preflight(self) -> None:
+        """purchase_credits returns error when preflight fails."""
+        import thebrain_mcp.server as srv
+        from thebrain_mcp.server import TollboothConfigError
+
+        srv._btcpay_preflight_done = False
+
+        mock_btcpay = AsyncMock(spec=BTCPayClient)
+        mock_btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": ["btcpay.store.cancreateinvoice"]
+        })
+
+        mock_settings = MagicMock()
+        mock_settings.tollbooth_royalty_address = "toll@ln"
+        mock_settings.btcpay_store_id = "store-123"
+        mock_settings.btcpay_host = "https://btcpay.example.com"
+        mock_settings.btcpay_api_key = "key"
+
+        with patch.object(srv, "_require_user_id", return_value="user-1"), \
+             patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
+             patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch.object(srv, "_get_ledger_cache"):
+            result = await srv.purchase_credits.fn(amount_sats=1000)
+
+        assert result["success"] is False
+        assert "missing required permissions" in result["error"]

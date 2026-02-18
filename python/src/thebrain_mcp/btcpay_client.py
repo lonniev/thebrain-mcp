@@ -45,6 +45,29 @@ class BTCPayTimeoutError(BTCPayError):
 
 
 # ---------------------------------------------------------------------------
+# Sats → BTC conversion
+# ---------------------------------------------------------------------------
+
+# Default ceiling: 1 BTC.  Any single payout above this is almost certainly
+# a unit-mismatch bug (sats confused with BTC → 10^8× overpayment).
+_SATS_CONVERSION_MAX_DEFAULT = 100_000_000
+
+
+def sats_to_btc_string(sats: int, *, max_sats: int = _SATS_CONVERSION_MAX_DEFAULT) -> str:
+    """Convert satoshis to an 8-decimal-place BTC string for the BTCPay API.
+
+    Raises ValueError on negative values or values exceeding *max_sats*.
+    """
+    if sats < 0:
+        raise ValueError(f"sats must be non-negative, got {sats}")
+    if sats > max_sats:
+        raise ValueError(
+            f"sats ({sats:,}) exceeds ceiling ({max_sats:,})"
+        )
+    return f"{sats / 100_000_000:.8f}"
+
+
+# ---------------------------------------------------------------------------
 # Status code → exception mapping
 # ---------------------------------------------------------------------------
 
@@ -150,7 +173,7 @@ class BTCPayClient:
 
         Amount is converted from sats to BTC decimal (BTCPay expects BTC).
         """
-        amount_btc = f"{amount_sats / 100_000_000:.8f}"
+        amount_btc = sats_to_btc_string(amount_sats)
         payload: dict[str, Any] = {
             "destination": destination,
             "amount": amount_btc,

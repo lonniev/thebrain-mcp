@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
 from thebrain_mcp.api.client import TheBrainAPI
-from thebrain_mcp.btcpay_client import BTCPayClient
+from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayError
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools import attachments, brains, credits, links, notes, stats, thoughts
@@ -29,6 +29,13 @@ from thebrain_mcp.vault import (
     get_session,
     set_session,
 )
+
+class TollboothConfigError(Exception):
+    """Raised when Tollbooth is misconfigured (e.g., missing BTCPay permissions).
+
+    Blocks all credit-management tools until the operator fixes the config.
+    """
+
 
 # Initialize FastMCP server (don't load settings yet - wait until runtime)
 mcp = FastMCP(
@@ -1193,7 +1200,7 @@ async def _refresh_config_impl() -> dict[str, Any]:
     produces a FunctionTool, not a plain coroutine).
     """
     global _operator_api_client, _btcpay_client, _ledger_cache
-    global active_brain_id, _settings_loaded
+    global active_brain_id, _settings_loaded, _btcpay_preflight_done
 
     refreshed: list[str] = []
 
@@ -1215,6 +1222,7 @@ async def _refresh_config_impl() -> dict[str, Any]:
         await _btcpay_client.close()
         refreshed.append("btcpay_client closed")
         _btcpay_client = None
+        _btcpay_preflight_done = False
 
     # 3. Close operator API HTTP client
     if _operator_api_client is not None:
@@ -1323,6 +1331,65 @@ def _get_btcpay() -> BTCPayClient:
     else:
         logger.info("BTCPay initialized — royalty payouts disabled (no address configured)")
     return _btcpay_client
+
+
+# Preflight permission check (runs once per BTCPay client lifecycle)
+_btcpay_preflight_done = False
+
+_REQUIRED_BTCPAY_PERMISSIONS = [
+    "btcpay.store.cancreateinvoice",
+    "btcpay.store.canviewinvoices",
+    "btcpay.store.cancreatenonapprovedpullpayments",
+]
+
+
+async def _ensure_btcpay_preflight(btcpay: BTCPayClient) -> None:
+    """Verify BTCPay API key has required permissions.  Runs once.
+
+    When royalty is configured (address is set), the payout permission
+    is mandatory.  Raises TollboothConfigError on failure — the server
+    refuses to serve credit tools until the operator fixes the API key.
+    """
+    global _btcpay_preflight_done
+    if _btcpay_preflight_done:
+        return
+
+    settings = get_settings()
+    royalty_configured = bool(settings.tollbooth_royalty_address)
+
+    required = [
+        "btcpay.store.cancreateinvoice",
+        "btcpay.store.canviewinvoices",
+    ]
+    if royalty_configured:
+        required.append("btcpay.store.cancreatenonapprovedpullpayments")
+
+    try:
+        key_info = await btcpay.get_api_key_info()
+    except BTCPayError as e:
+        raise TollboothConfigError(
+            f"Cannot verify BTCPay API key permissions: {e}. "
+            f"Tollbooth requires a permission check when royalty is configured."
+        ) from e
+
+    granted = set(key_info.get("permissions", []))
+    store_id = settings.btcpay_store_id
+
+    missing = []
+    for perm in required:
+        # BTCPay grants either global ("btcpay.store.canX") or store-scoped ("btcpay.store.canX:storeId")
+        if perm not in granted and f"{perm}:{store_id}" not in granted:
+            missing.append(perm)
+
+    if missing:
+        raise TollboothConfigError(
+            f"BTCPay API key missing required permissions: {missing}. "
+            f"Tollbooth requires all of: {required}. "
+            f"Regenerate your API key with these permissions."
+        )
+
+    _btcpay_preflight_done = True
+    logger.info("BTCPay preflight passed — all required permissions verified.")
 
 
 def _get_ledger_cache() -> LedgerCache:
@@ -1484,8 +1551,9 @@ async def purchase_credits(amount_sats: int) -> dict[str, Any]:
     try:
         user_id = _require_user_id()
         btcpay = _get_btcpay()
+        await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
-    except (ValueError, VaultNotConfiguredError) as e:
+    except (ValueError, VaultNotConfiguredError, TollboothConfigError) as e:
         return {"success": False, "error": str(e)}
 
     settings = get_settings()
@@ -1510,8 +1578,9 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
     try:
         user_id = _require_user_id()
         btcpay = _get_btcpay()
+        await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
-    except (ValueError, VaultNotConfiguredError) as e:
+    except (ValueError, VaultNotConfiguredError, TollboothConfigError) as e:
         return {"success": False, "error": str(e)}
 
     settings = get_settings()
@@ -1561,8 +1630,9 @@ async def restore_credits(invoice_id: str) -> dict[str, Any]:
     try:
         user_id = _require_user_id()
         btcpay = _get_btcpay()
+        await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
-    except (ValueError, VaultNotConfiguredError) as e:
+    except (ValueError, VaultNotConfiguredError, TollboothConfigError) as e:
         return {"success": False, "error": str(e)}
 
     settings = get_settings()
