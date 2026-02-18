@@ -242,8 +242,8 @@ class TestCreatePayout:
         assert call_args[0] == ("POST", "/stores/my-store/payouts")
         payload = call_args[1]["json"]
         assert payload["destination"] == "user@ln.addr"
-        assert payload["amount"] == "100"
-        assert payload["paymentMethod"] == "BTC-LightningNetwork"
+        assert payload["amount"] == "0.00000100"
+        assert payload["payoutMethodId"] == "BTC-LN"
 
     @pytest.mark.asyncio
     async def test_custom_payment_method(self) -> None:
@@ -251,9 +251,9 @@ class TestCreatePayout:
         client._client.request = AsyncMock(
             return_value=_mock_response(200, {"id": "payout-2"})
         )
-        await client.create_payout("addr", 50, payment_method="BTC")
+        await client.create_payout("addr", 50, payout_method="BTC-CHAIN")
         payload = client._client.request.call_args[1]["json"]
-        assert payload["paymentMethod"] == "BTC"
+        assert payload["payoutMethodId"] == "BTC-CHAIN"
 
     @pytest.mark.asyncio
     async def test_validation_error(self) -> None:

@@ -144,13 +144,17 @@ class BTCPayClient:
         self,
         destination: str,
         amount_sats: int,
-        payment_method: str = "BTC-LightningNetwork",
+        payout_method: str = "BTC-LN",
     ) -> dict[str, Any]:
-        """POST /stores/{storeId}/payouts — create a store payout."""
+        """POST /stores/{storeId}/payouts — create a store payout.
+
+        Amount is converted from sats to BTC decimal (BTCPay expects BTC).
+        """
+        amount_btc = f"{amount_sats / 100_000_000:.8f}"
         payload: dict[str, Any] = {
             "destination": destination,
-            "amount": str(amount_sats),
-            "paymentMethod": payment_method,
+            "amount": amount_btc,
+            "payoutMethodId": payout_method,
         }
         return await self._request(
             "POST", f"/stores/{self._store_id}/payouts", json_data=payload
