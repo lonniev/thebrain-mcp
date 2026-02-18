@@ -12,6 +12,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -211,20 +212,21 @@ class CredentialVault:
     # -- ledger storage -------------------------------------------------------
 
     async def store_ledger(self, user_id: str, ledger_json: str) -> str:
-        """Store a user's ledger JSON as a child thought of their credential thought.
+        """Store a user's ledger JSON as a daily child thought under the ledger parent.
 
-        Uses index key ``"{user_id}/ledger"`` to track the ledger thought ID.
-        Returns the thought ID where the ledger is stored.
+        Creates one child per day (named ``YYYY-MM-DD`` in UTC). Subsequent
+        flushes on the same day update the existing child's note. Previous
+        days are preserved as immutable history.
+
+        Uses index key ``"{user_id}/ledger"`` to track the ledger parent thought ID.
+        Returns the daily child thought ID.
         """
         index = await self._read_index()
         ledger_key = f"{user_id}/ledger"
-        thought_id = index.get(ledger_key)
+        ledger_parent_id = index.get(ledger_key)
 
-        if thought_id:
-            await self._api.create_or_update_note(
-                self._brain_id, thought_id, ledger_json
-            )
-        else:
+        # Create ledger parent if needed (same as before)
+        if not ledger_parent_id:
             cred_thought_id = index.get(user_id, self._home_thought_id)
             result = await self._api.create_thought(self._brain_id, {
                 "name": f"{user_id}/ledger",
@@ -233,14 +235,37 @@ class CredentialVault:
                 "sourceThoughtId": cred_thought_id,
                 "relation": 1,  # Child
             })
-            thought_id = result["id"]
-            await self._api.create_or_update_note(
-                self._brain_id, thought_id, ledger_json
-            )
-            index[ledger_key] = thought_id
+            ledger_parent_id = result["id"]
+            index[ledger_key] = ledger_parent_id
             await self._write_index(index)
 
-        return thought_id
+        # Find or create today's daily child
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        graph = await self._api.get_thought_graph(self._brain_id, ledger_parent_id)
+        daily_child_id: str | None = None
+        for child in graph.children or []:
+            if child.name == today:
+                daily_child_id = child.id
+                break
+
+        if daily_child_id:
+            await self._api.create_or_update_note(
+                self._brain_id, daily_child_id, ledger_json
+            )
+        else:
+            result = await self._api.create_thought(self._brain_id, {
+                "name": today,
+                "kind": 1,
+                "acType": 1,  # Private
+                "sourceThoughtId": ledger_parent_id,
+                "relation": 1,  # Child
+            })
+            daily_child_id = result["id"]
+            await self._api.create_or_update_note(
+                self._brain_id, daily_child_id, ledger_json
+            )
+
+        return daily_child_id
 
     async def snapshot_ledger(self, user_id: str, ledger_json: str, timestamp: str) -> str | None:
         """Create a timestamped snapshot of a user's ledger as a child of the ledger thought.
@@ -267,17 +292,42 @@ class CredentialVault:
         return snapshot_id
 
     async def fetch_ledger(self, user_id: str) -> str | None:
-        """Fetch a user's ledger JSON. Returns None if no ledger exists."""
+        """Fetch a user's most recent ledger JSON.
+
+        Reads the most recent daily child (sorted by ``YYYY-MM-DD`` name
+        descending). Falls back to the parent thought's note for pre-migration
+        ledgers that haven't been flushed since the upgrade.
+        Returns None if no ledger exists.
+        """
         index = await self._read_index()
         ledger_key = f"{user_id}/ledger"
-        thought_id = index.get(ledger_key)
-        if not thought_id:
+        ledger_parent_id = index.get(ledger_key)
+        if not ledger_parent_id:
             return None
 
         try:
-            note = await self._api.get_note(self._brain_id, thought_id, "markdown")
+            graph = await self._api.get_thought_graph(self._brain_id, ledger_parent_id)
         except TheBrainAPIError:
-            logger.warning("Ledger thought exists but could not be read for %s.", user_id)
+            logger.warning("Ledger thought exists but graph could not be read for %s.", user_id)
+            return None
+
+        children = graph.children or []
+        if children:
+            # Sort by name descending — ISO dates sort lexicographically
+            children_sorted = sorted(children, key=lambda t: t.name, reverse=True)
+            most_recent = children_sorted[0]
+            try:
+                note = await self._api.get_note(self._brain_id, most_recent.id, "markdown")
+                if note.markdown:
+                    return note.markdown
+            except TheBrainAPIError:
+                logger.warning("Could not read daily child note for %s.", user_id)
+
+        # Fallback: read parent note (pre-migration state)
+        try:
+            note = await self._api.get_note(self._brain_id, ledger_parent_id, "markdown")
+        except TheBrainAPIError:
+            logger.warning("Ledger parent note could not be read for %s.", user_id)
             return None
 
         return note.markdown if note.markdown else None
