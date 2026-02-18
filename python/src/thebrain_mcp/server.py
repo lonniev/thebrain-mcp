@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
+from tollbooth.config import TollboothConfig
+
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayError
 from thebrain_mcp.config import get_settings
@@ -1680,7 +1682,18 @@ async def btcpay_status() -> dict[str, Any]:
     except ValueError:
         pass
 
-    result = await credits.btcpay_status_tool(settings, btcpay_client)
+    config = TollboothConfig(
+        btcpay_host=settings.btcpay_host,
+        btcpay_store_id=settings.btcpay_store_id,
+        btcpay_api_key=settings.btcpay_api_key,
+        btcpay_tier_config=settings.btcpay_tier_config,
+        btcpay_user_tiers=settings.btcpay_user_tiers,
+        seed_balance_sats=settings.seed_balance_sats,
+        tollbooth_royalty_address=settings.tollbooth_royalty_address,
+        tollbooth_royalty_percent=settings.tollbooth_royalty_percent,
+        tollbooth_royalty_min_sats=settings.tollbooth_royalty_min_sats,
+    )
+    result = await credits.btcpay_status_tool(config, btcpay_client)
 
     # Add cache health if ledger cache exists
     if _ledger_cache is not None:
