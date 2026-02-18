@@ -509,7 +509,7 @@ async def btcpay_status_tool(
             permissions = key_info.get("permissions", [])
             required = ["btcpay.store.cancreateinvoice", "btcpay.store.canviewinvoices"]
             if royalty_enabled:
-                required.append("btcpay.store.cancreatepullpayments")
+                required.append("btcpay.store.cancreatenonapprovedpullpayments")
             present = [p for p in required if p in permissions]
             missing = [p for p in required if p not in permissions]
             result["api_key_permissions"] = {

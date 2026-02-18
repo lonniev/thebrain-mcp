@@ -973,7 +973,7 @@ class TestBTCPayStatusRoyalty:
             "permissions": [
                 "btcpay.store.cancreateinvoice",
                 "btcpay.store.canviewinvoices",
-                "btcpay.store.cancreatepullpayments",
+                "btcpay.store.cancreatenonapprovedpullpayments",
             ]
         })
 
@@ -1018,7 +1018,7 @@ class TestBTCPayStatusRoyalty:
             "permissions": [
                 "btcpay.store.cancreateinvoice",
                 "btcpay.store.canviewinvoices",
-                "btcpay.store.cancreatepullpayments",
+                "btcpay.store.cancreatenonapprovedpullpayments",
             ]
         })
 
@@ -1051,7 +1051,7 @@ class TestBTCPayStatusRoyalty:
 
         result = await btcpay_status_tool(settings, btcpay)
         perms = result["api_key_permissions"]
-        assert "btcpay.store.cancreatepullpayments" in perms["missing"]
+        assert "btcpay.store.cancreatenonapprovedpullpayments" in perms["missing"]
 
     @pytest.mark.asyncio
     async def test_api_key_info_error(self) -> None:
