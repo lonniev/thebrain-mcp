@@ -14,7 +14,48 @@ from thebrain_mcp.btcpay_client import (
     BTCPayServerError,
     BTCPayTimeoutError,
     BTCPayValidationError,
+    sats_to_btc_string,
 )
+
+
+# ---------------------------------------------------------------------------
+# sats_to_btc_string
+# ---------------------------------------------------------------------------
+
+
+class TestSatsToBtcString:
+    def test_20_sats(self) -> None:
+        assert sats_to_btc_string(20) == "0.00000020"
+
+    def test_1000_sats(self) -> None:
+        assert sats_to_btc_string(1000) == "0.00001000"
+
+    def test_zero(self) -> None:
+        assert sats_to_btc_string(0) == "0.00000000"
+
+    def test_one_btc(self) -> None:
+        assert sats_to_btc_string(100_000_000) == "1.00000000"
+
+    def test_rejects_negative(self) -> None:
+        with pytest.raises(ValueError, match="non-negative"):
+            sats_to_btc_string(-1)
+
+    def test_rejects_above_default_ceiling(self) -> None:
+        with pytest.raises(ValueError, match="exceeds ceiling"):
+            sats_to_btc_string(100_000_001)
+
+    def test_custom_ceiling(self) -> None:
+        # Custom ceiling allows values above default
+        assert sats_to_btc_string(200_000_000, max_sats=300_000_000) == "2.00000000"
+
+    def test_custom_ceiling_rejects_above(self) -> None:
+        with pytest.raises(ValueError, match="exceeds ceiling"):
+            sats_to_btc_string(200, max_sats=100)
+
+    def test_8_decimal_precision(self) -> None:
+        """1 sat = 0.00000001 BTC — verify no floating-point drift."""
+        assert sats_to_btc_string(1) == "0.00000001"
+        assert sats_to_btc_string(99_999_999) == "0.99999999"
 
 
 # ---------------------------------------------------------------------------
