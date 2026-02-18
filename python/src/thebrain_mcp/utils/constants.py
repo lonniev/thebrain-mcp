@@ -145,17 +145,8 @@ class NoteFormat(str):
     TEXT = "text"
 
 
-MAX_INVOICE_SATS = 1_000_000  # 0.01 BTC cap per invoice
-LOW_BALANCE_FLOOR_API_SATS = 100  # minimum warning threshold
-
-
-class ToolTier(IntEnum):
-    """Cost tiers for tool-call metering (satoshis per call)."""
-
-    FREE = 0
-    READ = 1
-    WRITE = 5
-    HEAVY = 10
+# Re-exported from tollbooth (backward compat)
+from tollbooth.constants import MAX_INVOICE_SATS, LOW_BALANCE_FLOOR_API_SATS, ToolTier  # noqa: E402, F401
 
 
 TOOL_COSTS: dict[str, int] = {
