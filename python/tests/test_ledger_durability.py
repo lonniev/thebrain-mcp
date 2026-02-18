@@ -264,7 +264,7 @@ class TestBackgroundFlushStartup:
         mock_vault = MagicMock()
         mock_cache = AsyncMock(spec=LedgerCache)
 
-        with patch.object(srv, "_get_vault", return_value=mock_vault), \
+        with patch.object(srv, "_get_commerce_vault", return_value=mock_vault), \
              patch("thebrain_mcp.server.LedgerCache", return_value=mock_cache), \
              patch("asyncio.ensure_future") as mock_ensure:
             cache = srv._get_ledger_cache()
@@ -286,7 +286,7 @@ class TestBackgroundFlushStartup:
         mock_vault = MagicMock()
         mock_cache = AsyncMock(spec=LedgerCache)
 
-        with patch.object(srv, "_get_vault", return_value=mock_vault), \
+        with patch.object(srv, "_get_commerce_vault", return_value=mock_vault), \
              patch("thebrain_mcp.server.LedgerCache", return_value=mock_cache), \
              patch("asyncio.ensure_future", side_effect=RuntimeError("no loop")):
             cache = srv._get_ledger_cache()

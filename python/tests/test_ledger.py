@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from thebrain_mcp.ledger import ToolUsage, UserLedger
-from thebrain_mcp.vault import CredentialNotFoundError, CredentialVault
+from thebrain_mcp.vault import CredentialNotFoundError, PersonalBrainVault
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +272,7 @@ class TestVaultLedgerStorage:
     async def test_store_ledger_creates_daily_child(self) -> None:
         """First flush of the day creates a child named YYYY-MM-DD."""
         api, _ = _mock_vault_api(index={"user1/ledger": "ledger-parent"}, children=[])
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         ledger = UserLedger(balance_api_sats=500)
         tid = await vault.store_ledger("user1", ledger.to_json())
         assert tid == "new-ledger-thought"
@@ -291,7 +291,7 @@ class TestVaultLedgerStorage:
             index={"user1/ledger": "ledger-parent"},
             children=[existing_child],
         )
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         ledger = UserLedger(balance_api_sats=300)
         tid = await vault.store_ledger("user1", ledger.to_json())
         assert tid == "daily-child-id"
@@ -306,7 +306,7 @@ class TestVaultLedgerStorage:
             index={"user1/ledger": "ledger-parent"},
             children=[yesterday_child],
         )
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         ledger = UserLedger(balance_api_sats=100)
         # Today is not "2026-02-16", so a new child should be created
         with patch("thebrain_mcp.vault.datetime") as mock_dt:
@@ -324,7 +324,7 @@ class TestVaultLedgerStorage:
             side_effect=[{"id": "new-parent-id"}, {"id": "new-daily-id"}]
         )
         # get_thought_graph for the new parent returns no children
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         ledger = UserLedger(balance_api_sats=500)
         tid = await vault.store_ledger("user1", ledger.to_json())
         assert tid == "new-daily-id"
@@ -341,7 +341,7 @@ class TestVaultLedgerStorage:
         )
         ledger_json = UserLedger(balance_api_sats=42).to_json()
         note_map["child-16"] = ledger_json
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         result = await vault.fetch_ledger("user1")
         assert result == ledger_json
 
@@ -354,7 +354,7 @@ class TestVaultLedgerStorage:
             children=[],
         )
         note_map["ledger-parent"] = ledger_json
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         result = await vault.fetch_ledger("user1")
         assert result == ledger_json
 
@@ -362,6 +362,6 @@ class TestVaultLedgerStorage:
     async def test_fetch_ledger_no_parent_returns_none(self) -> None:
         """No ledger thought returns None."""
         api, _ = _mock_vault_api(index={})
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = PersonalBrainVault(api, "vault-brain", "home")
         result = await vault.fetch_ledger("user1")
         assert result is None

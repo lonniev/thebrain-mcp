@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from thebrain_mcp.ledger import UserLedger
 
 if TYPE_CHECKING:
-    from thebrain_mcp.vault import CredentialVault
+    from thebrain_mcp.vault_backend import VaultBackend
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class LedgerCache:
 
     def __init__(
         self,
-        vault: CredentialVault,
+        vault: VaultBackend,
         maxsize: int = 20,
         flush_interval_secs: int = 60,
     ) -> None:

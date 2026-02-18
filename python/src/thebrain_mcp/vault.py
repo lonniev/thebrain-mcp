@@ -209,7 +209,47 @@ class CredentialVault:
 
         return note.markdown
 
-    # -- ledger storage -------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Commerce persistence (ledger storage via TheBrain API)
+# ---------------------------------------------------------------------------
+
+
+class PersonalBrainVault:
+    """Manages commerce state (ledger storage) in a TheBrain vault brain.
+
+    Implements the VaultBackend protocol so LedgerCache can persist
+    user ledger data without depending on domain credential logic.
+    """
+
+    def __init__(
+        self,
+        vault_api: TheBrainAPI,
+        vault_brain_id: str,
+        home_thought_id: str,
+    ) -> None:
+        self._api = vault_api
+        self._brain_id = vault_brain_id
+        self._home_thought_id = home_thought_id
+
+    async def _read_index(self) -> dict[str, str]:
+        """Read the user_id -> thought_id index from the vault home thought."""
+        try:
+            note = await self._api.get_note(
+                self._brain_id, self._home_thought_id, "markdown"
+            )
+            if note.markdown:
+                return json.loads(note.markdown)
+        except TheBrainAPIError:
+            logger.warning("Failed to read vault index from home thought.")
+        except json.JSONDecodeError:
+            logger.warning("Vault index is corrupted (invalid JSON).")
+        return {}
+
+    async def _write_index(self, index: dict[str, str]) -> None:
+        """Write the user_id -> thought_id index to the vault home thought."""
+        await self._api.create_or_update_note(
+            self._brain_id, self._home_thought_id, json.dumps(index)
+        )
 
     async def store_ledger(self, user_id: str, ledger_json: str) -> str:
         """Store a user's ledger JSON as a daily child thought under the ledger parent.
@@ -225,7 +265,7 @@ class CredentialVault:
         ledger_key = f"{user_id}/ledger"
         ledger_parent_id = index.get(ledger_key)
 
-        # Create ledger parent if needed (same as before)
+        # Create ledger parent if needed
         if not ledger_parent_id:
             cred_thought_id = index.get(user_id, self._home_thought_id)
             result = await self._api.create_thought(self._brain_id, {
