@@ -1,27 +1,26 @@
 # thebrain-mcp
 
-An MCP server that gives AI agents read-write access to a personal knowledge graph — and pays for itself with Bitcoin Lightning micropayments.
+**The first city on the Lightning Turnpike.**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12-green.svg)](https://www.python.org/)
 [![FastMCP](https://img.shields.io/badge/FastMCP-Cloud-purple.svg)](https://www.fastmcp.com/)
 
-Built with [FastMCP](https://github.com/jlowin/fastmcp). Deployed on FastMCP Cloud over SSE. Connect at `https://personal-brain.fastmcp.app/mcp`.
+An MCP server that gives AI agents read-write access to a personal knowledge graph — and pays for itself with Bitcoin Lightning micropayments.
+
+> *The metaphors in this project are drawn with admiration from* The Phantom Tollbooth *by Norton Juster, illustrated by Jules Feiffer (1961). Milo, Tock, the Tollbooth, Dictionopolis, and Digitopolis are creations of Mr. Juster's extraordinary imagination. We just built the payment infrastructure.*
 
 ---
 
-## Tollbooth — the Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates
+## The First City
 
-Tollbooth is the built-in monetization layer that gates AI agent access behind Bitcoin Lightning micropayments. No subscriptions, no API keys tied to billing accounts, no fiat payment processors.
+Every turnpike needs its first city. Before the booths can collect fares and the authority can stamp purchase orders, someone has to build a destination worth driving to.
 
-**The flow:**
+thebrain-mcp is that city — a [FastMCP](https://github.com/jlowin/fastmcp) service deployed on Horizon that bridges AI agents to [TheBrain](https://www.thebrain.com/), a personal knowledge graph of 9,000+ interconnected thoughts built over a decade. Every thought, link, attachment, and note operation maps directly to TheBrain's cloud API at [api.bra.in](https://api.bra.in).
 
-1. User authenticates via [Horizon OAuth](https://www.fastmcp.com/)
-2. Purchases credits by paying a Lightning invoice through [BTCPay Server](https://btcpayserver.org/) — self-hosted, sovereign, no KYC
-3. Every tool call is metered by the `@paid_tool` decorator against an `api_sats` balance
-4. Balance is tracked in a serverless-aware ledger with opportunistic flush across ephemeral deployments
+It's also the proving ground for [Tollbooth](https://github.com/lonniev/tollbooth-dpyc) — the first MCP server where every tool call is metered via Bitcoin Lightning micropayments. Pre-fund, use, top up. No subscriptions, no API keys tied to billing accounts, no fiat payment processors. The novel contribution: an MCP server architecture where the operator monetizes AI agent access through Lightning micropayments without ever pestering the client mid-conversation.
 
-**Three pricing tiers:**
+## Tollbooth Credits
 
 | Tier | Cost | Examples |
 |------|------|----------|
@@ -29,19 +28,7 @@ Tollbooth is the built-in monetization layer that gates AI agent access behind B
 | Write | 5 sats | `create_thought`, `create_link`, `update_thought` |
 | Heavy | 10 sats | `brain_query`, `get_modifications` |
 
-Auth, balance checks, and credit purchases are always free.
-
-This is the novel contribution: an MCP server architecture where the operator monetizes AI agent access through Lightning micropayments without ever pestering the client mid-conversation. Pre-fund, use, top up.
-
-See the [Three-Party Protocol diagram](https://github.com/lonniev/tollbooth-authority/blob/main/docs/diagrams/tollbooth-three-party-protocol.svg) for the full architecture. The [operator-side flow](docs/diagrams/tollbooth-protocol-flow.svg) is also available.
-
-## Built on TheBrain's PersonalBrain API
-
-This project would not exist without [TheBrain](https://www.thebrain.com/) and its REST API at [api.bra.in](https://api.bra.in).
-
-TheBrain is the knowledge management platform underneath — a personal knowledge graph of 9,000+ interconnected thoughts built over a decade. thebrain-mcp is the bridge that lets AI agents read, write, and query that graph through TheBrain's cloud API. Every thought, link, attachment, and note operation in this server maps directly to a TheBrain API endpoint.
-
-The 30+ MCP tools exposed by this server cover thoughts, links, attachments, notes, search, types, tags, brain management, and modification history. Multi-tenant access is handled through an encrypted credential vault backed by Horizon OAuth.
+Auth, balance checks, and credit purchases are always free. First-time users receive a seed balance on registration — enough to explore without purchasing credits up front.
 
 ## BrainQuery (BQL)
 
@@ -58,7 +45,9 @@ Variable-length paths, multi-hop chains, compound `WHERE` with `AND`/`OR`/`NOT`/
 
 ## Getting Started
 
-Connect any MCP-compatible client to the live endpoint:
+### Connecting via Horizon MCP
+
+Connect any MCP-compatible client (Claude Desktop, Cursor, your own agent) to the live endpoint:
 
 ```
 https://personal-brain.fastmcp.app/mcp
@@ -66,14 +55,49 @@ https://personal-brain.fastmcp.app/mcp
 
 No configuration needed — Horizon OAuth handles authentication automatically.
 
-**First-time setup:**
+### First Connection Walkthrough
 
-1. Get a TheBrain API key at [api.bra.in](https://api.bra.in)
-2. On first connection, call `session_status` to check your session
-3. Register with `register_credentials(api_key, brain_id, passphrase)` — a seed balance is granted automatically
-4. Start exploring: `list_brains` → `set_active_brain` → `brain_query`
+1. **`session_status`** — Check your current session state.
+2. Get a TheBrain API key at [api.bra.in](https://api.bra.in) and find your brain ID in TheBrain's settings.
+3. **`register_credentials(api_key, brain_id, passphrase)`** — Encrypts your credentials in the operator's vault. A seed balance is granted automatically.
+4. **`list_brains`** → **`set_active_brain`** — Select which brain to work with.
+5. **`brain_query`** — Start exploring your knowledge graph.
+
+Returning users: call **`activate_session(passphrase)`** at the start of each session.
+
+### Self-Hosting
 
 For local installation, configuration, and the full tool reference, see [python/README.md](python/README.md).
+
+To run your own instance, set these environment variables:
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `THEBRAIN_API_KEY` | Operator's TheBrain API key (for vault access) | `your-thebrain-key` |
+| `THEBRAIN_DEFAULT_BRAIN_ID` | Default brain ID for STDIO mode | `uuid-of-brain` |
+| `THEBRAIN_API_URL` | TheBrain API base URL | `https://api.bra.in` (default) |
+| `THEBRAIN_VAULT_BRAIN_ID` | Brain ID for the encrypted credential vault | `uuid-of-vault-brain` |
+| `BTCPAY_HOST` | BTCPay Server URL for credit purchases | `https://btcpay.example.com` |
+| `BTCPAY_STORE_ID` | BTCPay store ID | `AbCdEfGh1234` |
+| `BTCPAY_API_KEY` | BTCPay API key with invoice + payout permissions | `your-btcpay-api-key` |
+| `BTCPAY_TIER_CONFIG` | JSON string mapping tier names to credit multipliers | `{"default": {"credit_multiplier": 1}}` |
+| `BTCPAY_USER_TIERS` | JSON string mapping user IDs to tier names | `{"user_01KGZY...": "vip"}` |
+| `SEED_BALANCE_SATS` | Free starter balance for new users (0 to disable) | `500` |
+| `TOLLBOOTH_ROYALTY_ADDRESS` | Lightning Address for 2% royalty payout | `tollbooth@btcpay.example.com` |
+| `TOLLBOOTH_ROYALTY_PERCENT` | Royalty percentage | `0.02` (default) |
+| `TOLLBOOTH_ROYALTY_MIN_SATS` | Minimum royalty payout in sats | `10` (default) |
+
+## Architecture
+
+The Tollbooth ecosystem is a three-party protocol spanning three repositories:
+
+| Repo | Role |
+|------|------|
+| [tollbooth-authority](https://github.com/lonniev/tollbooth-authority) | The institution — tax collection, EdDSA signing, purchase order certification |
+| [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc) | The booth — operator-side credit ledger, BTCPay client, tool gating |
+| **thebrain-mcp** (this repo) | The first city — reference MCP server powered by Tollbooth |
+
+See the [Three-Party Protocol diagram](https://github.com/lonniev/tollbooth-authority/blob/main/docs/diagrams/tollbooth-three-party-protocol.svg) for the full architecture. The [operator-side flow](docs/diagrams/tollbooth-protocol-flow.svg) is also available.
 
 ## Project Structure
 
@@ -113,6 +137,14 @@ The author reserves all rights to seek patent protection for the novel methods a
 
 **Note to potential filers:** This public repository and its full Git history serve as evidence of prior art. Any patent application covering substantially similar methods filed after the publication date of this repository may be subject to invalidation under 35 U.S.C. 102(a).
 
+## Further Reading
+
+[The Phantom Tollbooth on the Lightning Turnpike](https://stablecoin.myshopify.com/blogs/our-value/the-phantom-tollbooth-on-the-lightning-turnpike) — the full story of how we're monetizing the monetization of AI APIs, and then fading to the background.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE) for details.
+
+---
+
+*Because in the end, the tollbooth was never the destination. It was always just the beginning of the journey.*
