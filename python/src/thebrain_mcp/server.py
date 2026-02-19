@@ -1746,6 +1746,15 @@ async def btcpay_status() -> dict[str, Any]:
     )
     result = await credits.btcpay_status_tool(config, btcpay_client)
 
+    # Augment version provenance with host-layer packages
+    import importlib.metadata as _meta
+    versions = result.get("versions", {})
+    try:
+        versions["thebrain_mcp"] = _meta.version("thebrain-mcp")
+    except _meta.PackageNotFoundError:
+        versions["thebrain_mcp"] = "unknown"
+    result["versions"] = versions
+
     # Add cache health if ledger cache exists
     if _ledger_cache is not None:
         result["cache_health"] = _ledger_cache.health()
