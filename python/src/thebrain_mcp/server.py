@@ -1561,13 +1561,24 @@ async def _rollback_debit(tool_name: str) -> None:
 
 @mcp.tool()
 async def purchase_credits(amount_sats: int) -> dict[str, Any]:
-    """Create a BTCPay invoice to purchase credits via Bitcoin/Lightning.
+    """Create a BTCPay Lightning invoice to purchase credits for tool calls.
 
-    Returns a checkout link and invoice ID. After paying, call
-    check_payment with the invoice_id to credit your balance.
+    Call this when your balance is low or zero. Returns a Lightning invoice with
+    a checkout_link — pay it with any Lightning wallet. After payment, call
+    check_payment with the returned invoice_id to credit your balance.
+
+    Credits are denominated in api_sats: 1 sat buys 1 api_sat (default tier).
+    VIP tiers may have higher multipliers. Maximum 1,000,000 sats (0.01 BTC) per invoice.
 
     Args:
-        amount_sats: Number of satoshis to purchase (minimum 1)
+        amount_sats: Number of satoshis to purchase (minimum 1, maximum 1,000,000)
+
+    Returns:
+        invoice_id: BTCPay invoice ID (pass to check_payment after paying).
+        checkout_link: URL to pay the Lightning invoice.
+        expected_credits: How many api_sats you'll receive at your tier multiplier.
+
+    Next step: Pay the invoice, then call check_payment(invoice_id).
     """
     try:
         user_id = _require_user_id()
@@ -1587,14 +1598,24 @@ async def purchase_credits(amount_sats: int) -> dict[str, Any]:
 
 @mcp.tool()
 async def check_payment(invoice_id: str) -> dict[str, Any]:
-    """Check the status of a BTCPay invoice and credit balance on settlement.
+    """Verify that a Lightning invoice has settled and credit the payment to your balance.
 
-    Call this after paying a purchase_credits invoice. Credits are granted
-    automatically when payment settles. Safe to call multiple times —
-    credits are only granted once per invoice.
+    Call this after paying the invoice from purchase_credits. Safe to call
+    multiple times — credits are only granted once per invoice (idempotent).
+    Also fires a 2% royalty payout to the Tollbooth originator on settlement.
+
+    Invoice lifecycle: New → Processing → Settled (credits granted) or
+    Expired/Invalid (invoice removed from pending list).
 
     Args:
-        invoice_id: The invoice ID returned by purchase_credits
+        invoice_id: The BTCPay invoice ID returned by purchase_credits
+
+    Returns:
+        status: BTCPay invoice status (New, Processing, Settled, Expired, Invalid).
+        credits_granted: api_sats credited (only on first Settled check; 0 if already credited).
+        balance_api_sats: Your updated balance after any crediting.
+
+    Next step: Call check_balance to confirm, then continue using tools.
     """
     try:
         user_id = _require_user_id()
@@ -1617,10 +1638,20 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
 
 @mcp.tool()
 async def check_balance() -> dict[str, Any]:
-    """Check your current credit balance and usage summary.
+    """Check your current credit balance, tier info, usage summary, and cache health.
 
-    Shows balance in api_sats, total deposited/consumed, pending invoices,
-    today's per-tool usage breakdown, and cache health metrics.
+    Read-only — no side effects. Call anytime to check your funding level,
+    review today's per-tool usage breakdown, or inspect invoice history.
+
+    Returns:
+        balance_api_sats: Current available credit balance.
+        total_deposited_api_sats: Lifetime credits purchased.
+        total_consumed_api_sats: Lifetime credits consumed by tool calls.
+        pending_invoices: Count of unpaid invoices.
+        today_usage: Per-tool call counts and api_sats consumed today.
+        cache_health: Ledger cache metrics (dirty count, size, flush stats).
+
+    Next step: If balance is low, call purchase_credits to top up.
     """
     try:
         user_id = _require_user_id()
@@ -1640,13 +1671,20 @@ async def check_balance() -> dict[str, Any]:
 
 @mcp.tool()
 async def restore_credits(invoice_id: str) -> dict[str, Any]:
-    """Restore credits from a paid invoice that was lost due to cache/vault issues.
+    """Restore credits from a paid invoice that was lost due to cache or vault issues.
 
-    Verifies the invoice is Settled with BTCPay, then credits the balance.
-    Idempotent via credited_invoices — won't double-credit.
+    Emergency recovery tool. Call when you paid an invoice but your balance
+    didn't update — typically caused by a cache eviction or vault flush failure.
+    Checks vault records first, falls back to BTCPay API verification. Safe to
+    call multiple times; will never double-credit.
 
     Args:
-        invoice_id: The invoice ID returned by purchase_credits
+        invoice_id: The BTCPay invoice ID from a purchase_credits call you already paid
+
+    Returns:
+        source: 'vault_record' or 'btcpay' — where settlement was confirmed.
+        credits_granted: api_sats credited (0 if already credited).
+        balance_api_sats: Updated balance after restoration.
     """
     try:
         user_id = _require_user_id()
@@ -1666,12 +1704,24 @@ async def restore_credits(invoice_id: str) -> dict[str, Any]:
 
 @mcp.tool()
 async def btcpay_status() -> dict[str, Any]:
-    """Check BTCPay Server configuration and connectivity.
+    """Check BTCPay Server configuration, connectivity, and permissions.
 
-    Reports which env vars are set (never exposes the API key itself),
-    tier config validity, cache health metrics, and — if fully configured —
-    whether the server is reachable and the store is accessible.
-    Free diagnostic tool that requires no user authentication.
+    Operator diagnostic tool. Reports which env vars are configured (never
+    exposes the API key itself), tier config validity, royalty settings, cache
+    health, and — if fully configured — whether the server is reachable, the
+    store is accessible, and the API key has required permissions.
+
+    Call this during initial setup to verify BTCPay configuration, or when
+    payments aren't working to diagnose connectivity or permission issues.
+    Free — requires no user authentication or balance.
+
+    Returns:
+        btcpay_host/btcpay_store_id: Configured endpoints.
+        server_reachable: True/False/None (None if not configured).
+        store_name: Store name or error status.
+        api_key_permissions: Required vs present permissions, with missing list.
+        royalty_config: Address, percent, min_sats, enabled flag.
+        cache_health: Ledger cache metrics (if initialized).
     """
     _ensure_settings_loaded()
     settings = get_settings()
