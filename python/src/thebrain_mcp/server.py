@@ -1589,7 +1589,10 @@ async def purchase_credits(amount_sats: int) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
     settings = get_settings()
-    return await credits.purchase_credits_tool(
+    # Uses purchase_tax_credits_tool (uncertified) until e2e Authority
+    # certificate wiring is implemented. When ready, switch to
+    # purchase_credits_tool with certificate + authority_public_key.
+    return await credits.purchase_tax_credits_tool(
         btcpay, cache, user_id, amount_sats,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
