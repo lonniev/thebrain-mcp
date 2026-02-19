@@ -219,6 +219,12 @@ class PersonalBrainVault:
 
     Implements the VaultBackend protocol so LedgerCache can persist
     user ledger data without depending on domain credential logic.
+
+    Caching strategy:
+    - ``_index_cache``: Read once per process, invalidated on ledger parent creation.
+    - ``_daily_child_cache``: Maps ``"{user_id}/{YYYY-MM-DD}"`` to thought ID.
+      On cache hit, ``store_ledger`` is a single ``set_note`` call (1 API call
+      instead of 3-4). On stale cache (set_note fails), evicts and falls through.
     """
 
     def __init__(
@@ -230,15 +236,20 @@ class PersonalBrainVault:
         self._api = vault_api
         self._brain_id = vault_brain_id
         self._home_thought_id = home_thought_id
+        self._index_cache: dict[str, str] | None = None
+        self._daily_child_cache: dict[str, str] = {}
 
     async def _read_index(self) -> dict[str, str]:
         """Read the user_id -> thought_id index from the vault home thought."""
+        if self._index_cache is not None:
+            return self._index_cache
         try:
             note = await self._api.get_note(
                 self._brain_id, self._home_thought_id, "markdown"
             )
             if note.markdown:
-                return json.loads(note.markdown)
+                self._index_cache = json.loads(note.markdown)
+                return self._index_cache
         except TheBrainAPIError:
             logger.warning("Failed to read vault index from home thought.")
         except json.JSONDecodeError:
@@ -250,6 +261,7 @@ class PersonalBrainVault:
         await self._api.create_or_update_note(
             self._brain_id, self._home_thought_id, json.dumps(index)
         )
+        self._index_cache = dict(index)
 
     async def store_ledger(self, user_id: str, ledger_json: str) -> str:
         """Store a user's ledger JSON as a daily child thought under the ledger parent.
@@ -261,6 +273,25 @@ class PersonalBrainVault:
         Uses index key ``"{user_id}/ledger"`` to track the ledger parent thought ID.
         Returns the daily child thought ID.
         """
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        cache_key = f"{user_id}/{today}"
+
+        # Fast path: cached daily child ID → single set_note call
+        cached_id = self._daily_child_cache.get(cache_key)
+        if cached_id:
+            try:
+                await self._api.create_or_update_note(
+                    self._brain_id, cached_id, ledger_json
+                )
+                return cached_id
+            except TheBrainAPIError:
+                logger.warning(
+                    "Stale daily child cache for %s, falling through to full lookup.",
+                    cache_key,
+                )
+                del self._daily_child_cache[cache_key]
+
+        # Slow path: full index read + graph traversal
         index = await self._read_index()
         ledger_key = f"{user_id}/ledger"
         ledger_parent_id = index.get(ledger_key)
@@ -277,10 +308,10 @@ class PersonalBrainVault:
             })
             ledger_parent_id = result["id"]
             index[ledger_key] = ledger_parent_id
+            self._index_cache = None  # Invalidate — new key added
             await self._write_index(index)
 
         # Find or create today's daily child
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         graph = await self._api.get_thought_graph(self._brain_id, ledger_parent_id)
         daily_child_id: str | None = None
         for child in graph.children or []:
@@ -305,6 +336,8 @@ class PersonalBrainVault:
                 self._brain_id, daily_child_id, ledger_json
             )
 
+        # Populate cache for subsequent flushes
+        self._daily_child_cache[cache_key] = daily_child_id
         return daily_child_id
 
     async def snapshot_ledger(self, user_id: str, ledger_json: str, timestamp: str) -> str | None:

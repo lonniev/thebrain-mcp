@@ -1,4 +1,4 @@
-"""Tests for ledger durability fixes: flush_user, credit-path flushing, background flush startup."""
+"""Tests for ledger durability fixes: flush_user, credit-path flushing, background flush startup, vault caching."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,6 +7,7 @@ import pytest
 
 from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache, _CacheEntry
+from thebrain_mcp.vault import PersonalBrainVault
 
 
 # ---------------------------------------------------------------------------
@@ -438,3 +439,123 @@ class TestRestoreCredits:
         ledger2 = await cache2.get("user-1")
         assert ledger2.balance_api_sats == 750
         assert "inv-1" in ledger2.credited_invoices
+
+
+# ---------------------------------------------------------------------------
+# PersonalBrainVault caching
+# ---------------------------------------------------------------------------
+
+
+def _mock_api():
+    """Create a mock TheBrainAPI with common vault methods."""
+    api = AsyncMock()
+
+    # Stubs for note operations
+    class FakeNote:
+        def __init__(self, md):
+            self.markdown = md
+
+    api.get_note = AsyncMock(return_value=FakeNote(None))
+    api.create_or_update_note = AsyncMock()
+    api.create_thought = AsyncMock(return_value={"id": "new-thought-id"})
+
+    class FakeGraph:
+        def __init__(self, children=None):
+            self.children = children or []
+
+    api._FakeNote = FakeNote
+    api._FakeGraph = FakeGraph
+    return api
+
+
+class TestPersonalBrainVaultCaching:
+    @pytest.mark.asyncio
+    async def test_second_flush_skips_graph_call(self) -> None:
+        """After first store_ledger, second call on same day uses cached child ID."""
+        api = _mock_api()
+
+        # Set up: index returns a ledger parent
+        index_data = json.dumps({"user-1/ledger": "ledger-parent-id"})
+        api.get_note = AsyncMock(return_value=api._FakeNote(index_data))
+
+        # First call: graph returns no children → creates new child
+        api.get_thought_graph = AsyncMock(return_value=api._FakeGraph([]))
+        api.create_thought = AsyncMock(return_value={"id": "daily-child-id"})
+
+        vault = PersonalBrainVault(api, "brain-1", "home-id")
+        result1 = await vault.store_ledger("user-1", '{"balance": 100}')
+        assert result1 == "daily-child-id"
+        assert api.get_thought_graph.call_count == 1
+
+        # Second call: should use cached ID, skip graph call
+        api.get_thought_graph.reset_mock()
+        api.create_or_update_note.reset_mock()
+        result2 = await vault.store_ledger("user-1", '{"balance": 200}')
+        assert result2 == "daily-child-id"
+        api.get_thought_graph.assert_not_called()
+        api.create_or_update_note.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stale_cache_falls_through(self) -> None:
+        """If cached daily child set_note fails, evicts and does full lookup."""
+        from thebrain_mcp.api.client import TheBrainAPIError
+
+        api = _mock_api()
+
+        # Set up: index returns a ledger parent
+        index_data = json.dumps({"user-1/ledger": "ledger-parent-id"})
+
+        # Manually populate the cache
+        vault = PersonalBrainVault(api, "brain-1", "home-id")
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        vault._daily_child_cache[f"user-1/{today}"] = "stale-child-id"
+
+        # First call to create_or_update_note fails (stale cache)
+        call_count = 0
+
+        async def note_side_effect(brain_id, thought_id, content):
+            nonlocal call_count
+            call_count += 1
+            if thought_id == "stale-child-id":
+                raise TheBrainAPIError("404 not found")
+            # Second call succeeds (after fallthrough)
+
+        api.create_or_update_note = AsyncMock(side_effect=note_side_effect)
+        api.get_note = AsyncMock(return_value=api._FakeNote(index_data))
+
+        # Graph returns existing child with today's date
+        class FakeChild:
+            def __init__(self, name, id):
+                self.name = name
+                self.id = id
+
+        api.get_thought_graph = AsyncMock(
+            return_value=api._FakeGraph([FakeChild(today, "real-child-id")])
+        )
+
+        result = await vault.store_ledger("user-1", '{"balance": 300}')
+        assert result == "real-child-id"
+        # Stale entry should be evicted, new one cached
+        assert vault._daily_child_cache[f"user-1/{today}"] == "real-child-id"
+
+    @pytest.mark.asyncio
+    async def test_index_cache_avoids_repeat_reads(self) -> None:
+        """After first _read_index, subsequent calls use the in-memory cache."""
+        api = _mock_api()
+
+        index_data = json.dumps({"user-1/ledger": "ledger-parent-id"})
+        api.get_note = AsyncMock(return_value=api._FakeNote(index_data))
+
+        vault = PersonalBrainVault(api, "brain-1", "home-id")
+
+        # First read
+        index1 = await vault._read_index()
+        assert index1 == {"user-1/ledger": "ledger-parent-id"}
+        assert api.get_note.call_count == 1
+
+        # Second read — should use cache, no API call
+        api.get_note.reset_mock()
+        index2 = await vault._read_index()
+        assert index2 == {"user-1/ledger": "ledger-parent-id"}
+        api.get_note.assert_not_called()

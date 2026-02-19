@@ -13,4 +13,5 @@ from tollbooth.tools.credits import (  # explicit for type checkers + private na
     btcpay_status_tool,
     restore_credits_tool,
     compute_low_balance_warning,
+    reconcile_pending_invoices,
 )
