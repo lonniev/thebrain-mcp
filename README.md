@@ -6,6 +6,10 @@
 [![Python](https://img.shields.io/badge/Python-3.12-green.svg)](https://www.python.org/)
 [![FastMCP](https://img.shields.io/badge/FastMCP-Cloud-purple.svg)](https://www.fastmcp.com/)
 
+<p align="center">
+  <img src="docs/diagrams/thebrain-mcp-hero.svg" alt="Claude connects to PersonalBrain through thebrain-mcp, powered by Lightning micropayments" width="800">
+</p>
+
 An MCP server that gives AI agents read-write access to a personal knowledge graph — and pays for itself with Bitcoin Lightning micropayments.
 
 > *The metaphors in this project are drawn with admiration from* The Phantom Tollbooth *by Norton Juster, illustrated by Jules Feiffer (1961). Milo, Tock, the Tollbooth, Dictionopolis, and Digitopolis are creations of Mr. Juster's extraordinary imagination. We just built the payment infrastructure.*
