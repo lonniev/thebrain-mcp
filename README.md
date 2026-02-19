@@ -33,7 +33,7 @@ Auth, balance checks, and credit purchases are always free.
 
 This is the novel contribution: an MCP server architecture where the operator monetizes AI agent access through Lightning micropayments without ever pestering the client mid-conversation. Pre-fund, use, top up.
 
-See the [Tollbooth protocol flow diagram](docs/diagrams/tollbooth-protocol-flow.svg) for the full architecture.
+See the [Three-Party Protocol diagram](https://github.com/lonniev/tollbooth-authority/blob/main/docs/diagrams/tollbooth-three-party-protocol.svg) for the full architecture. The [operator-side flow](docs/diagrams/tollbooth-protocol-flow.svg) is also available.
 
 ## Built on TheBrain's PersonalBrain API
 
