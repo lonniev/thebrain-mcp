@@ -1438,6 +1438,7 @@ def _get_ledger_cache() -> LedgerCache:
 
 
 _shutdown_triggered = False
+_reconciled_users: set[str] = set()
 
 
 async def _graceful_shutdown() -> None:
@@ -1450,9 +1451,21 @@ async def _graceful_shutdown() -> None:
     if _ledger_cache is not None:
         dirty = _ledger_cache.dirty_count
         logger.info("Graceful shutdown: flushing %d dirty ledger entries...", dirty)
-        flushed = await _ledger_cache.flush_all()
-        await _ledger_cache.stop()
-        logger.info("Graceful shutdown complete: flushed %d entries.", flushed)
+        try:
+            import asyncio as _aio
+            await _aio.wait_for(
+                _shutdown_flush_and_stop(), timeout=8.0
+            )
+        except _aio.TimeoutError:
+            logger.error("Graceful shutdown timed out after 8s — some entries may be lost.")
+
+
+async def _shutdown_flush_and_stop() -> None:
+    """Flush and stop the ledger cache (extracted for wait_for wrapping)."""
+    assert _ledger_cache is not None
+    flushed = await _ledger_cache.flush_all()
+    await _ledger_cache.stop()
+    logger.info("Graceful shutdown complete: flushed %d entries.", flushed)
 
 
 def _register_shutdown_handlers() -> None:
@@ -1697,6 +1710,26 @@ async def check_balance() -> dict[str, Any]:
         cache = _get_ledger_cache()
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
+
+    # One-time reconciliation per user per process lifetime
+    if user_id not in _reconciled_users:
+        _reconciled_users.add(user_id)
+        try:
+            btcpay = _get_btcpay()
+            settings_r = get_settings()
+            from tollbooth.tools.credits import reconcile_pending_invoices
+            recon = await reconcile_pending_invoices(
+                btcpay, cache, user_id,
+                tier_config_json=settings_r.btcpay_tier_config,
+                user_tiers_json=settings_r.btcpay_user_tiers,
+            )
+            if recon["reconciled"] > 0:
+                logger.info(
+                    "Reconciled %d pending invoice(s) for %s: %s",
+                    recon["reconciled"], user_id, recon["actions"],
+                )
+        except Exception:
+            logger.warning("Reconciliation failed for %s (non-fatal).", user_id)
 
     settings = get_settings()
     result = await credits.check_balance_tool(
