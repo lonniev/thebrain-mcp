@@ -25,7 +25,7 @@ from thebrain_mcp.tools.credits import (
     check_balance_tool,
     check_payment_tool,
     compute_low_balance_warning,
-    purchase_credits_tool,
+    purchase_tax_credits_tool,
 )
 from thebrain_mcp.utils.constants import MAX_INVOICE_SATS
 
@@ -130,7 +130,7 @@ class TestPurchaseCredits:
             "expirationTime": "2026-02-16T01:00:00Z",
         })
         cache = _mock_cache()
-        result = await purchase_credits_tool(btcpay, cache, "user1", 1000)
+        result = await purchase_tax_credits_tool(btcpay, cache, "user1", 1000)
         assert result["success"] is True
         assert result["invoice_id"] == "inv-42"
         assert result["amount_sats"] == 1000
@@ -142,7 +142,7 @@ class TestPurchaseCredits:
     async def test_zero_amount_rejected(self) -> None:
         btcpay = _mock_btcpay()
         cache = _mock_cache()
-        result = await purchase_credits_tool(btcpay, cache, "user1", 0)
+        result = await purchase_tax_credits_tool(btcpay, cache, "user1", 0)
         assert result["success"] is False
         assert "positive" in result["error"]
 
@@ -150,14 +150,14 @@ class TestPurchaseCredits:
     async def test_negative_amount_rejected(self) -> None:
         btcpay = _mock_btcpay()
         cache = _mock_cache()
-        result = await purchase_credits_tool(btcpay, cache, "user1", -100)
+        result = await purchase_tax_credits_tool(btcpay, cache, "user1", -100)
         assert result["success"] is False
 
     @pytest.mark.asyncio
     async def test_btcpay_error(self) -> None:
         btcpay = _mock_btcpay(error=BTCPayConnectionError("DNS failed"))
         cache = _mock_cache()
-        result = await purchase_credits_tool(btcpay, cache, "user1", 1000)
+        result = await purchase_tax_credits_tool(btcpay, cache, "user1", 1000)
         assert result["success"] is False
         assert "BTCPay error" in result["error"]
 
@@ -166,14 +166,14 @@ class TestPurchaseCredits:
         btcpay = _mock_btcpay({"id": "inv-99", "checkoutLink": "https://x.com"})
         ledger = UserLedger()
         cache = _mock_cache(ledger)
-        await purchase_credits_tool(btcpay, cache, "user1", 500)
+        await purchase_tax_credits_tool(btcpay, cache, "user1", 500)
         assert "inv-99" in ledger.pending_invoices
 
     @pytest.mark.asyncio
     async def test_default_tier_shown(self) -> None:
         btcpay = _mock_btcpay({"id": "inv-1", "checkoutLink": "https://x.com"})
         cache = _mock_cache()
-        result = await purchase_credits_tool(
+        result = await purchase_tax_credits_tool(
             btcpay, cache, "user1", 1000,
             tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
         )
@@ -185,7 +185,7 @@ class TestPurchaseCredits:
     async def test_vip_tier_shown(self) -> None:
         btcpay = _mock_btcpay({"id": "inv-1", "checkoutLink": "https://x.com"})
         cache = _mock_cache()
-        result = await purchase_credits_tool(
+        result = await purchase_tax_credits_tool(
             btcpay, cache, "user-vip", 500,
             tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
         )
@@ -773,7 +773,7 @@ class TestPurchaseCap:
             "id": "inv-max", "checkoutLink": "https://pay.example.com/inv-max",
         })
         cache = _mock_cache()
-        result = await purchase_credits_tool(
+        result = await purchase_tax_credits_tool(
             btcpay, cache, "user1", MAX_INVOICE_SATS,
         )
         assert result["success"] is True
@@ -783,7 +783,7 @@ class TestPurchaseCap:
         """MAX_INVOICE_SATS + 1 is rejected."""
         btcpay = _mock_btcpay()
         cache = _mock_cache()
-        result = await purchase_credits_tool(
+        result = await purchase_tax_credits_tool(
             btcpay, cache, "user1", MAX_INVOICE_SATS + 1,
         )
         assert result["success"] is False
