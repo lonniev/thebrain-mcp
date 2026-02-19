@@ -1401,6 +1401,32 @@ class TestBTCPayPreflight:
         mock_settings.btcpay_store_id = "store-123"
         mock_settings.btcpay_host = "https://btcpay.example.com"
         mock_settings.btcpay_api_key = "key"
+        mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
+
+        with patch.object(srv, "_require_user_id", return_value="user-1"), \
+             patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
+             patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch.object(srv, "_get_ledger_cache"):
+            result = await srv.purchase_credits.fn(amount_sats=1000, certificate="jwt.token")
+
+        assert result["success"] is False
+        assert "missing required permissions" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_purchase_credits_requires_certificate_when_authority_configured(self) -> None:
+        """purchase_credits rejects calls without certificate when authority_public_key is set."""
+        import thebrain_mcp.server as srv
+
+        mock_settings = MagicMock()
+        mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
+        mock_settings.btcpay_tier_config = None
+        mock_settings.btcpay_user_tiers = None
+
+        mock_btcpay = AsyncMock(spec=BTCPayClient)
+        mock_btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": ["btcpay.store.cancreateinvoice", "btcpay.store.canviewinvoices"]
+        })
+        srv._btcpay_preflight_done = True
 
         with patch.object(srv, "_require_user_id", return_value="user-1"), \
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
@@ -1409,4 +1435,62 @@ class TestBTCPayPreflight:
             result = await srv.purchase_credits.fn(amount_sats=1000)
 
         assert result["success"] is False
-        assert "missing required permissions" in result["error"]
+        assert "certificate" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_purchase_credits_certified_path(self) -> None:
+        """purchase_credits calls purchase_credits_tool when certificate is provided."""
+        import thebrain_mcp.server as srv
+
+        mock_settings = MagicMock()
+        mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
+        mock_settings.btcpay_tier_config = None
+        mock_settings.btcpay_user_tiers = None
+
+        mock_btcpay = AsyncMock(spec=BTCPayClient)
+        mock_btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": ["btcpay.store.cancreateinvoice", "btcpay.store.canviewinvoices"]
+        })
+        srv._btcpay_preflight_done = True
+
+        fake_cert_result = {"success": True, "invoice_id": "cert-inv-1", "certificate_jti": "jti-abc"}
+
+        with patch.object(srv, "_require_user_id", return_value="user-1"), \
+             patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
+             patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch.object(srv, "_get_ledger_cache") as mock_cache, \
+             patch.object(srv.credits, "purchase_credits_tool", new_callable=AsyncMock,
+                          return_value=fake_cert_result) as mock_certified:
+            result = await srv.purchase_credits.fn(amount_sats=1000, certificate="jwt.token.here")
+
+        assert result["success"] is True
+        assert result["certificate_jti"] == "jti-abc"
+        mock_certified.assert_called_once()
+        call_kwargs = mock_certified.call_args
+        assert call_kwargs.kwargs["certificate"] == "jwt.token.here"
+        assert call_kwargs.kwargs["authority_public_key"] == mock_settings.authority_public_key
+
+    @pytest.mark.asyncio
+    async def test_purchase_credits_rejected_without_authority_key(self) -> None:
+        """purchase_credits rejects all purchases when AUTHORITY_PUBLIC_KEY is not configured."""
+        import thebrain_mcp.server as srv
+
+        mock_settings = MagicMock()
+        mock_settings.authority_public_key = None
+        mock_settings.btcpay_tier_config = None
+        mock_settings.btcpay_user_tiers = None
+
+        mock_btcpay = AsyncMock(spec=BTCPayClient)
+        mock_btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": ["btcpay.store.cancreateinvoice", "btcpay.store.canviewinvoices"]
+        })
+        srv._btcpay_preflight_done = True
+
+        with patch.object(srv, "_require_user_id", return_value="user-1"), \
+             patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
+             patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch.object(srv, "_get_ledger_cache"):
+            result = await srv.purchase_credits.fn(amount_sats=1000, certificate="jwt.here")
+
+        assert result["success"] is False
+        assert "AUTHORITY_PUBLIC_KEY" in result["error"]

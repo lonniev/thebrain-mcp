@@ -1560,23 +1560,39 @@ async def _rollback_debit(tool_name: str) -> None:
 
 
 @mcp.tool()
-async def purchase_credits(amount_sats: int) -> dict[str, Any]:
+async def purchase_credits(
+    amount_sats: int,
+    certificate: str = "",
+) -> dict[str, Any]:
     """Create a BTCPay Lightning invoice to purchase credits for tool calls.
 
-    Call this when your balance is low or zero. Returns a Lightning invoice with
-    a checkout_link — pay it with any Lightning wallet. After payment, call
-    check_payment with the returned invoice_id to credit your balance.
+    Every credit purchase requires an Authority-signed certificate. Obtain one
+    by calling the Tollbooth Authority's certify_purchase tool first, then pass
+    the JWT here. The invoice is created for the certificate's net_sats (the
+    purchase amount minus the Authority's tax).
+
+    No certificate, no invoice. No exceptions.
+
+    Call flow:
+    1. Call Authority's certify_purchase(operator_id, amount_sats) → get JWT
+    2. Call purchase_credits(amount_sats, certificate=JWT) → get Lightning invoice
+    3. Pay the invoice with any Lightning wallet
+    4. Call check_payment(invoice_id) → credits land in your balance
 
     Credits are denominated in api_sats: 1 sat buys 1 api_sat (default tier).
     VIP tiers may have higher multipliers. Maximum 1,000,000 sats (0.01 BTC) per invoice.
 
     Args:
-        amount_sats: Number of satoshis to purchase (minimum 1, maximum 1,000,000)
+        amount_sats: Number of satoshis to purchase (minimum 1, maximum 1,000,000).
+            Should match the amount you passed to the Authority's certify_purchase.
+            The invoice will be for net_sats from the certificate (amount minus tax).
+        certificate: Authority-signed JWT from certify_purchase. Required.
 
     Returns:
         invoice_id: BTCPay invoice ID (pass to check_payment after paying).
         checkout_link: URL to pay the Lightning invoice.
         expected_credits: How many api_sats you'll receive at your tier multiplier.
+        certificate_jti: Certificate ID for audit trail.
 
     Next step: Pay the invoice, then call check_payment(invoice_id).
     """
@@ -1589,11 +1605,31 @@ async def purchase_credits(amount_sats: int) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
     settings = get_settings()
-    # Uses purchase_tax_credits_tool (uncertified) until e2e Authority
-    # certificate wiring is implemented. When ready, switch to
-    # purchase_credits_tool with certificate + authority_public_key.
-    return await credits.purchase_tax_credits_tool(
+
+    if not settings.authority_public_key:
+        return {
+            "success": False,
+            "error": (
+                "Operator misconfigured: AUTHORITY_PUBLIC_KEY is not set. "
+                "This operator cannot sell credits without a trusted Authority. "
+                "Set the Authority's Ed25519 public key in the environment."
+            ),
+        }
+
+    if not certificate:
+        return {
+            "success": False,
+            "error": (
+                "A valid Authority certificate is required for every credit purchase. "
+                "Call the Authority's certify_purchase tool first to obtain a signed JWT, "
+                "then pass it as the certificate parameter. No certificate, no invoice."
+            ),
+        }
+
+    return await credits.purchase_credits_tool(
         btcpay, cache, user_id, amount_sats,
+        certificate=certificate,
+        authority_public_key=settings.authority_public_key,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
     )
