@@ -1743,7 +1743,6 @@ async def btcpay_status() -> dict[str, Any]:
         tollbooth_royalty_percent=settings.tollbooth_royalty_percent,
         tollbooth_royalty_min_sats=settings.tollbooth_royalty_min_sats,
         authority_public_key=settings.authority_public_key,
-        authority_url=settings.authority_url,
     )
     result = await credits.btcpay_status_tool(config, btcpay_client)
 
