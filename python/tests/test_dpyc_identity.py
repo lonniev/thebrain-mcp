@@ -28,7 +28,7 @@ SAMPLE_NPUB = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
 async def test_activate_dpyc_returns_deprecation_error():
     import thebrain_mcp.server as srv
 
-    result = await srv.activate_dpyc.fn(SAMPLE_NPUB)
+    result = await srv.activate_dpyc(SAMPLE_NPUB)
 
     assert result["success"] is False
     assert "deprecated" in result["error"].lower()
@@ -73,7 +73,7 @@ async def test_session_status_shows_dpyc_npub():
 
     with patch.object(srv, "_get_current_user_id", return_value="horizon-1"):
         with patch("thebrain_mcp.server.get_session", return_value=None):
-            result = await srv.session_status.fn()
+            result = await srv.session_status()
 
     assert result["dpyc_npub"] == SAMPLE_NPUB
     assert result["effective_credit_id"] == SAMPLE_NPUB
@@ -86,7 +86,7 @@ async def test_session_status_no_dpyc_shows_warning():
 
     with patch.object(srv, "_get_current_user_id", return_value="horizon-1"):
         with patch("thebrain_mcp.server.get_session", return_value=None):
-            result = await srv.session_status.fn()
+            result = await srv.session_status()
 
     assert result["effective_credit_id"] is None
     assert "dpyc_warning" in result
@@ -119,7 +119,7 @@ async def test_register_credentials_with_npub():
          patch("thebrain_mcp.server.TheBrainAPI", return_value=mock_api), \
          patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted") as mock_encrypt, \
          patch("thebrain_mcp.server.set_session"):
-        result = await srv.register_credentials.fn(
+        result = await srv.register_credentials(
             thebrain_api_key="key-1", brain_id="brain-1",
             passphrase="pass", npub=SAMPLE_NPUB,
         )
@@ -137,7 +137,7 @@ async def test_register_credentials_without_npub_fails():
     """register_credentials rejects calls without a valid npub."""
     import thebrain_mcp.server as srv
 
-    result = await srv.register_credentials.fn(
+    result = await srv.register_credentials(
         thebrain_api_key="key-1", brain_id="brain-1",
         passphrase="pass", npub="not-an-npub",
     )
@@ -166,7 +166,7 @@ async def test_activate_session_with_npub_in_vault():
              "api_key": "key-1", "brain_id": "brain-1", "npub": SAMPLE_NPUB,
          }), \
          patch("thebrain_mcp.server.set_session"):
-        result = await srv.activate_session.fn(passphrase="pass")
+        result = await srv.activate_session(passphrase="pass")
 
     assert result["success"] is True
     assert result["dpyc_npub"] == SAMPLE_NPUB
@@ -188,7 +188,7 @@ async def test_activate_session_legacy_blob_warns():
              "api_key": "key-1", "brain_id": "brain-1",
          }), \
          patch("thebrain_mcp.server.set_session"):
-        result = await srv.activate_session.fn(passphrase="pass")
+        result = await srv.activate_session(passphrase="pass")
 
     assert result["success"] is True
     assert "dpyc_npub" not in result
