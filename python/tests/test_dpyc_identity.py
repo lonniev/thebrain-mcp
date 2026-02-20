@@ -193,8 +193,73 @@ async def test_activate_session_legacy_blob_warns():
     assert result["success"] is True
     assert "dpyc_npub" not in result
     assert "dpyc_warning" in result
-    assert "re-register" in result["dpyc_warning"]
+    assert "upgrade_credentials" in result["dpyc_warning"]
     assert "horizon-1" not in srv._dpyc_sessions
+
+
+# ---------------------------------------------------------------------------
+# upgrade_credentials
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upgrade_credentials_adds_npub():
+    """Active session + valid npub → vault updated, DPYC activated."""
+    import thebrain_mcp.server as srv
+    from thebrain_mcp.vault import UserSession
+
+    mock_session = MagicMock(spec=UserSession)
+    mock_session.api_key = "key-1"
+    mock_session.brain_id = "brain-1"
+
+    mock_vault = AsyncMock()
+    mock_vault.store = AsyncMock(return_value="thought-123")
+
+    mock_settings = MagicMock()
+    mock_settings.seed_balance_sats = 0
+
+    with patch.object(srv, "_require_user_id", return_value="horizon-1"), \
+         patch("thebrain_mcp.server.get_session", return_value=mock_session), \
+         patch.object(srv, "_get_vault", return_value=mock_vault), \
+         patch.object(srv, "get_settings", return_value=mock_settings), \
+         patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted-v2") as mock_encrypt:
+        result = await srv.upgrade_credentials(passphrase="pass", npub=SAMPLE_NPUB)
+
+    assert result["success"] is True
+    assert result["dpyc_npub"] == SAMPLE_NPUB
+    assert result["brainId"] == "brain-1"
+    assert "upgraded" in result["message"].lower() or "upgrade" in result["message"].lower()
+    # Verify re-encryption with npub
+    mock_encrypt.assert_called_once_with("key-1", "brain-1", "pass", npub=SAMPLE_NPUB)
+    # Verify vault store called
+    mock_vault.store.assert_called_once_with("horizon-1", "encrypted-v2")
+    # Verify DPYC session activated
+    assert srv._dpyc_sessions["horizon-1"] == SAMPLE_NPUB
+
+
+@pytest.mark.asyncio
+async def test_upgrade_credentials_no_session_fails():
+    """No active session → helpful error telling user to activate first."""
+    import thebrain_mcp.server as srv
+
+    with patch.object(srv, "_require_user_id", return_value="horizon-1"), \
+         patch("thebrain_mcp.server.get_session", return_value=None):
+        result = await srv.upgrade_credentials(passphrase="pass", npub=SAMPLE_NPUB)
+
+    assert result["success"] is False
+    assert "activate_session" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_upgrade_credentials_invalid_npub_fails():
+    """Bad npub format → error with guidance."""
+    import thebrain_mcp.server as srv
+
+    result = await srv.upgrade_credentials(passphrase="pass", npub="not-an-npub")
+
+    assert result["success"] is False
+    assert "Invalid npub" in result["error"]
+    assert "dpyc-oracle" in result["error"]
 
 
 # ---------------------------------------------------------------------------

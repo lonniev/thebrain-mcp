@@ -58,7 +58,10 @@ mcp = FastMCP(
         "   - Get your DPYC npub from the dpyc-oracle's how_to_join() tool\n"
         "   - Call `register_credentials(api_key, brain_id, passphrase, npub)`\n"
         "3. Returning users: call `activate_session(passphrase)` each session "
-        "(your npub is auto-activated from the vault).\n\n"
+        "(your npub is auto-activated from the vault).\n"
+        "4. Legacy users (registered before npub was required): call "
+        "`activate_session(passphrase)` then `upgrade_credentials(passphrase, npub)` "
+        "to add your npub without re-entering your API key.\n\n"
         "## Starter Credits\n\n"
         "First-time users receive a seed balance on registration — enough to "
         "explore your brain without purchasing credits up front.\n\n"
@@ -1178,6 +1181,94 @@ async def register_credentials(
 
 
 @mcp.tool()
+async def upgrade_credentials(
+    passphrase: str,
+    npub: str,
+) -> dict[str, Any]:
+    """Upgrade existing vault credentials to include your DPYC npub.
+
+    Use this if you registered before npub was required and activate_session
+    shows a dpyc_warning. Reads your active session's api_key and brain_id,
+    re-encrypts with npub, and stores the updated blob. No need to re-enter
+    your API key or brain ID.
+
+    Requires an active session — call activate_session(passphrase) first.
+
+    Args:
+        passphrase: The passphrase you used when registering credentials
+        npub: Your Nostr public key in bech32 format (npub1...). Required for
+            credit operations. Get one via the dpyc-oracle's how_to_join() tool.
+    """
+    # Validate npub format
+    if not npub.startswith("npub1") or len(npub) < 60:
+        return {
+            "success": False,
+            "error": (
+                "Invalid npub format. Must start with 'npub1' and be at least 60 characters. "
+                "Get your npub from the dpyc-oracle's how_to_join() tool."
+            ),
+        }
+
+    try:
+        user_id = _require_user_id()
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+    # Require an active session (so we can read api_key and brain_id)
+    session = get_session(user_id)
+    if session is None:
+        return {
+            "success": False,
+            "error": (
+                "No active session. Call activate_session(passphrase) first "
+                "to decrypt your existing credentials, then retry upgrade_credentials."
+            ),
+        }
+
+    try:
+        vault = _get_vault()
+    except VaultNotConfiguredError as e:
+        return {"success": False, "error": str(e)}
+
+    # Re-encrypt with npub included (v2 blob)
+    blob = encrypt_credentials(session.api_key, session.brain_id, passphrase, npub=npub)
+    await vault.store(user_id, blob)
+
+    # Activate DPYC identity
+    _dpyc_sessions[user_id] = npub
+
+    # Seed starter balance for new DPYC identities (idempotent via sentinel)
+    seed_sats = get_settings().seed_balance_sats
+    seed_applied = False
+    if seed_sats > 0:
+        try:
+            cache = _get_ledger_cache()
+            ledger = await cache.get(npub)
+            sentinel = "seed_balance_v1"
+            if sentinel not in ledger.credited_invoices:
+                ledger.credit_deposit(seed_sats, sentinel)
+                cache.mark_dirty(npub)
+                await cache.flush_user(npub)
+                seed_applied = True
+        except Exception:
+            pass  # Seed failure never blocks upgrade
+
+    result: dict[str, Any] = {
+        "success": True,
+        "message": (
+            "Credentials upgraded with npub. DPYC identity activated. "
+            "All paid tools are now available."
+        ),
+        "brainId": session.brain_id,
+        "dpyc_npub": npub,
+    }
+    if seed_applied:
+        result["seed_applied"] = True
+        result["seed_balance_api_sats"] = seed_sats
+    return result
+
+
+@mcp.tool()
 async def activate_session(passphrase: str) -> dict[str, Any]:
     """Activate your personal TheBrain session by decrypting stored credentials.
 
@@ -1211,8 +1302,9 @@ async def activate_session(passphrase: str) -> dict[str, Any]:
     else:
         dpyc_warning = (
             "Your vault credentials were registered before npub was required. "
-            "Credit operations will not work until you re-register with "
-            "register_credentials(api_key, brain_id, passphrase, npub). "
+            "Credit operations will not work until you upgrade with "
+            "upgrade_credentials(passphrase, npub) — no need to re-enter "
+            "your API key or brain ID. "
             "Get your npub from the dpyc-oracle's how_to_join() tool."
         )
 
