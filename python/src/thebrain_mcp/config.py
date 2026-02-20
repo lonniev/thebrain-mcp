@@ -32,6 +32,10 @@ class Settings(BaseSettings):
 
     authority_public_key: str | None = None
 
+    # DPYC Nostr Identity
+    dpyc_operator_npub: str | None = None
+    dpyc_authority_npub: str | None = None
+
 
 def get_settings() -> Settings:
     """Get application settings."""

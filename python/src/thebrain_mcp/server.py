@@ -126,6 +126,19 @@ def _get_current_user_id() -> str | None:
         return None
 
 
+# ---------------------------------------------------------------------------
+# DPYC identity (Phase 1 dual-key: Horizon ID or Nostr npub)
+# ---------------------------------------------------------------------------
+
+_dpyc_sessions: dict[str, str] = {}  # Horizon user_id → npub
+
+
+def _get_effective_user_id() -> str:
+    """Return npub if DPYC session active, else Horizon user_id (Phase 1 dual-key)."""
+    horizon_id = _require_user_id()
+    return _dpyc_sessions.get(horizon_id, horizon_id)
+
+
 def _get_operator_api() -> TheBrainAPI:
     """Get or create the operator's API client (singleton)."""
     global _operator_api_client
@@ -1166,7 +1179,7 @@ async def session_status() -> dict[str, Any]:
     """Check the status of your current session.
 
     Shows whether you have an active personal session or are using
-    the operator's default credentials.
+    the operator's default credentials. Also shows DPYC identity state.
     """
     user_id = _get_current_user_id()
 
@@ -1190,7 +1203,86 @@ async def session_status() -> dict[str, Any]:
                 "or activate_session (returning user)."
             )
 
+        # DPYC identity
+        dpyc_npub = _dpyc_sessions.get(user_id)
+        if dpyc_npub:
+            result["dpyc_npub"] = dpyc_npub
+            result["effective_credit_id"] = dpyc_npub
+        else:
+            result["effective_credit_id"] = user_id
+
     return result
+
+
+# ---------------------------------------------------------------------------
+# DPYC Identity Tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def activate_dpyc(npub: str) -> dict[str, Any]:
+    """Set your DPYC Nostr identity for credit operations.
+
+    After activation, credit tools (purchase_credits, check_payment,
+    check_balance) key on your npub instead of your Horizon user ID.
+
+    Warning: Activating starts a fresh credit ledger under the npub key.
+    Any existing balance under your Horizon ID remains there.
+
+    Args:
+        npub: Your Nostr public key in bech32 format (npub1...).
+
+    Returns:
+        success: True if the session was activated.
+        horizon_id: Your underlying Horizon user ID.
+        effective_id: The npub now used for credit operations.
+    """
+    if not npub.startswith("npub1") or len(npub) < 60:
+        return {
+            "success": False,
+            "error": "Invalid npub format. Must start with 'npub1' and be at least 60 characters.",
+        }
+
+    horizon_id = _require_user_id()
+    _dpyc_sessions[horizon_id] = npub
+
+    return {
+        "success": True,
+        "horizon_id": horizon_id,
+        "effective_id": npub,
+        "message": (
+            "DPYC identity activated. Credit operations now use your npub. "
+            "Note: this starts a fresh credit ledger under the npub key."
+        ),
+    }
+
+
+@mcp.tool()
+async def get_dpyc_identity() -> dict[str, Any]:
+    """Return the current DPYC identity state for this session.
+
+    Shows the Horizon user ID, whether a DPYC npub session is active,
+    the effective ID used for credit operations, and the operator's
+    configured DPYC npubs.
+
+    Returns:
+        horizon_id: Your Horizon user ID (always present).
+        dpyc_npub: Your DPYC npub if activated, else null.
+        effective_id: The ID currently used for credit keying.
+        operator_npub: This operator's DPYC npub (if configured).
+        authority_npub: The trusted Authority's DPYC npub (if configured).
+    """
+    horizon_id = _require_user_id()
+    npub = _dpyc_sessions.get(horizon_id)
+    settings = get_settings()
+
+    return {
+        "horizon_id": horizon_id,
+        "dpyc_npub": npub,
+        "effective_id": npub or horizon_id,
+        "operator_npub": settings.dpyc_operator_npub,
+        "authority_npub": settings.dpyc_authority_npub,
+    }
 
 
 # Operator Admin Tools
@@ -1236,6 +1328,7 @@ async def _refresh_config_impl() -> dict[str, Any]:
     # 4. Reset settings-loaded flag so env vars are re-read
     _settings_loaded = False
     active_brain_id = None
+    _dpyc_sessions.clear()
     refreshed.append("settings_loaded reset")
 
     # 5. Re-load settings from environment
@@ -1520,15 +1613,17 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
 
     Returns None if the tool is free or STDIO mode (proceed with execution).
     Returns an error dict if the user has insufficient balance.
+    Uses DPYC effective ID when a session is active.
     """
     cost = TOOL_COSTS.get(tool_name, 0)
     if cost == 0:
         return None
 
-    user_id = _get_current_user_id()
-    if not user_id:
+    horizon_id = _get_current_user_id()
+    if not horizon_id:
         # STDIO mode (local dev) — no gating
         return None
+    user_id = _dpyc_sessions.get(horizon_id, horizon_id)
 
     try:
         cache = _get_ledger_cache()
@@ -1555,9 +1650,10 @@ async def _rollback_debit(tool_name: str) -> None:
     if cost == 0:
         return
 
-    user_id = _get_current_user_id()
-    if not user_id:
+    horizon_id = _get_current_user_id()
+    if not horizon_id:
         return
+    user_id = _dpyc_sessions.get(horizon_id, horizon_id)
 
     try:
         cache = _get_ledger_cache()
@@ -1610,7 +1706,7 @@ async def purchase_credits(
     Next step: Pay the invoice, then call check_payment(invoice_id).
     """
     try:
-        user_id = _require_user_id()
+        user_id = _get_effective_user_id()
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -1670,7 +1766,7 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
     Next step: Call check_balance to confirm, then continue using tools.
     """
     try:
-        user_id = _require_user_id()
+        user_id = _get_effective_user_id()
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -1706,7 +1802,7 @@ async def check_balance() -> dict[str, Any]:
     Next step: If balance is low, call purchase_credits to top up.
     """
     try:
-        user_id = _require_user_id()
+        user_id = _get_effective_user_id()
         cache = _get_ledger_cache()
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
