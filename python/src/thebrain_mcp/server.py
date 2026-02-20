@@ -55,8 +55,10 @@ mcp = FastMCP(
         "2. If no active session, you need to register:\n"
         "   - Get a TheBrain API key at https://api.bra.in\n"
         "   - Find your brain ID in TheBrain's settings\n"
-        "   - Call `register_credentials(api_key, brain_id, passphrase)`\n"
-        "3. Returning users: call `activate_session(passphrase)` each session.\n\n"
+        "   - Get your DPYC npub from the dpyc-oracle's how_to_join() tool\n"
+        "   - Call `register_credentials(api_key, brain_id, passphrase, npub)`\n"
+        "3. Returning users: call `activate_session(passphrase)` each session "
+        "(your npub is auto-activated from the vault).\n\n"
         "## Starter Credits\n\n"
         "First-time users receive a seed balance on registration — enough to "
         "explore your brain without purchasing credits up front.\n\n"
@@ -127,16 +129,28 @@ def _get_current_user_id() -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# DPYC identity (Phase 1 dual-key: Horizon ID or Nostr npub)
+# DPYC identity (npub-primary: Horizon ID is transport auth, npub is DPYC ID)
 # ---------------------------------------------------------------------------
 
 _dpyc_sessions: dict[str, str] = {}  # Horizon user_id → npub
 
 
 def _get_effective_user_id() -> str:
-    """Return npub if DPYC session active, else Horizon user_id (Phase 1 dual-key)."""
+    """Return the npub for the current user. Requires an active DPYC session.
+
+    Raises ValueError if no DPYC session is active (npub not set).
+    Horizon OAuth remains the transport auth layer, but the npub is the
+    sole identity for all credit/commerce operations.
+    """
     horizon_id = _require_user_id()
-    return _dpyc_sessions.get(horizon_id, horizon_id)
+    npub = _dpyc_sessions.get(horizon_id)
+    if not npub:
+        raise ValueError(
+            "No DPYC identity active. Credit operations require an npub. "
+            "Call register_credentials (first time) or activate_session (returning user) "
+            "with your npub. Get one from the dpyc-oracle's how_to_join() tool."
+        )
+    return npub
 
 
 def _get_operator_api() -> TheBrainAPI:
@@ -1078,6 +1092,7 @@ async def register_credentials(
     thebrain_api_key: str,
     brain_id: str,
     passphrase: str,
+    npub: str,
 ) -> dict[str, Any]:
     """Register your TheBrain credentials for multi-tenant access.
 
@@ -1085,11 +1100,27 @@ async def register_credentials(
     the encrypted blob in the operator's credential vault. The passphrase is
     never stored — you will need it each session to activate access.
 
+    Your DPYC npub (Nostr public key) is required — it serves as your
+    persistent identity for credit operations. Obtain one from the
+    dpyc-oracle's how_to_join() tool if you don't have one yet.
+
     Args:
         thebrain_api_key: Your personal TheBrain API key
         brain_id: The ID of your TheBrain brain
         passphrase: A passphrase to encrypt your credentials (remember this!)
+        npub: Your Nostr public key in bech32 format (npub1...). Required for
+            credit operations. Get one via the dpyc-oracle's how_to_join() tool.
     """
+    # Validate npub format
+    if not npub.startswith("npub1") or len(npub) < 60:
+        return {
+            "success": False,
+            "error": (
+                "Invalid npub format. Must start with 'npub1' and be at least 60 characters. "
+                "Get your npub from the dpyc-oracle's how_to_join() tool."
+            ),
+        }
+
     try:
         user_id = _require_user_id()
         vault = _get_vault()
@@ -1105,25 +1136,29 @@ async def register_credentials(
     finally:
         await test_api.close()
 
-    # Encrypt and store
-    blob = encrypt_credentials(thebrain_api_key, brain_id, passphrase)
+    # Encrypt and store (v2 blob includes npub)
+    blob = encrypt_credentials(thebrain_api_key, brain_id, passphrase, npub=npub)
     thought_id = await vault.store(user_id, blob)
 
     # Activate session immediately
     set_session(user_id, thebrain_api_key, brain_id)
 
+    # Auto-activate DPYC identity
+    _dpyc_sessions[user_id] = npub
+
     # Seed starter balance for new users (idempotent via sentinel)
+    # Seed keyed by npub (the effective credit identity)
     seed_sats = get_settings().seed_balance_sats
     seed_applied = False
     if seed_sats > 0:
         try:
             cache = _get_ledger_cache()
-            ledger = await cache.get(user_id)
+            ledger = await cache.get(npub)
             sentinel = "seed_balance_v1"
             if sentinel not in ledger.credited_invoices:
                 ledger.credit_deposit(seed_sats, sentinel)
-                cache.mark_dirty(user_id)
-                await cache.flush_user(user_id)
+                cache.mark_dirty(npub)
+                await cache.flush_user(npub)
                 seed_applied = True
         except Exception:
             pass  # Seed failure never blocks registration
@@ -1133,6 +1168,7 @@ async def register_credentials(
         "message": "Credentials registered and session activated.",
         "userId": user_id,
         "brainId": brain_id,
+        "dpyc_npub": npub,
         "vaultThoughtId": thought_id,
     }
     if seed_applied:
@@ -1167,11 +1203,29 @@ async def activate_session(passphrase: str) -> dict[str, Any]:
 
     set_session(user_id, creds["api_key"], creds["brain_id"])
 
-    return {
+    # Auto-activate DPYC identity from vault blob
+    npub = creds.get("npub")
+    dpyc_warning = None
+    if npub:
+        _dpyc_sessions[user_id] = npub
+    else:
+        dpyc_warning = (
+            "Your vault credentials were registered before npub was required. "
+            "Credit operations will not work until you re-register with "
+            "register_credentials(api_key, brain_id, passphrase, npub). "
+            "Get your npub from the dpyc-oracle's how_to_join() tool."
+        )
+
+    result: dict[str, Any] = {
         "success": True,
         "message": "Session activated. All tools now use your personal credentials.",
         "brainId": creds["brain_id"],
     }
+    if npub:
+        result["dpyc_npub"] = npub
+    if dpyc_warning:
+        result["dpyc_warning"] = dpyc_warning
+    return result
 
 
 @mcp.tool()
@@ -1209,7 +1263,12 @@ async def session_status() -> dict[str, Any]:
             result["dpyc_npub"] = dpyc_npub
             result["effective_credit_id"] = dpyc_npub
         else:
-            result["effective_credit_id"] = user_id
+            result["effective_credit_id"] = None
+            result["dpyc_warning"] = (
+                "No DPYC identity active. Credit operations require an npub. "
+                "Call register_credentials with your npub, or activate_session "
+                "if your vault already contains one."
+            )
 
     return result
 
@@ -1221,67 +1280,24 @@ async def session_status() -> dict[str, Any]:
 
 @mcp.tool()
 async def activate_dpyc(npub: str) -> dict[str, Any]:
-    """Set your DPYC Nostr identity for credit operations.
+    """Deprecated — npub is now set via register_credentials.
 
-    After activation, credit tools (purchase_credits, check_payment,
-    check_balance) key on your npub instead of your Horizon user ID.
-
-    Warning: Activating starts a fresh credit ledger under the npub key.
-    Any existing balance under your Horizon ID remains there.
+    Your npub is stored in the encrypted vault alongside your TheBrain
+    credentials and auto-activated by activate_session. Use
+    register_credentials(api_key, brain_id, passphrase, npub) to set up
+    your identity. Get your npub from the dpyc-oracle's how_to_join() tool.
 
     Args:
-        npub: Your Nostr public key in bech32 format (npub1...).
-
-    Returns:
-        success: True if the session was activated.
-        horizon_id: Your underlying Horizon user ID.
-        effective_id: The npub now used for credit operations.
+        npub: Ignored — use register_credentials instead.
     """
-    if not npub.startswith("npub1") or len(npub) < 60:
-        return {
-            "success": False,
-            "error": "Invalid npub format. Must start with 'npub1' and be at least 60 characters.",
-        }
-
-    horizon_id = _require_user_id()
-    _dpyc_sessions[horizon_id] = npub
-
     return {
-        "success": True,
-        "horizon_id": horizon_id,
-        "effective_id": npub,
-        "message": (
-            "DPYC identity activated. Credit operations now use your npub. "
-            "Note: this starts a fresh credit ledger under the npub key."
+        "success": False,
+        "error": (
+            "activate_dpyc is deprecated. Your npub is now stored in the vault "
+            "and auto-activated by activate_session. Re-register with "
+            "register_credentials(api_key, brain_id, passphrase, npub) to "
+            "include your npub. Get one from the dpyc-oracle's how_to_join() tool."
         ),
-    }
-
-
-@mcp.tool()
-async def get_dpyc_identity() -> dict[str, Any]:
-    """Return the current DPYC identity state for this session.
-
-    Shows the Horizon user ID, whether a DPYC npub session is active,
-    the effective ID used for credit operations, and the operator's
-    configured DPYC npubs.
-
-    Returns:
-        horizon_id: Your Horizon user ID (always present).
-        dpyc_npub: Your DPYC npub if activated, else null.
-        effective_id: The ID currently used for credit keying.
-        operator_npub: This operator's DPYC npub (if configured).
-        authority_npub: The trusted Authority's DPYC npub (if configured).
-    """
-    horizon_id = _require_user_id()
-    npub = _dpyc_sessions.get(horizon_id)
-    settings = get_settings()
-
-    return {
-        "horizon_id": horizon_id,
-        "dpyc_npub": npub,
-        "effective_id": npub or horizon_id,
-        "operator_npub": settings.dpyc_operator_npub,
-        "authority_npub": settings.dpyc_authority_npub,
     }
 
 
@@ -1589,11 +1605,10 @@ async def _with_warning(result: dict[str, Any]) -> dict[str, Any]:
     """Attach a low-balance warning to a paid tool result if balance is low.
 
     Decorative only — exceptions never block the tool response.
+    Uses the effective DPYC user ID (npub) for ledger lookup.
     """
     try:
-        user_id = _get_current_user_id()
-        if not user_id:
-            return result
+        user_id = _get_effective_user_id()
         cache = _get_ledger_cache()
         ledger = await cache.get(user_id)
         settings = get_settings()
@@ -1612,8 +1627,8 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
     """Check balance and debit credits for a paid tool call.
 
     Returns None if the tool is free or STDIO mode (proceed with execution).
-    Returns an error dict if the user has insufficient balance.
-    Uses DPYC effective ID when a session is active.
+    Returns an error dict if the user has insufficient balance or no DPYC session.
+    Uses the npub (effective DPYC ID) for all ledger operations.
     """
     cost = TOOL_COSTS.get(tool_name, 0)
     if cost == 0:
@@ -1623,7 +1638,11 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
     if not horizon_id:
         # STDIO mode (local dev) — no gating
         return None
-    user_id = _dpyc_sessions.get(horizon_id, horizon_id)
+
+    try:
+        user_id = _get_effective_user_id()
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
 
     try:
         cache = _get_ledger_cache()
@@ -1650,10 +1669,10 @@ async def _rollback_debit(tool_name: str) -> None:
     if cost == 0:
         return
 
-    horizon_id = _get_current_user_id()
-    if not horizon_id:
+    try:
+        user_id = _get_effective_user_id()
+    except ValueError:
         return
-    user_id = _dpyc_sessions.get(horizon_id, horizon_id)
 
     try:
         cache = _get_ledger_cache()

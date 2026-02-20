@@ -66,20 +66,27 @@ def derive_key(passphrase: str, salt: bytes) -> bytes:
     return base64.urlsafe_b64encode(kdf.derive(passphrase.encode("utf-8")))
 
 
-def encrypt_credentials(api_key: str, brain_id: str, passphrase: str) -> str:
+def encrypt_credentials(
+    api_key: str, brain_id: str, passphrase: str, *, npub: str | None = None
+) -> str:
     """Encrypt credentials into a JSON envelope with embedded salt.
 
-    Returns a JSON string: {"v": 1, "salt": "<base64>", "data": "<fernet token>"}.
+    Returns a JSON string: {"v": 2, "salt": "<base64>", "data": "<fernet token>"}.
+    v2 blobs include the optional npub field. v1 blobs (without npub) are
+    still readable by decrypt_credentials — they just won't have an "npub" key.
     """
     salt = os.urandom(16)
     key = derive_key(passphrase, salt)
     f = Fernet(key)
 
-    payload = json.dumps({"api_key": api_key, "brain_id": brain_id}).encode("utf-8")
+    payload_dict: dict[str, str] = {"api_key": api_key, "brain_id": brain_id}
+    if npub:
+        payload_dict["npub"] = npub
+    payload = json.dumps(payload_dict).encode("utf-8")
     ciphertext = f.encrypt(payload)
 
     return json.dumps({
-        "v": 1,
+        "v": 2,
         "salt": base64.b64encode(salt).decode("ascii"),
         "data": ciphertext.decode("ascii"),
     })

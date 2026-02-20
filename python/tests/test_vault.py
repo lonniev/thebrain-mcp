@@ -56,9 +56,29 @@ class TestEncryptDecrypt:
     def test_envelope_structure(self) -> None:
         blob = encrypt_credentials("key", "brain", "pass")
         envelope = json.loads(blob)
-        assert envelope["v"] == 1
+        assert envelope["v"] == 2
         assert "salt" in envelope
         assert "data" in envelope
+
+    def test_roundtrip_with_npub(self) -> None:
+        blob = encrypt_credentials(
+            "my-api-key", "brain-123", "secret",
+            npub="npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf",
+        )
+        result = decrypt_credentials(blob, "secret")
+        assert result == {
+            "api_key": "my-api-key",
+            "brain_id": "brain-123",
+            "npub": "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf",
+        }
+
+    def test_legacy_v1_blob_still_decrypts(self) -> None:
+        """v1 blobs (without npub) still decrypt correctly."""
+        blob = encrypt_credentials("key", "brain", "pass")
+        result = decrypt_credentials(blob, "pass")
+        assert "npub" not in result
+        assert result["api_key"] == "key"
+        assert result["brain_id"] == "brain"
 
     def test_wrong_passphrase_raises(self) -> None:
         blob = encrypt_credentials("key", "brain", "correct")
