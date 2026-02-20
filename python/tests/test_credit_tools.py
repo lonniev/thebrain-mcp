@@ -402,8 +402,19 @@ class TestCheckBalance:
 # ---------------------------------------------------------------------------
 
 
+SAMPLE_NPUB = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
+
+
 class TestSeedBalance:
     """Tests for seed balance logic in register_credentials."""
+
+    def setup_method(self) -> None:
+        import thebrain_mcp.server as srv
+        srv._dpyc_sessions.clear()
+
+    def teardown_method(self) -> None:
+        import thebrain_mcp.server as srv
+        srv._dpyc_sessions.clear()
 
     @pytest.mark.asyncio
     async def test_new_user_gets_seed(self) -> None:
@@ -431,7 +442,8 @@ class TestSeedBalance:
              patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
              patch("thebrain_mcp.server.set_session"):
             result = await srv.register_credentials.fn(
-                thebrain_api_key="key-1", brain_id="brain-1", passphrase="pass"
+                thebrain_api_key="key-1", brain_id="brain-1",
+                passphrase="pass", npub=SAMPLE_NPUB,
             )
 
         assert result["success"] is True
@@ -439,7 +451,8 @@ class TestSeedBalance:
         assert result["seed_balance_api_sats"] == 1000
         assert ledger.balance_api_sats == 1000
         assert "seed_balance_v1" in ledger.credited_invoices
-        mock_cache.mark_dirty.assert_called_with("user-new")
+        # Seed keyed by npub, not Horizon ID
+        mock_cache.mark_dirty.assert_called_with(SAMPLE_NPUB)
 
     @pytest.mark.asyncio
     async def test_re_registration_no_double_seed(self) -> None:
@@ -471,7 +484,8 @@ class TestSeedBalance:
              patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
              patch("thebrain_mcp.server.set_session"):
             result = await srv.register_credentials.fn(
-                thebrain_api_key="key-1", brain_id="brain-1", passphrase="pass"
+                thebrain_api_key="key-1", brain_id="brain-1",
+                passphrase="pass", npub=SAMPLE_NPUB,
             )
 
         assert result["success"] is True
@@ -504,7 +518,8 @@ class TestSeedBalance:
              patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
              patch("thebrain_mcp.server.set_session"):
             result = await srv.register_credentials.fn(
-                thebrain_api_key="key-1", brain_id="brain-1", passphrase="pass"
+                thebrain_api_key="key-1", brain_id="brain-1",
+                passphrase="pass", npub=SAMPLE_NPUB,
             )
 
         assert result["success"] is True
@@ -1246,6 +1261,14 @@ class TestBTCPayStatus:
 
 
 class TestBTCPayPreflight:
+    def setup_method(self) -> None:
+        import thebrain_mcp.server as srv
+        srv._dpyc_sessions.clear()
+
+    def teardown_method(self) -> None:
+        import thebrain_mcp.server as srv
+        srv._dpyc_sessions.clear()
+
     @pytest.mark.asyncio
     async def test_fails_when_royalty_configured_but_perm_missing(self) -> None:
         """Preflight raises TollboothConfigError when royalty configured but payout perm missing."""
@@ -1390,6 +1413,7 @@ class TestBTCPayPreflight:
         from thebrain_mcp.server import TollboothConfigError
 
         srv._btcpay_preflight_done = False
+        srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_btcpay = AsyncMock(spec=BTCPayClient)
         mock_btcpay.get_api_key_info = AsyncMock(return_value={
@@ -1417,6 +1441,8 @@ class TestBTCPayPreflight:
         """purchase_credits rejects calls without certificate when authority_public_key is set."""
         import thebrain_mcp.server as srv
 
+        srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
+
         mock_settings = MagicMock()
         mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
         mock_settings.btcpay_tier_config = None
@@ -1441,6 +1467,8 @@ class TestBTCPayPreflight:
     async def test_purchase_credits_certified_path(self) -> None:
         """purchase_credits calls purchase_credits_tool when certificate is provided."""
         import thebrain_mcp.server as srv
+
+        srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
         mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
@@ -1474,6 +1502,8 @@ class TestBTCPayPreflight:
     async def test_purchase_credits_rejected_without_authority_key(self) -> None:
         """purchase_credits rejects all purchases when AUTHORITY_PUBLIC_KEY is not configured."""
         import thebrain_mcp.server as srv
+
+        srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
         mock_settings.authority_public_key = None

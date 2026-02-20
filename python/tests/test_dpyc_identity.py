@@ -16,117 +16,201 @@ def _clean_dpyc_sessions():
     srv._dpyc_sessions.clear()
 
 
-@pytest.mark.asyncio
-async def test_activate_dpyc_valid_npub():
-    import thebrain_mcp.server as srv
+SAMPLE_NPUB = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
 
-    npub = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
-    with patch.object(srv, "_require_user_id", return_value="horizon-1"):
-        result = await srv.activate_dpyc.fn(npub)
 
-    assert result["success"] is True
-    assert result["horizon_id"] == "horizon-1"
-    assert result["effective_id"] == npub
+# ---------------------------------------------------------------------------
+# activate_dpyc (deprecated stub)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_activate_dpyc_invalid_format():
+async def test_activate_dpyc_returns_deprecation_error():
     import thebrain_mcp.server as srv
 
-    with patch.object(srv, "_require_user_id", return_value="horizon-1"):
-        result = await srv.activate_dpyc.fn("not-an-npub")
+    result = await srv.activate_dpyc.fn(SAMPLE_NPUB)
 
     assert result["success"] is False
-    assert "Invalid npub" in result["error"]
+    assert "deprecated" in result["error"].lower()
+    assert "register_credentials" in result["error"]
 
 
-@pytest.mark.asyncio
-async def test_get_dpyc_identity_without_session():
-    import thebrain_mcp.server as srv
-    from thebrain_mcp.config import Settings
-
-    mock_settings = MagicMock(spec=Settings)
-    mock_settings.dpyc_operator_npub = "npub1operator"
-    mock_settings.dpyc_authority_npub = "npub1authority"
-
-    with (
-        patch.object(srv, "_require_user_id", return_value="horizon-1"),
-        patch("thebrain_mcp.server.get_settings", return_value=mock_settings),
-    ):
-        result = await srv.get_dpyc_identity.fn()
-
-    assert result["horizon_id"] == "horizon-1"
-    assert result["dpyc_npub"] is None
-    assert result["effective_id"] == "horizon-1"
-    assert result["operator_npub"] == "npub1operator"
-    assert result["authority_npub"] == "npub1authority"
+# ---------------------------------------------------------------------------
+# _get_effective_user_id — strict npub mode
+# ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_get_dpyc_identity_with_session():
-    import thebrain_mcp.server as srv
-    from thebrain_mcp.config import Settings
-
-    npub = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
-    srv._dpyc_sessions["horizon-1"] = npub
-
-    mock_settings = MagicMock(spec=Settings)
-    mock_settings.dpyc_operator_npub = None
-    mock_settings.dpyc_authority_npub = None
-
-    with (
-        patch.object(srv, "_require_user_id", return_value="horizon-1"),
-        patch("thebrain_mcp.server.get_settings", return_value=mock_settings),
-    ):
-        result = await srv.get_dpyc_identity.fn()
-
-    assert result["dpyc_npub"] == npub
-    assert result["effective_id"] == npub
-
-
-def test_get_effective_user_id_without_dpyc():
+def test_get_effective_user_id_without_dpyc_raises():
+    """Without a DPYC session, _get_effective_user_id raises ValueError."""
     import thebrain_mcp.server as srv
 
     with patch.object(srv, "_require_user_id", return_value="horizon-1"):
-        eid = srv._get_effective_user_id()
-
-    assert eid == "horizon-1"
+        with pytest.raises(ValueError, match="No DPYC identity active"):
+            srv._get_effective_user_id()
 
 
 def test_get_effective_user_id_with_dpyc():
     import thebrain_mcp.server as srv
 
-    npub = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
-    srv._dpyc_sessions["horizon-1"] = npub
+    srv._dpyc_sessions["horizon-1"] = SAMPLE_NPUB
 
     with patch.object(srv, "_require_user_id", return_value="horizon-1"):
         eid = srv._get_effective_user_id()
 
-    assert eid == npub
+    assert eid == SAMPLE_NPUB
+
+
+# ---------------------------------------------------------------------------
+# session_status — DPYC fields
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_session_status_shows_dpyc_npub():
     import thebrain_mcp.server as srv
 
-    npub = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
-    srv._dpyc_sessions["horizon-1"] = npub
+    srv._dpyc_sessions["horizon-1"] = SAMPLE_NPUB
 
     with patch.object(srv, "_get_current_user_id", return_value="horizon-1"):
         with patch("thebrain_mcp.server.get_session", return_value=None):
             result = await srv.session_status.fn()
 
-    assert result["dpyc_npub"] == npub
-    assert result["effective_credit_id"] == npub
+    assert result["dpyc_npub"] == SAMPLE_NPUB
+    assert result["effective_credit_id"] == SAMPLE_NPUB
+    assert "dpyc_warning" not in result
 
 
 @pytest.mark.asyncio
-async def test_session_status_no_dpyc():
+async def test_session_status_no_dpyc_shows_warning():
     import thebrain_mcp.server as srv
 
     with patch.object(srv, "_get_current_user_id", return_value="horizon-1"):
         with patch("thebrain_mcp.server.get_session", return_value=None):
             result = await srv.session_status.fn()
 
+    assert result["effective_credit_id"] is None
+    assert "dpyc_warning" in result
+    assert "npub" in result["dpyc_warning"]
+
+
+# ---------------------------------------------------------------------------
+# register_credentials — npub integration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_register_credentials_with_npub():
+    """register_credentials stores npub and auto-activates DPYC session."""
+    import thebrain_mcp.server as srv
+
+    mock_api = AsyncMock()
+    mock_api.get_brain = AsyncMock(return_value={"id": "brain-1"})
+    mock_api.close = AsyncMock()
+
+    mock_vault = AsyncMock()
+    mock_vault.store = AsyncMock(return_value="thought-123")
+
+    mock_settings = MagicMock()
+    mock_settings.seed_balance_sats = 0
+
+    with patch.object(srv, "_require_user_id", return_value="horizon-1"), \
+         patch.object(srv, "_get_vault", return_value=mock_vault), \
+         patch.object(srv, "get_settings", return_value=mock_settings), \
+         patch("thebrain_mcp.server.TheBrainAPI", return_value=mock_api), \
+         patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted") as mock_encrypt, \
+         patch("thebrain_mcp.server.set_session"):
+        result = await srv.register_credentials.fn(
+            thebrain_api_key="key-1", brain_id="brain-1",
+            passphrase="pass", npub=SAMPLE_NPUB,
+        )
+
+    assert result["success"] is True
+    assert result["dpyc_npub"] == SAMPLE_NPUB
+    # Verify npub was passed to encrypt_credentials
+    mock_encrypt.assert_called_once_with("key-1", "brain-1", "pass", npub=SAMPLE_NPUB)
+    # Verify DPYC session auto-activated
+    assert srv._dpyc_sessions["horizon-1"] == SAMPLE_NPUB
+
+
+@pytest.mark.asyncio
+async def test_register_credentials_without_npub_fails():
+    """register_credentials rejects calls without a valid npub."""
+    import thebrain_mcp.server as srv
+
+    result = await srv.register_credentials.fn(
+        thebrain_api_key="key-1", brain_id="brain-1",
+        passphrase="pass", npub="not-an-npub",
+    )
+
+    assert result["success"] is False
+    assert "Invalid npub" in result["error"]
+    assert "dpyc-oracle" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# activate_session — npub auto-activation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_activate_session_with_npub_in_vault():
+    """activate_session auto-activates DPYC when vault blob contains npub."""
+    import thebrain_mcp.server as srv
+
+    mock_vault = AsyncMock()
+    mock_vault.fetch = AsyncMock(return_value="encrypted-blob")
+
+    with patch.object(srv, "_require_user_id", return_value="horizon-1"), \
+         patch.object(srv, "_get_vault", return_value=mock_vault), \
+         patch("thebrain_mcp.server.decrypt_credentials", return_value={
+             "api_key": "key-1", "brain_id": "brain-1", "npub": SAMPLE_NPUB,
+         }), \
+         patch("thebrain_mcp.server.set_session"):
+        result = await srv.activate_session.fn(passphrase="pass")
+
+    assert result["success"] is True
+    assert result["dpyc_npub"] == SAMPLE_NPUB
+    assert "dpyc_warning" not in result
+    assert srv._dpyc_sessions["horizon-1"] == SAMPLE_NPUB
+
+
+@pytest.mark.asyncio
+async def test_activate_session_legacy_blob_warns():
+    """activate_session with a legacy blob (no npub) warns about re-registration."""
+    import thebrain_mcp.server as srv
+
+    mock_vault = AsyncMock()
+    mock_vault.fetch = AsyncMock(return_value="encrypted-blob")
+
+    with patch.object(srv, "_require_user_id", return_value="horizon-1"), \
+         patch.object(srv, "_get_vault", return_value=mock_vault), \
+         patch("thebrain_mcp.server.decrypt_credentials", return_value={
+             "api_key": "key-1", "brain_id": "brain-1",
+         }), \
+         patch("thebrain_mcp.server.set_session"):
+        result = await srv.activate_session.fn(passphrase="pass")
+
+    assert result["success"] is True
     assert "dpyc_npub" not in result
-    assert result["effective_credit_id"] == "horizon-1"
+    assert "dpyc_warning" in result
+    assert "re-register" in result["dpyc_warning"]
+    assert "horizon-1" not in srv._dpyc_sessions
+
+
+# ---------------------------------------------------------------------------
+# Paid tools fail without DPYC session
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_debit_or_error_fails_without_dpyc_session():
+    """Paid tools return helpful error when no DPYC session is active."""
+    from thebrain_mcp.server import _debit_or_error
+
+    with patch("thebrain_mcp.server._get_current_user_id", return_value="horizon-1"):
+        result = await _debit_or_error("search_thoughts")
+
+    assert result is not None
+    assert result["success"] is False
+    assert "No DPYC identity active" in result["error"]
+    assert "register_credentials" in result["error"]

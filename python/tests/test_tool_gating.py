@@ -8,10 +8,21 @@ from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.utils.constants import TOOL_COSTS, ToolTier
 
+SAMPLE_NPUB = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clean_dpyc_sessions():
+    """Ensure DPYC sessions are clean before and after each test."""
+    import thebrain_mcp.server as srv
+    srv._dpyc_sessions.clear()
+    yield
+    srv._dpyc_sessions.clear()
 
 
 def _mock_cache(ledger: UserLedger | None = None) -> AsyncMock:
@@ -29,6 +40,12 @@ def _patch_cloud_user(user_id: str | None):
 def _patch_ledger_cache(cache: AsyncMock):
     """Patch _get_ledger_cache to return a mock cache."""
     return patch("thebrain_mcp.server._get_ledger_cache", return_value=cache)
+
+
+def _activate_dpyc(horizon_id: str, npub: str = SAMPLE_NPUB):
+    """Activate a DPYC session for the given Horizon user."""
+    import thebrain_mcp.server as srv
+    srv._dpyc_sessions[horizon_id] = npub
 
 
 # ---------------------------------------------------------------------------
@@ -53,13 +70,14 @@ class TestDebitOrError:
 
         ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             result = await _debit_or_error("search_thoughts")
 
         assert result is None
         assert ledger.balance_api_sats == 99
-        cache.mark_dirty.assert_called_once_with("user-1")
+        cache.mark_dirty.assert_called_once_with(SAMPLE_NPUB)
 
     @pytest.mark.asyncio
     async def test_write_tool_debits_5_sats(self) -> None:
@@ -68,6 +86,7 @@ class TestDebitOrError:
 
         ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             result = await _debit_or_error("create_thought")
@@ -82,6 +101,7 @@ class TestDebitOrError:
 
         ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             result = await _debit_or_error("brain_query")
@@ -96,6 +116,7 @@ class TestDebitOrError:
 
         ledger = UserLedger(balance_api_sats=0)
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             result = await _debit_or_error("search_thoughts")
@@ -107,6 +128,19 @@ class TestDebitOrError:
         # Balance unchanged
         assert ledger.balance_api_sats == 0
         cache.mark_dirty.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_dpyc_session_returns_error(self) -> None:
+        """Paid tool without DPYC session returns helpful error."""
+        from thebrain_mcp.server import _debit_or_error
+
+        with _patch_cloud_user("user-1"):
+            result = await _debit_or_error("search_thoughts")
+
+        assert result is not None
+        assert result["success"] is False
+        assert "No DPYC identity active" in result["error"]
+        assert "register_credentials" in result["error"]
 
     @pytest.mark.asyncio
     async def test_stdio_mode_skips_gating(self) -> None:
@@ -140,6 +174,7 @@ class TestRollbackDebit:
 
         ledger = UserLedger(balance_api_sats=100)
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
             # Debit first
@@ -163,7 +198,7 @@ class TestRollbackDebit:
 
     @pytest.mark.asyncio
     async def test_rollback_stdio_mode_is_noop(self) -> None:
-        """Rollback in STDIO mode does nothing."""
+        """Rollback in STDIO mode does nothing (ValueError caught)."""
         from thebrain_mcp.server import _rollback_debit
 
         with _patch_cloud_user(None):
@@ -248,6 +283,7 @@ class TestWithWarning:
 
         ledger = UserLedger(balance_api_sats=5000, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         mock_settings = MagicMock()
         mock_settings.seed_balance_sats = 1000
@@ -266,6 +302,7 @@ class TestWithWarning:
 
         ledger = UserLedger(balance_api_sats=10, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         mock_settings = MagicMock()
         mock_settings.seed_balance_sats = 1000
@@ -280,10 +317,22 @@ class TestWithWarning:
         assert "purchase_credits" in result["low_balance_warning"]["purchase_command"]
 
     @pytest.mark.asyncio
+    async def test_no_dpyc_session_returns_original(self) -> None:
+        """No DPYC session: ValueError caught, original returned unchanged."""
+        from thebrain_mcp.server import _with_warning
+
+        original = {"success": True, "data": "hello"}
+        with _patch_cloud_user("user-1"):
+            result = await _with_warning(original)
+        assert result is original
+        assert "low_balance_warning" not in result
+
+    @pytest.mark.asyncio
     async def test_exception_returns_original(self) -> None:
         """Exception in warning path: original result returned unmodified."""
         from thebrain_mcp.server import _with_warning
 
+        _activate_dpyc("user-1")
         original = {"success": True, "data": "important"}
         with _patch_cloud_user("user-1"), \
              patch("thebrain_mcp.server._get_ledger_cache", side_effect=RuntimeError("boom")):
@@ -299,6 +348,7 @@ class TestWithWarning:
 
         ledger = UserLedger(balance_api_sats=10, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         mock_settings = MagicMock()
         mock_settings.seed_balance_sats = 1000
