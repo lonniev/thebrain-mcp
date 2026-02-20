@@ -154,6 +154,7 @@ TOOL_COSTS: dict[str, int] = {
     "whoami": ToolTier.FREE,
     "session_status": ToolTier.FREE,
     "register_credentials": ToolTier.FREE,
+    "upgrade_credentials": ToolTier.FREE,
     "activate_session": ToolTier.FREE,
     "list_brains": ToolTier.FREE,
     "purchase_credits": ToolTier.FREE,
