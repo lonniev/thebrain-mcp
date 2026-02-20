@@ -603,8 +603,10 @@ class TestDeleteE2E:
 
 
 class TestToolRegistration:
-    def test_brain_query_is_registered(self) -> None:
+    @pytest.mark.asyncio
+    async def test_brain_query_is_registered(self) -> None:
         """The brain_query tool should be registered on the MCP server."""
         from thebrain_mcp.server import mcp
-        tool_names = [t.name for t in mcp._tool_manager._tools.values()]
+        tools = await mcp.list_tools()
+        tool_names = [t.name for t in tools]
         assert "brain_query" in tool_names

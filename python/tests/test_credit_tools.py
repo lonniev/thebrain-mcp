@@ -441,7 +441,7 @@ class TestSeedBalance:
              patch("thebrain_mcp.server.TheBrainAPI", return_value=mock_api), \
              patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
              patch("thebrain_mcp.server.set_session"):
-            result = await srv.register_credentials.fn(
+            result = await srv.register_credentials(
                 thebrain_api_key="key-1", brain_id="brain-1",
                 passphrase="pass", npub=SAMPLE_NPUB,
             )
@@ -483,7 +483,7 @@ class TestSeedBalance:
              patch("thebrain_mcp.server.TheBrainAPI", return_value=mock_api), \
              patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
              patch("thebrain_mcp.server.set_session"):
-            result = await srv.register_credentials.fn(
+            result = await srv.register_credentials(
                 thebrain_api_key="key-1", brain_id="brain-1",
                 passphrase="pass", npub=SAMPLE_NPUB,
             )
@@ -517,7 +517,7 @@ class TestSeedBalance:
              patch("thebrain_mcp.server.TheBrainAPI", return_value=mock_api), \
              patch("thebrain_mcp.server.encrypt_credentials", return_value="encrypted"), \
              patch("thebrain_mcp.server.set_session"):
-            result = await srv.register_credentials.fn(
+            result = await srv.register_credentials(
                 thebrain_api_key="key-1", brain_id="brain-1",
                 passphrase="pass", npub=SAMPLE_NPUB,
             )
@@ -1431,7 +1431,7 @@ class TestBTCPayPreflight:
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
              patch.object(srv, "_get_ledger_cache"):
-            result = await srv.purchase_credits.fn(amount_sats=1000, certificate="jwt.token")
+            result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.token")
 
         assert result["success"] is False
         assert "missing required permissions" in result["error"]
@@ -1458,7 +1458,7 @@ class TestBTCPayPreflight:
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
              patch.object(srv, "_get_ledger_cache"):
-            result = await srv.purchase_credits.fn(amount_sats=1000)
+            result = await srv.purchase_credits(amount_sats=1000)
 
         assert result["success"] is False
         assert "certificate" in result["error"].lower()
@@ -1489,7 +1489,7 @@ class TestBTCPayPreflight:
              patch.object(srv, "_get_ledger_cache") as mock_cache, \
              patch.object(srv.credits, "purchase_credits_tool", new_callable=AsyncMock,
                           return_value=fake_cert_result) as mock_certified:
-            result = await srv.purchase_credits.fn(amount_sats=1000, certificate="jwt.token.here")
+            result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.token.here")
 
         assert result["success"] is True
         assert result["certificate_jti"] == "jti-abc"
@@ -1520,7 +1520,7 @@ class TestBTCPayPreflight:
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
              patch.object(srv, "_get_ledger_cache"):
-            result = await srv.purchase_credits.fn(amount_sats=1000, certificate="jwt.here")
+            result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.here")
 
         assert result["success"] is False
         assert "AUTHORITY_PUBLIC_KEY" in result["error"]
