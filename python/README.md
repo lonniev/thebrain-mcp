@@ -160,6 +160,26 @@ Alternatively, if you installed the package:
 "Find all thoughts related to contractors"
 ```
 
+## DPYC Identity (Nostr npub)
+
+As a Tollbooth Operator, thebrain-mcp needs a Nostr keypair for its identity on the DPYC Honor Chain. Generate one using the script in [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc):
+
+```bash
+pip install nostr-sdk
+python -c "from nostr_sdk import Keys; k = Keys.generate(); print(f'DPYC_OPERATOR_NPUB={k.public_key().to_bech32()}'); print(f'nsec (back up!): {k.secret_key().to_bech32()}')"
+```
+
+Or clone tollbooth-dpyc and run `scripts/generate_nostr_keypair.py` for full output.
+
+Add to your `.env`:
+
+```
+DPYC_OPERATOR_NPUB=npub1...
+DPYC_AUTHORITY_NPUB=npub1...   # the Authority this Operator is registered with
+```
+
+Users provide their own npub at session time via `activate_dpyc()` — no env var needed.
+
 ## Development
 
 ### Running Tests
