@@ -1458,7 +1458,7 @@ class TestBTCPayPreflight:
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
              patch.object(srv, "_get_ledger_cache"):
-            result = await srv.purchase_credits(amount_sats=1000)
+            result = await srv.purchase_credits(amount_sats=1000, certificate="")
 
         assert result["success"] is False
         assert "certificate" in result["error"].lower()
