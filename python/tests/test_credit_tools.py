@@ -1088,13 +1088,15 @@ class TestBTCPayStatusRoyalty:
                 "btcpay.store.cancreateinvoice",
                 "btcpay.store.canviewinvoices",
                 "btcpay.store.cancreatenonapprovedpullpayments",
+                "btcpay.store.canviewstoresettings",
             ]
         })
+        btcpay.get_payout_processors = AsyncMock(return_value=[])
 
         result = await btcpay_status_tool(settings, btcpay)
         perms = result["api_key_permissions"]
         assert perms["missing"] == []
-        assert len(perms["present"]) == 3
+        assert len(perms["present"]) == 4
 
     @pytest.mark.asyncio
     async def test_missing_payout_perm(self) -> None:

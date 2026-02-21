@@ -381,6 +381,7 @@ class TestTestLowBalanceWarning:
         mock_settings = MagicMock()
         mock_settings.seed_balance_sats = 1000
 
+        _activate_dpyc("user-1")
         with _patch_cloud_user("user-1"), \
              _patch_ledger_cache(cache), \
              patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
@@ -403,6 +404,7 @@ class TestTestLowBalanceWarning:
         mock_settings = MagicMock()
         mock_settings.seed_balance_sats = 1000
 
+        _activate_dpyc("user-1")
         with _patch_cloud_user("user-1"), \
              _patch_ledger_cache(cache), \
              patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
