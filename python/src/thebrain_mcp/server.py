@@ -1966,7 +1966,7 @@ async def restore_credits(invoice_id: str) -> dict[str, Any]:
         balance_api_sats: Updated balance after restoration.
     """
     try:
-        user_id = _require_user_id()
+        user_id = _get_effective_user_id()
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -2052,7 +2052,7 @@ async def _test_low_balance_warning_impl(simulated_balance_api_sats: int = 50) -
     import dataclasses
 
     try:
-        user_id = _require_user_id()
+        user_id = _get_effective_user_id()
         cache = _get_ledger_cache()
         ledger = await cache.get(user_id)
     except (ValueError, VaultNotConfiguredError) as e:
