@@ -1782,7 +1782,7 @@ async def _rollback_debit(tool_name: str) -> None:
 @mcp.tool()
 async def purchase_credits(
     amount_sats: int,
-    certificate: str = "",
+    certificate: str,
 ) -> dict[str, Any]:
     """Create a BTCPay Lightning invoice to purchase credits for tool calls.
 
