@@ -170,92 +170,90 @@ class TestUserSession:
 
 
 # ---------------------------------------------------------------------------
-# CredentialVault
+# CredentialVault (delegates to mock TheBrainVault)
 # ---------------------------------------------------------------------------
 
 
-def _mock_vault_api(index: dict[str, str] | None = None, note_content: str | None = None):
-    """Create a mock TheBrainAPI for vault operations."""
-    api = AsyncMock()
+def _mock_thebrain_vault(
+    members: dict[str, str] | None = None,
+    note_content: str | None = None,
+) -> AsyncMock:
+    """Create a mock TheBrainVault for CredentialVault tests.
 
-    # Mock get_note for index reads
-    index_note = MagicMock()
-    index_note.markdown = json.dumps(index) if index else None
-    api.get_note = AsyncMock(return_value=index_note)
+    ``members``: {user_id: thought_id} that _discover_members returns.
+    ``note_content``: what fetch_member_note returns for known members.
+    """
+    mock_vault = AsyncMock()
 
-    # For fetch, we need different responses for index vs credential notes.
-    # We'll set this up per-test as needed.
-    if note_content is not None:
-        cred_note = MagicMock()
-        cred_note.markdown = note_content
+    if members is None:
+        members = {}
 
-        async def get_note_side_effect(brain_id, thought_id, fmt):
-            if thought_id == "home":
-                return index_note
-            return cred_note
+    async def store_member_note(user_id: str, content: str) -> str:
+        tid = members.get(user_id, "new-thought-id")
+        members[user_id] = tid
+        return tid
 
-        api.get_note = AsyncMock(side_effect=get_note_side_effect)
+    async def fetch_member_note(user_id: str) -> str | None:
+        if user_id not in members:
+            return None
+        return note_content
 
-    api.create_or_update_note = AsyncMock()
-    api.create_thought = AsyncMock(return_value={"id": "new-thought-id"})
-    return api
+    mock_vault.store_member_note = AsyncMock(side_effect=store_member_note)
+    mock_vault.fetch_member_note = AsyncMock(side_effect=fetch_member_note)
+
+    return mock_vault
 
 
 class TestCredentialVault:
     @pytest.mark.asyncio
     async def test_store_new_user(self) -> None:
-        api = _mock_vault_api(index={})
-        vault = CredentialVault(api, "vault-brain", "home")
+        mock_vault = _mock_thebrain_vault(members={})
+        vault = CredentialVault(vault=mock_vault)
         tid = await vault.store("user1", "encrypted-blob")
         assert tid == "new-thought-id"
-        api.create_thought.assert_called_once()
-        assert api.create_or_update_note.call_count == 2  # blob + index
+        mock_vault.store_member_note.assert_called_once_with("user1", "encrypted-blob")
 
     @pytest.mark.asyncio
     async def test_store_existing_user(self) -> None:
-        api = _mock_vault_api(index={"user1": "existing-thought"})
-        vault = CredentialVault(api, "vault-brain", "home")
+        mock_vault = _mock_thebrain_vault(members={"user1": "existing-thought"})
+        vault = CredentialVault(vault=mock_vault)
         tid = await vault.store("user1", "new-blob")
         assert tid == "existing-thought"
-        api.create_thought.assert_not_called()
-        api.create_or_update_note.assert_called_once()
+        mock_vault.store_member_note.assert_called_once_with("user1", "new-blob")
 
     @pytest.mark.asyncio
     async def test_fetch_success(self) -> None:
         blob = encrypt_credentials("key", "brain", "pass")
-        api = _mock_vault_api(
-            index={"user1": "thought-1"},
+        mock_vault = _mock_thebrain_vault(
+            members={"user1": "thought-1"},
             note_content=blob,
         )
-        vault = CredentialVault(api, "vault-brain", "home")
+        vault = CredentialVault(vault=mock_vault)
         result = await vault.fetch("user1")
         assert result == blob
 
     @pytest.mark.asyncio
-    async def test_fetch_user_not_in_index(self) -> None:
-        api = _mock_vault_api(index={})
-        vault = CredentialVault(api, "vault-brain", "home")
+    async def test_fetch_user_not_found(self) -> None:
+        mock_vault = _mock_thebrain_vault(members={})
+        vault = CredentialVault(vault=mock_vault)
         with pytest.raises(CredentialNotFoundError, match="No credentials found"):
             await vault.fetch("unknown-user")
 
     @pytest.mark.asyncio
     async def test_fetch_empty_note(self) -> None:
-        api = _mock_vault_api(
-            index={"user1": "thought-1"},
+        mock_vault = _mock_thebrain_vault(
+            members={"user1": "thought-1"},
             note_content="",
         )
-        # Override to return empty markdown
-        cred_note = MagicMock()
-        cred_note.markdown = ""
-        index_note = MagicMock()
-        index_note.markdown = json.dumps({"user1": "thought-1"})
+        vault = CredentialVault(vault=mock_vault)
+        with pytest.raises(CredentialNotFoundError, match="No credentials found"):
+            await vault.fetch("user1")
 
-        async def get_note_side_effect(brain_id, thought_id, fmt):
-            if thought_id == "home":
-                return index_note
-            return cred_note
-
-        api.get_note = AsyncMock(side_effect=get_note_side_effect)
-        vault = CredentialVault(api, "vault-brain", "home")
-        with pytest.raises(CredentialNotFoundError, match="empty"):
+    @pytest.mark.asyncio
+    async def test_fetch_none_note(self) -> None:
+        """fetch_member_note returns None → CredentialNotFoundError."""
+        mock_vault = AsyncMock()
+        mock_vault.fetch_member_note = AsyncMock(return_value=None)
+        vault = CredentialVault(vault=mock_vault)
+        with pytest.raises(CredentialNotFoundError, match="No credentials found"):
             await vault.fetch("user1")

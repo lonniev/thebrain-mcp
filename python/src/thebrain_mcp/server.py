@@ -1424,7 +1424,7 @@ async def _refresh_config_impl() -> dict[str, Any]:
     Extracted so tests can call it directly (the @mcp.tool wrapper
     produces a FunctionTool, not a plain coroutine).
     """
-    global _operator_api_client, _btcpay_client, _ledger_cache, _commerce_vault
+    global _operator_api_client, _btcpay_client, _ledger_cache, _commerce_vault, _credential_vault
     global active_brain_id, _settings_loaded, _btcpay_preflight_done
 
     refreshed: list[str] = []
@@ -1449,11 +1449,15 @@ async def _refresh_config_impl() -> dict[str, Any]:
         _btcpay_client = None
         _btcpay_preflight_done = False
 
-    # 3. Close commerce vault HTTP client
+    # 3. Close vault HTTP clients
     if _commerce_vault is not None:
         await _commerce_vault.close()
         refreshed.append("commerce_vault closed")
         _commerce_vault = None
+    if _credential_vault is not None:
+        await _credential_vault.close()
+        refreshed.append("credential_vault closed")
+        _credential_vault = None
 
     # 4. Close operator API HTTP client
     if _operator_api_client is not None:
@@ -1501,7 +1505,8 @@ async def refresh_config() -> dict[str, Any]:
     return await _refresh_config_impl()
 
 
-_VAULT_HOME_THOUGHT_ID = "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
+_CREDENTIAL_VAULT_HOME = "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
+_COMMERCE_VAULT_HOME = "4a6ebe9b-88a8-48a8-b0e0-9be688d81f45"
 
 # BTCPay / credit singletons (lazy-initialized)
 _btcpay_client: BTCPayClient | None = None
@@ -1518,31 +1523,40 @@ def _require_user_id() -> str:
     return user_id
 
 
-def _get_vault() -> CredentialVault:
-    """Get a configured CredentialVault instance.
+_credential_vault: TheBrainVault | None = None
 
-    Raises VaultNotConfiguredError if the operator hasn't set THEBRAIN_VAULT_BRAIN_ID.
-    """
+
+def _get_credential_vault() -> TheBrainVault:
+    """Singleton TheBrainVault for credential storage."""
+    global _credential_vault
+    if _credential_vault is not None:
+        return _credential_vault
     settings = get_settings()
     vault_brain_id = settings.thebrain_vault_brain_id
     if not vault_brain_id:
         raise VaultNotConfiguredError(
             "Vault brain not configured. Operator must set THEBRAIN_VAULT_BRAIN_ID."
         )
-    return CredentialVault(
-        vault_api=_get_operator_api(),
-        vault_brain_id=vault_brain_id,
-        home_thought_id=_VAULT_HOME_THOUGHT_ID,
+    _credential_vault = TheBrainVault(
+        api_key=settings.thebrain_api_key,
+        brain_id=vault_brain_id,
+        home_thought_id=_CREDENTIAL_VAULT_HOME,
     )
+    return _credential_vault
+
+
+def _get_vault() -> CredentialVault:
+    """Get a configured CredentialVault instance."""
+    return CredentialVault(vault=_get_credential_vault())
 
 
 _commerce_vault: TheBrainVault | None = None
 
 
 def _get_commerce_vault() -> TheBrainVault:
-    """Get a configured TheBrainVault for commerce state (ledger storage).
+    """Singleton TheBrainVault for commerce ledgers.
 
-    Uses the canonical tollbooth.vaults.TheBrainVault with raw httpx.
+    Uses a separate vault home thought from the credential vault.
     Raises VaultNotConfiguredError if the operator hasn't set THEBRAIN_VAULT_BRAIN_ID.
     """
     global _commerce_vault
@@ -1557,7 +1571,7 @@ def _get_commerce_vault() -> TheBrainVault:
     _commerce_vault = TheBrainVault(
         api_key=settings.thebrain_api_key,
         brain_id=vault_brain_id,
-        home_thought_id=_VAULT_HOME_THOUGHT_ID,
+        home_thought_id=_COMMERCE_VAULT_HOME,
     )
     return _commerce_vault
 

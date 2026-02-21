@@ -2,6 +2,9 @@
 
 Handles encryption/decryption of user credentials, vault brain CRUD,
 and in-memory session management.
+
+CredentialVault delegates member storage to TheBrainVault (from
+tollbooth-dpyc), which uses link-based member discovery.
 """
 
 from __future__ import annotations
@@ -12,13 +15,13 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError  # noqa: F401 — re-exported
+from thebrain_mcp.api.client import TheBrainAPI  # noqa: F401 — re-exported
+from tollbooth.vaults import TheBrainVault
 
 logger = logging.getLogger(__name__)
 
@@ -117,103 +120,41 @@ def decrypt_credentials(blob: str, passphrase: str) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Credential vault (encapsulates vault brain access)
+# Credential vault (delegates member storage to TheBrainVault)
 # ---------------------------------------------------------------------------
 
 
 class CredentialVault:
-    """Manages encrypted credential storage in a TheBrain vault brain.
+    """Encrypted credential storage delegating to TheBrainVault.
 
-    The vault stores each user's encrypted credentials as a note on a
-    private thought, with a JSON index on the home thought mapping
-    user IDs to thought IDs.
+    Uses TheBrainVault's link-based member discovery for storage and
+    retrieval. Each user's encrypted credentials are stored as a note
+    on a member thought under the vault home, discovered via hasMember
+    labeled child links.
     """
 
-    def __init__(
-        self,
-        vault_api: TheBrainAPI,
-        vault_brain_id: str,
-        home_thought_id: str,
-    ) -> None:
-        self._api = vault_api
-        self._brain_id = vault_brain_id
-        self._home_thought_id = home_thought_id
-
-    async def _read_index(self) -> dict[str, str]:
-        """Read the user_id -> thought_id index from the vault home thought."""
-        try:
-            note = await self._api.get_note(
-                self._brain_id, self._home_thought_id, "markdown"
-            )
-            if note.markdown:
-                return json.loads(note.markdown)
-        except TheBrainAPIError:
-            logger.warning("Failed to read vault index from home thought.")
-        except json.JSONDecodeError:
-            logger.warning("Vault index is corrupted (invalid JSON).")
-        return {}
-
-    async def _write_index(self, index: dict[str, str]) -> None:
-        """Write the user_id -> thought_id index to the vault home thought."""
-        await self._api.create_or_update_note(
-            self._brain_id, self._home_thought_id, json.dumps(index)
-        )
+    def __init__(self, vault: TheBrainVault) -> None:
+        self._vault = vault
 
     async def store(self, user_id: str, encrypted_blob: str) -> str:
         """Store an encrypted credential blob for a user.
 
-        Creates a thought (or reuses existing) and writes the blob as its note.
         Returns the thought ID where credentials are stored.
         """
-        index = await self._read_index()
-        thought_id = index.get(user_id)
-
-        if thought_id:
-            await self._api.create_or_update_note(
-                self._brain_id, thought_id, encrypted_blob
-            )
-        else:
-            result = await self._api.create_thought(self._brain_id, {
-                "name": user_id,
-                "kind": 1,
-                "acType": 1,  # Private
-                "sourceThoughtId": self._home_thought_id,
-                "relation": 1,  # Child
-            })
-            thought_id = result["id"]
-            await self._api.create_or_update_note(
-                self._brain_id, thought_id, encrypted_blob
-            )
-            index[user_id] = thought_id
-            await self._write_index(index)
-
-        return thought_id
+        return await self._vault.store_member_note(user_id, encrypted_blob)
 
     async def fetch(self, user_id: str) -> str:
         """Fetch the encrypted credential blob for a user.
 
         Raises CredentialNotFoundError if no credentials are stored.
         """
-        index = await self._read_index()
-        thought_id = index.get(user_id)
-        if not thought_id:
+        result = await self._vault.fetch_member_note(user_id)
+        if not result:
             raise CredentialNotFoundError(
                 "No credentials found. Use register_credentials first."
             )
+        return result
 
-        try:
-            note = await self._api.get_note(self._brain_id, thought_id, "markdown")
-        except TheBrainAPIError as e:
-            raise CredentialNotFoundError(
-                "Credential storage exists but could not be read."
-            ) from e
-
-        if not note.markdown:
-            raise CredentialNotFoundError(
-                "Credential storage is empty. Re-register with register_credentials."
-            )
-
-        return note.markdown
 
 # ---------------------------------------------------------------------------
 # In-memory session store
