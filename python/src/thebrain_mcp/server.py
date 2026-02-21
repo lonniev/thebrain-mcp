@@ -1309,6 +1309,24 @@ async def activate_session(passphrase: str) -> dict[str, Any]:
             "Get your npub from the dpyc-oracle's how_to_join() tool."
         )
 
+    # Seed starter balance for returning users whose vault ledger was lost
+    # (e.g. after vault consolidation). Idempotent via sentinel.
+    seed_applied = False
+    if npub:
+        seed_sats = get_settings().seed_balance_sats
+        if seed_sats > 0:
+            try:
+                cache = _get_ledger_cache()
+                ledger = await cache.get(npub)
+                sentinel = "seed_balance_v1"
+                if sentinel not in ledger.credited_invoices:
+                    ledger.credit_deposit(seed_sats, sentinel)
+                    cache.mark_dirty(npub)
+                    await cache.flush_user(npub)
+                    seed_applied = True
+            except Exception:
+                pass  # Non-fatal — user can still purchase credits
+
     result: dict[str, Any] = {
         "success": True,
         "message": "Session activated. All tools now use your personal credentials.",
@@ -1318,6 +1336,9 @@ async def activate_session(passphrase: str) -> dict[str, Any]:
         result["dpyc_npub"] = npub
     if dpyc_warning:
         result["dpyc_warning"] = dpyc_warning
+    if seed_applied:
+        result["seed_applied"] = True
+        result["seed_balance_api_sats"] = seed_sats
     return result
 
 
