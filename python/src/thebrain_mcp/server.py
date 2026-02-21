@@ -20,12 +20,13 @@ from thebrain_mcp.config import get_settings
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools import attachments, brains, credits, links, notes, stats, thoughts
 from thebrain_mcp.utils.constants import TOOL_COSTS
+from tollbooth.vaults import TheBrainVault
+
 from thebrain_mcp.vault import (
     CredentialNotFoundError,
     CredentialVault,
     CredentialValidationError,
     DecryptionError,
-    PersonalBrainVault,
     VaultNotConfiguredError,
     decrypt_credentials,
     encrypt_credentials,
@@ -1402,7 +1403,7 @@ async def _refresh_config_impl() -> dict[str, Any]:
     Extracted so tests can call it directly (the @mcp.tool wrapper
     produces a FunctionTool, not a plain coroutine).
     """
-    global _operator_api_client, _btcpay_client, _ledger_cache
+    global _operator_api_client, _btcpay_client, _ledger_cache, _commerce_vault
     global active_brain_id, _settings_loaded, _btcpay_preflight_done
 
     refreshed: list[str] = []
@@ -1427,13 +1428,19 @@ async def _refresh_config_impl() -> dict[str, Any]:
         _btcpay_client = None
         _btcpay_preflight_done = False
 
-    # 3. Close operator API HTTP client
+    # 3. Close commerce vault HTTP client
+    if _commerce_vault is not None:
+        await _commerce_vault.close()
+        refreshed.append("commerce_vault closed")
+        _commerce_vault = None
+
+    # 4. Close operator API HTTP client
     if _operator_api_client is not None:
         await _operator_api_client.close()
         refreshed.append("operator_api_client closed")
         _operator_api_client = None
 
-    # 4. Reset settings-loaded flag so env vars are re-read
+    # 5. Reset settings-loaded flag so env vars are re-read
     _settings_loaded = False
     active_brain_id = None
     _dpyc_sessions.clear()
@@ -1508,22 +1515,30 @@ def _get_vault() -> CredentialVault:
     )
 
 
-def _get_commerce_vault() -> PersonalBrainVault:
-    """Get a configured PersonalBrainVault for commerce state (ledger storage).
+_commerce_vault: TheBrainVault | None = None
 
+
+def _get_commerce_vault() -> TheBrainVault:
+    """Get a configured TheBrainVault for commerce state (ledger storage).
+
+    Uses the canonical tollbooth.vaults.TheBrainVault with raw httpx.
     Raises VaultNotConfiguredError if the operator hasn't set THEBRAIN_VAULT_BRAIN_ID.
     """
+    global _commerce_vault
+    if _commerce_vault is not None:
+        return _commerce_vault
     settings = get_settings()
     vault_brain_id = settings.thebrain_vault_brain_id
     if not vault_brain_id:
         raise VaultNotConfiguredError(
             "Vault brain not configured. Operator must set THEBRAIN_VAULT_BRAIN_ID."
         )
-    return PersonalBrainVault(
-        vault_api=_get_operator_api(),
-        vault_brain_id=vault_brain_id,
+    _commerce_vault = TheBrainVault(
+        api_key=settings.thebrain_api_key,
+        brain_id=vault_brain_id,
         home_thought_id=_VAULT_HOME_THOUGHT_ID,
     )
+    return _commerce_vault
 
 
 def _get_btcpay() -> BTCPayClient:
@@ -1644,7 +1659,7 @@ _reconciled_users: set[str] = set()
 
 async def _graceful_shutdown() -> None:
     """Flush all dirty ledger entries to vault before process exit."""
-    global _shutdown_triggered, _ledger_cache
+    global _shutdown_triggered, _ledger_cache, _commerce_vault
     if _shutdown_triggered:
         return
     _shutdown_triggered = True
@@ -1659,6 +1674,10 @@ async def _graceful_shutdown() -> None:
             )
         except _aio.TimeoutError:
             logger.error("Graceful shutdown timed out after 8s — some entries may be lost.")
+
+    if _commerce_vault is not None:
+        await _commerce_vault.close()
+        _commerce_vault = None
 
 
 async def _shutdown_flush_and_stop() -> None:
