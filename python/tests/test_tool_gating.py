@@ -224,7 +224,7 @@ class TestToolCostsCompleteness:
             "whoami", "session_status", "register_credentials",
             "upgrade_credentials", "activate_session", "list_brains",
             "purchase_credits", "check_payment", "check_balance",
-            "btcpay_status", "refresh_config", "test_low_balance_warning",
+            "btcpay_status", "test_low_balance_warning",
         ]
         for tool in free_tools:
             assert TOOL_COSTS[tool] == 0, f"{tool} should be free"

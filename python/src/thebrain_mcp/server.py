@@ -4,7 +4,6 @@ import logging
 import signal
 import sys
 import time
-from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -1419,96 +1418,6 @@ async def activate_dpyc(npub: str) -> dict[str, Any]:
             "include your npub. Get one from the dpyc-oracle's how_to_join() tool."
         ),
     }
-
-
-# Operator Admin Tools
-
-
-async def _refresh_config_impl() -> dict[str, Any]:
-    """Core logic for hot-reloading server configuration.
-
-    Extracted so tests can call it directly (the @mcp.tool wrapper
-    produces a FunctionTool, not a plain coroutine).
-    """
-    global _operator_api_client, _btcpay_client, _ledger_cache, _commerce_vault, _credential_vault
-    global active_brain_id, _settings_loaded, _btcpay_preflight_done
-
-    refreshed: list[str] = []
-
-    # 0. Snapshot all cached ledgers before teardown
-    if _ledger_cache is not None:
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        snapped = await _ledger_cache.snapshot_all(ts)
-        refreshed.append(f"ledger snapshots created ({snapped})")
-
-    # 1. Flush dirty ledger entries so no credits are lost
-    if _ledger_cache is not None:
-        flushed = await _ledger_cache.flush_all()
-        await _ledger_cache.stop()
-        refreshed.append(f"ledger_cache flushed ({flushed} dirty entries)")
-        _ledger_cache = None
-
-    # 2. Close BTCPay HTTP client
-    if _btcpay_client is not None:
-        await _btcpay_client.close()
-        refreshed.append("btcpay_client closed")
-        _btcpay_client = None
-        _btcpay_preflight_done = False
-
-    # 3. Close vault HTTP clients
-    if _commerce_vault is not None:
-        await _commerce_vault.close()
-        refreshed.append("commerce_vault closed")
-        _commerce_vault = None
-    if _credential_vault is not None:
-        await _credential_vault.close()
-        refreshed.append("credential_vault closed")
-        _credential_vault = None
-
-    # 4. Close operator API HTTP client
-    if _operator_api_client is not None:
-        await _operator_api_client.close()
-        refreshed.append("operator_api_client closed")
-        _operator_api_client = None
-
-    # 5. Reset settings-loaded flag so env vars are re-read
-    _settings_loaded = False
-    active_brain_id = None
-    _dpyc_sessions.clear()
-    refreshed.append("settings_loaded reset")
-
-    # 5. Re-load settings from environment
-    _ensure_settings_loaded()
-    settings = get_settings()
-
-    btcpay_configured = bool(
-        settings.btcpay_host and settings.btcpay_store_id and settings.btcpay_api_key
-    )
-    tier_config_present = bool(settings.btcpay_tier_config)
-
-    return {
-        "success": True,
-        "refreshed": refreshed,
-        "config_summary": {
-            "active_brain_id": active_brain_id,
-            "btcpay_configured": btcpay_configured,
-            "tier_config_present": tier_config_present,
-            "vault_brain_id": settings.thebrain_vault_brain_id or None,
-        },
-    }
-
-
-@mcp.tool()
-async def refresh_config() -> dict[str, Any]:
-    """Hot-reload server configuration from environment variables.
-
-    Flushes any dirty ledger entries to vault, tears down cached clients
-    (BTCPay, operator API), and re-reads all env vars so that Horizon
-    config changes take effect without a full redeploy.
-
-    Operator-only — no user credentials are affected.
-    """
-    return await _refresh_config_impl()
 
 
 _CREDENTIAL_VAULT_HOME = "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
