@@ -1922,6 +1922,37 @@ async def check_balance() -> dict[str, Any]:
 
 
 @mcp.tool()
+async def account_statement(days: int = 30) -> dict[str, Any]:
+    """Generate a customer-facing account statement with purchase history and usage.
+
+    Returns a detailed statement including: account summary (balance, deposited,
+    consumed, expired), invoice line items with dates and amounts, active credit
+    tranches with expiration dates, all-time per-tool usage breakdown, and recent
+    daily usage logs.
+
+    Suitable as proof-of-purchase and usage auditing for customers.
+    Free — no credits consumed.
+
+    Args:
+        days: Number of days of daily usage history to include (default 30).
+
+    Returns:
+        account_summary: Balance, deposited, consumed, expired totals.
+        purchase_history: Invoice line items sorted by date (most recent first).
+        active_tranches: Current credit allocations with expiration info.
+        tool_usage_all_time: Per-tool call counts and api_sats (sorted by usage).
+        daily_usage: Per-day usage breakdown for the requested period.
+    """
+    try:
+        user_id = _get_effective_user_id()
+        cache = _get_ledger_cache()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    return await credits.account_statement_tool(cache, user_id, days=days)
+
+
+@mcp.tool()
 async def restore_credits(invoice_id: str) -> dict[str, Any]:
     """Restore credits from a paid invoice that was lost due to cache or vault issues.
 
