@@ -9,6 +9,19 @@ from thebrain_mcp.ledger import ToolUsage, UserLedger
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _ledger_with_balance(sats: int, **kwargs) -> UserLedger:
+    """Create a UserLedger with the given balance via a tranche deposit."""
+    ledger = UserLedger(**kwargs)
+    if sats > 0:
+        ledger.credit_deposit(sats, "test-seed")
+    return ledger
+
+
+# ---------------------------------------------------------------------------
 # ToolUsage
 # ---------------------------------------------------------------------------
 
@@ -47,34 +60,34 @@ class TestToolUsage:
 
 class TestUserLedger:
     def test_debit_success(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         assert ledger.debit("search", 30) is True
         assert ledger.balance_api_sats == 70
         assert ledger.total_consumed_api_sats == 30
 
     def test_debit_insufficient_balance(self) -> None:
-        ledger = UserLedger(balance_api_sats=10)
+        ledger = _ledger_with_balance(10)
         assert ledger.debit("search", 20) is False
         assert ledger.balance_api_sats == 10
         assert ledger.total_consumed_api_sats == 0
 
     def test_debit_exact_balance(self) -> None:
-        ledger = UserLedger(balance_api_sats=50)
+        ledger = _ledger_with_balance(50)
         assert ledger.debit("search", 50) is True
         assert ledger.balance_api_sats == 0
 
     def test_debit_negative_amount_rejected(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         assert ledger.debit("search", -5) is False
         assert ledger.balance_api_sats == 100
 
     def test_debit_zero(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         assert ledger.debit("search", 0) is True
         assert ledger.balance_api_sats == 100
 
     def test_debit_updates_daily_log(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         ledger.debit("search", 10)
         today = date.today().isoformat()
         assert today in ledger.daily_log
@@ -82,17 +95,17 @@ class TestUserLedger:
         assert ledger.daily_log[today]["search"].api_sats == 10
 
     def test_debit_updates_history(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         ledger.debit("search", 10)
         ledger.debit("search", 20)
         assert ledger.history["search"].calls == 2
         assert ledger.history["search"].api_sats == 30
 
     def test_credit_deposit(self) -> None:
-        ledger = UserLedger(balance_api_sats=50, pending_invoices=["inv-1"])
+        ledger = _ledger_with_balance(50, pending_invoices=["inv-1"])
         ledger.credit_deposit(100, "inv-1")
         assert ledger.balance_api_sats == 150
-        assert ledger.total_deposited_api_sats == 100
+        assert ledger.total_deposited_api_sats == 150  # 50 (seed) + 100
         assert ledger.last_deposit_at == date.today().isoformat()
         assert "inv-1" not in ledger.pending_invoices
 
@@ -103,7 +116,7 @@ class TestUserLedger:
         assert "inv-1" in ledger.pending_invoices
 
     def test_rollback_debit(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         ledger.debit("search", 30)
         assert ledger.balance_api_sats == 70
         ledger.rollback_debit("search", 30)
@@ -111,7 +124,7 @@ class TestUserLedger:
         assert ledger.total_consumed_api_sats == 0
 
     def test_rollback_clamps_to_zero(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         ledger.debit("search", 10)
         # Rollback more than was debited
         ledger.rollback_debit("search", 20)
@@ -144,7 +157,7 @@ class TestUserLedger:
         assert ledger.balance_api_sats == 900
 
     def test_rotate_daily_log(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         # Add an old entry
         ledger.daily_log["2020-01-01"] = {"search": ToolUsage(calls=5, api_sats=50)}
         # Add today's entry
@@ -162,11 +175,11 @@ class TestUserLedger:
 
 class TestLedgerSerialization:
     def test_roundtrip(self) -> None:
-        ledger = UserLedger(balance_api_sats=500, total_deposited_api_sats=1000)
+        ledger = _ledger_with_balance(500)
         ledger.debit("search", 100)
         restored = UserLedger.from_json(ledger.to_json())
         assert restored.balance_api_sats == 400
-        assert restored.total_deposited_api_sats == 1000
+        assert restored.total_deposited_api_sats == 500
         assert restored.total_consumed_api_sats == 100
         assert "search" in restored.history
         assert restored.history["search"].calls == 1
@@ -174,9 +187,14 @@ class TestLedgerSerialization:
     def test_schema_version(self) -> None:
         ledger = UserLedger()
         obj = json.loads(ledger.to_json())
-        assert obj["v"] == 3
+        assert obj["v"] == 4
 
-    def test_from_json_missing_fields(self) -> None:
+    def test_from_json_v3_returns_fresh(self) -> None:
+        """v3 ledgers return a fresh ledger (no backward compat)."""
+        restored = UserLedger.from_json('{"v": 3, "balance_api_sats": 500}')
+        assert restored.balance_api_sats == 0
+
+    def test_from_json_v1_returns_fresh(self) -> None:
         restored = UserLedger.from_json('{"v": 1}')
         assert restored.balance_api_sats == 0
         assert restored.pending_invoices == []
@@ -194,7 +212,7 @@ class TestLedgerSerialization:
         assert restored.balance_api_sats == 0
 
     def test_daily_log_survives_roundtrip(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         ledger.debit("search", 10)
         ledger.debit("create", 20)
         restored = UserLedger.from_json(ledger.to_json())
@@ -208,8 +226,8 @@ class TestLedgerSerialization:
         assert restored.pending_invoices == ["inv-a", "inv-b"]
 
     def test_to_json_is_pretty_printed(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         output = ledger.to_json()
         assert "\n" in output
         parsed = json.loads(output)
-        assert parsed["balance_api_sats"] == 100
+        assert parsed["v"] == 4

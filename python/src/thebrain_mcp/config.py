@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     tollbooth_royalty_min_sats: int = 10
 
     authority_public_key: str | None = None
+    credit_ttl_seconds: int | None = 604800  # 7 days; None = no expiration
 
     # DPYC Nostr Identity
     dpyc_operator_npub: str | None = None

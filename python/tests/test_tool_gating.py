@@ -16,6 +16,14 @@ SAMPLE_NPUB = "npub1l94pd4qu4eszrl6ek032ftcnsu3tt9a7xvq2zp7eaxeklp6mrpzssmq8pf"
 # ---------------------------------------------------------------------------
 
 
+def _ledger_with_balance(sats: int, **kwargs) -> UserLedger:
+    """Create a UserLedger with the given balance via a tranche deposit."""
+    ledger = UserLedger(**kwargs)
+    if sats > 0:
+        ledger.credit_deposit(sats, "test-seed")
+    return ledger
+
+
 @pytest.fixture(autouse=True)
 def _clean_dpyc_sessions():
     """Ensure DPYC sessions are clean before and after each test."""
@@ -68,7 +76,7 @@ class TestDebitOrError:
         """Read-tier tool debits 1 sat and marks dirty."""
         from thebrain_mcp.server import _debit_or_error
 
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
@@ -84,7 +92,7 @@ class TestDebitOrError:
         """Write-tier tool debits 5 sats."""
         from thebrain_mcp.server import _debit_or_error
 
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
@@ -99,7 +107,7 @@ class TestDebitOrError:
         """Heavy-tier tool debits 10 sats."""
         from thebrain_mcp.server import _debit_or_error
 
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
@@ -114,7 +122,7 @@ class TestDebitOrError:
         """Insufficient balance returns an error dict with a hint."""
         from thebrain_mcp.server import _debit_or_error
 
-        ledger = UserLedger(balance_api_sats=0)
+        ledger = _ledger_with_balance(0)
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
@@ -172,7 +180,7 @@ class TestRollbackDebit:
         """Rollback after a failed API call restores balance."""
         from thebrain_mcp.server import _debit_or_error, _rollback_debit
 
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
@@ -281,7 +289,7 @@ class TestWithWarning:
         """Healthy balance: no warning key added."""
         from thebrain_mcp.server import _with_warning
 
-        ledger = UserLedger(balance_api_sats=5000, credited_invoices=["seed_balance_v1"])
+        ledger = _ledger_with_balance(5000, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
@@ -300,7 +308,7 @@ class TestWithWarning:
         """Low balance: warning key injected."""
         from thebrain_mcp.server import _with_warning
 
-        ledger = UserLedger(balance_api_sats=10, credited_invoices=["seed_balance_v1"])
+        ledger = _ledger_with_balance(10, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
@@ -346,7 +354,7 @@ class TestWithWarning:
         """Original dict should not be mutated when warning is added."""
         from thebrain_mcp.server import _with_warning
 
-        ledger = UserLedger(balance_api_sats=10, credited_invoices=["seed_balance_v1"])
+        ledger = _ledger_with_balance(10, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
@@ -375,7 +383,7 @@ class TestTestLowBalanceWarning:
         """Simulated balance below threshold should produce a warning."""
         from thebrain_mcp.server import _test_low_balance_warning_impl
 
-        ledger = UserLedger(balance_api_sats=999_999, credited_invoices=["seed_balance_v1"])
+        ledger = _ledger_with_balance(999_999, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
 
         mock_settings = MagicMock()
@@ -398,7 +406,7 @@ class TestTestLowBalanceWarning:
         """Simulated balance above threshold should not produce a warning."""
         from thebrain_mcp.server import _test_low_balance_warning_impl
 
-        ledger = UserLedger(balance_api_sats=999_999, credited_invoices=["seed_balance_v1"])
+        ledger = _ledger_with_balance(999_999, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
 
         mock_settings = MagicMock()
@@ -423,7 +431,7 @@ class TestTestLowBalanceWarning:
         """The real ledger balance must not change after simulation."""
         from thebrain_mcp.server import _test_low_balance_warning_impl
 
-        ledger = UserLedger(balance_api_sats=500, credited_invoices=["seed_balance_v1"])
+        ledger = _ledger_with_balance(500, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
 
         mock_settings = MagicMock()

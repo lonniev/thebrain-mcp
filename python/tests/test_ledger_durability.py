@@ -44,7 +44,7 @@ class TestFlushUser:
         """flush_user writes a dirty entry to vault and clears dirty flag."""
         cache = _make_cache()
         ledger = await cache.get("user-1")
-        ledger.balance_api_sats = 500
+        ledger.credit_deposit(500, "test")
         cache.mark_dirty("user-1")
 
         result = await cache.flush_user("user-1")
@@ -226,11 +226,8 @@ class TestCreditPathFlushing:
         from thebrain_mcp.tools.credits import check_payment_tool
 
         # Build a ledger where inv-1 was already credited
-        ledger = UserLedger(
-            balance_api_sats=500,
-            total_deposited_api_sats=500,
-            credited_invoices=["inv-1"],
-        )
+        ledger = UserLedger(credited_invoices=["inv-1"])
+        ledger.credit_deposit(500, "inv-1")
         flushed_json = ledger.to_json()
 
         # New cache loads from vault
@@ -331,11 +328,11 @@ class TestCreditedInvoices:
         assert set(restored.credited_invoices) == {"inv-a", "inv-b", "inv-c"}
 
     def test_from_json_missing_credited_invoices(self) -> None:
-        """Backwards compat: missing credited_invoices defaults to empty list."""
+        """Old schema versions return fresh ledger (no backward compat in v4)."""
         data = json.dumps({"v": 1, "balance_sats": 100})
         ledger = UserLedger.from_json(data)
         assert ledger.credited_invoices == []
-        assert ledger.balance_api_sats == 100
+        assert ledger.balance_api_sats == 0
 
 
 # ---------------------------------------------------------------------------

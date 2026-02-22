@@ -61,6 +61,14 @@ TIER_CONFIG = json.dumps({
     "vip": {"credit_multiplier": 100},
 })
 
+
+def _ledger_with_balance(sats: int, **kwargs) -> UserLedger:
+    """Create a UserLedger with the given balance via a tranche deposit."""
+    ledger = UserLedger(**kwargs)
+    if sats > 0:
+        ledger.credit_deposit(sats, "test-seed")
+    return ledger
+
 USER_TIERS = json.dumps({
     "user-vip": "vip",
     "user-standard": "default",
@@ -91,27 +99,28 @@ class TestGetMultiplier:
 
 class TestGetTierInfo:
     def test_default_when_no_config(self) -> None:
-        name, mult = _get_tier_info("user1", None, None)
+        name, mult, ttl = _get_tier_info("user1", None, None)
         assert name == "default"
         assert mult == 1
+        assert ttl is None
 
     def test_vip_tier(self) -> None:
-        name, mult = _get_tier_info("user-vip", TIER_CONFIG, USER_TIERS)
+        name, mult, ttl = _get_tier_info("user-vip", TIER_CONFIG, USER_TIERS)
         assert name == "vip"
         assert mult == 100
 
     def test_standard_tier(self) -> None:
-        name, mult = _get_tier_info("user-standard", TIER_CONFIG, USER_TIERS)
+        name, mult, ttl = _get_tier_info("user-standard", TIER_CONFIG, USER_TIERS)
         assert name == "default"
         assert mult == 1
 
     def test_unknown_user(self) -> None:
-        name, mult = _get_tier_info("user-unknown", TIER_CONFIG, USER_TIERS)
+        name, mult, ttl = _get_tier_info("user-unknown", TIER_CONFIG, USER_TIERS)
         assert name == "default"
         assert mult == 1
 
     def test_corrupt_json(self) -> None:
-        name, mult = _get_tier_info("user1", "bad", "bad")
+        name, mult, ttl = _get_tier_info("user1", "bad", "bad")
         assert name == "default"
         assert mult == 1
 
@@ -253,7 +262,7 @@ class TestCheckPayment:
         btcpay = _mock_btcpay({
             "id": "inv-1", "status": "Settled", "amount": "1000",
         })
-        ledger = UserLedger(balance_api_sats=1000, credited_invoices=["inv-1"])
+        ledger = _ledger_with_balance(1000, credited_invoices=["inv-1"])
         cache = _mock_cache(ledger)
         result = await check_payment_tool(btcpay, cache, "user1", "inv-1")
         assert result["credits_granted"] == 0
@@ -320,13 +329,10 @@ class TestCheckBalance:
 
     @pytest.mark.asyncio
     async def test_with_balance(self) -> None:
-        ledger = UserLedger(
-            balance_api_sats=5000,
-            total_deposited_api_sats=10000,
-            total_consumed_api_sats=5000,
-            pending_invoices=["inv-a"],
-            last_deposit_at="2026-02-15",
-        )
+        ledger = UserLedger(pending_invoices=["inv-a"])
+        ledger.credit_deposit(10000, "test-seed")
+        ledger.debit("spend", 5000)
+        ledger.last_deposit_at = "2026-02-15"
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
         assert result["balance_api_sats"] == 5000
@@ -337,7 +343,7 @@ class TestCheckBalance:
 
     @pytest.mark.asyncio
     async def test_today_usage_included(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         ledger.debit("search", 10)
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
@@ -347,14 +353,14 @@ class TestCheckBalance:
 
     @pytest.mark.asyncio
     async def test_no_today_usage(self) -> None:
-        ledger = UserLedger(balance_api_sats=100)
+        ledger = _ledger_with_balance(100)
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
         assert "today_usage" not in result
 
     @pytest.mark.asyncio
     async def test_does_not_modify_state(self) -> None:
-        ledger = UserLedger(balance_api_sats=500)
+        ledger = _ledger_with_balance(500)
         cache = _mock_cache(ledger)
         await check_balance_tool(cache, "user1")
         cache.mark_dirty.assert_not_called()
@@ -383,7 +389,7 @@ class TestCheckBalance:
     @pytest.mark.asyncio
     async def test_seed_balance_granted_shown(self) -> None:
         """check_balance shows seed_balance_granted when seed sentinel is present."""
-        ledger = UserLedger(balance_api_sats=1000, credited_invoices=["seed_balance_v1"])
+        ledger = _ledger_with_balance(1000, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
         assert result["seed_balance_granted"] is True
@@ -391,7 +397,7 @@ class TestCheckBalance:
     @pytest.mark.asyncio
     async def test_seed_balance_granted_absent(self) -> None:
         """check_balance omits seed_balance_granted when no seed was applied."""
-        ledger = UserLedger(balance_api_sats=500)
+        ledger = _ledger_with_balance(500)
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
         assert "seed_balance_granted" not in result
@@ -464,8 +470,8 @@ class TestSeedBalance:
         mock_api.close = AsyncMock()
 
         # User already has the seed sentinel
-        ledger = UserLedger(
-            balance_api_sats=500,
+        ledger = _ledger_with_balance(
+            500,
             credited_invoices=["seed_balance_v1"],
         )
         mock_cache = _mock_cache(ledger)
@@ -535,22 +541,22 @@ class TestSeedBalance:
 class TestComputeLowBalanceWarning:
     def test_above_threshold_returns_none(self) -> None:
         """Balance well above threshold → no warning."""
-        ledger = UserLedger(balance_api_sats=5000)
+        ledger = _ledger_with_balance(5000)
         assert compute_low_balance_warning(ledger, seed_balance_sats=1000) is None
 
     def test_at_threshold_returns_none(self) -> None:
         """Balance exactly at threshold → no warning (>= means safe)."""
         # seed_balance_sats=500, threshold = max(500//5, 100) = 100
-        ledger = UserLedger(
-            balance_api_sats=100,
+        ledger = _ledger_with_balance(
+            100,
             credited_invoices=["seed_balance_v1"],
         )
         assert compute_low_balance_warning(ledger, seed_balance_sats=500) is None
 
     def test_below_threshold_returns_warning(self) -> None:
         """Balance below threshold → warning dict."""
-        ledger = UserLedger(
-            balance_api_sats=50,
+        ledger = _ledger_with_balance(
+            50,
             credited_invoices=["seed_balance_v1"],
         )
         warning = compute_low_balance_warning(ledger, seed_balance_sats=500)
@@ -562,7 +568,7 @@ class TestComputeLowBalanceWarning:
 
     def test_settled_invoice_reference(self) -> None:
         """Threshold is 20% of last settled invoice's api_sats_credited."""
-        ledger = UserLedger(balance_api_sats=50)
+        ledger = _ledger_with_balance(50)
         ledger.record_invoice_created("inv-1", amount_sats=1000, multiplier=1, created_at="")
         ledger.record_invoice_settled("inv-1", api_sats_credited=1000, settled_at="")
         warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
@@ -572,8 +578,8 @@ class TestComputeLowBalanceWarning:
 
     def test_seed_only_user(self) -> None:
         """Seed-only user: reference is seed_balance_sats."""
-        ledger = UserLedger(
-            balance_api_sats=10,
+        ledger = _ledger_with_balance(
+            10,
             credited_invoices=["seed_balance_v1"],
         )
         warning = compute_low_balance_warning(ledger, seed_balance_sats=1000)
@@ -583,7 +589,7 @@ class TestComputeLowBalanceWarning:
 
     def test_no_history_uses_floor(self) -> None:
         """No invoices, no seed: reference is the floor."""
-        ledger = UserLedger(balance_api_sats=50)
+        ledger = _ledger_with_balance(50)
         warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
         assert warning is not None
         # reference = floor (100), threshold = max(100//5, 100) = 100
@@ -591,7 +597,7 @@ class TestComputeLowBalanceWarning:
 
     def test_retroactive_invoice_suggested_defaults(self) -> None:
         """Retroactive invoice (amount_sats=0) → suggested defaults to 1000."""
-        ledger = UserLedger(balance_api_sats=5)
+        ledger = _ledger_with_balance(5)
         ledger.record_invoice_settled("inv-retro", api_sats_credited=500, settled_at="")
         # retroactive: amount_sats=0 in the record
         warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
@@ -600,7 +606,7 @@ class TestComputeLowBalanceWarning:
 
     def test_suggested_capped_at_max(self) -> None:
         """Suggested top-up capped at MAX_INVOICE_SATS."""
-        ledger = UserLedger(balance_api_sats=5)
+        ledger = _ledger_with_balance(5)
         ledger.record_invoice_created(
             "inv-big", amount_sats=5_000_000, multiplier=1, created_at="",
         )
@@ -611,7 +617,7 @@ class TestComputeLowBalanceWarning:
 
     def test_zero_seed_no_invoices(self) -> None:
         """Zero seed + no invoices → floor path."""
-        ledger = UserLedger(balance_api_sats=50)
+        ledger = _ledger_with_balance(50)
         warning = compute_low_balance_warning(ledger, seed_balance_sats=0)
         assert warning is not None
         assert warning["threshold_api_sats"] == 100
@@ -832,7 +838,7 @@ class TestCheckPaymentWithRoyalty:
             "id": "inv-1", "status": "Settled", "amount": "1000",
         })
         btcpay.create_payout = AsyncMock()
-        ledger = UserLedger(balance_api_sats=1000, credited_invoices=["inv-1"])
+        ledger = _ledger_with_balance(1000, credited_invoices=["inv-1"])
         cache = _mock_cache(ledger)
         result = await check_payment_tool(
             btcpay, cache, "user1", "inv-1",
