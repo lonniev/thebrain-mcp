@@ -166,10 +166,10 @@ class TestInvoiceRecordOnLedger:
 
 
 class TestInvoiceSerialization:
-    def test_schema_version_3(self) -> None:
+    def test_schema_version_4(self) -> None:
         ledger = UserLedger()
         obj = json.loads(ledger.to_json())
-        assert obj["v"] == 3
+        assert obj["v"] == 4
 
     def test_invoices_survive_roundtrip(self) -> None:
         ledger = UserLedger()
@@ -183,8 +183,8 @@ class TestInvoiceSerialization:
         assert rec.api_sats_credited == 100000
         assert rec.amount_sats == 1000
 
-    def test_v2_ledger_migration(self) -> None:
-        """v2 JSON (no invoices key) deserializes with empty invoices dict."""
+    def test_v2_ledger_returns_fresh(self) -> None:
+        """v2 JSON returns a fresh ledger (no backward compat in v4)."""
         v2_json = json.dumps({
             "v": 2, "balance_api_sats": 500, "total_deposited_api_sats": 1000,
             "total_consumed_api_sats": 500, "pending_invoices": ["inv-p"],
@@ -192,20 +192,19 @@ class TestInvoiceSerialization:
             "daily_log": {}, "history": {},
         })
         ledger = UserLedger.from_json(v2_json)
+        assert ledger.balance_api_sats == 0
         assert ledger.invoices == {}
-        assert ledger.balance_api_sats == 500
-        assert ledger.credited_invoices == ["inv-c"]
 
-    def test_v1_ledger_migration(self) -> None:
-        """v1 JSON (old field names, no invoices) still works."""
+    def test_v1_ledger_returns_fresh(self) -> None:
+        """v1 JSON returns a fresh ledger (no backward compat in v4)."""
         v1_json = json.dumps({
             "v": 1, "balance_sats": 300, "total_deposited_sats": 600,
             "total_consumed_sats": 300, "pending_invoices": [],
             "credited_invoices": [], "daily_log": {}, "history": {},
         })
         ledger = UserLedger.from_json(v1_json)
+        assert ledger.balance_api_sats == 0
         assert ledger.invoices == {}
-        assert ledger.balance_api_sats == 300
 
     def test_empty_invoices_dict(self) -> None:
         ledger = UserLedger()

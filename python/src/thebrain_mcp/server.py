@@ -1821,6 +1821,7 @@ async def purchase_credits(
         authority_public_key=settings.authority_public_key,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
+        default_credit_ttl_seconds=settings.credit_ttl_seconds,
     )
 
 
@@ -1861,6 +1862,7 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
         royalty_address=settings.tollbooth_royalty_address,
         royalty_percent=settings.tollbooth_royalty_percent,
         royalty_min_sats=settings.tollbooth_royalty_min_sats,
+        default_credit_ttl_seconds=settings.credit_ttl_seconds,
     )
 
 
@@ -1898,6 +1900,7 @@ async def check_balance() -> dict[str, Any]:
                 btcpay, cache, user_id,
                 tier_config_json=settings_r.btcpay_tier_config,
                 user_tiers_json=settings_r.btcpay_user_tiers,
+                default_credit_ttl_seconds=settings_r.credit_ttl_seconds,
             )
             if recon["reconciled"] > 0:
                 logger.info(
@@ -1912,6 +1915,7 @@ async def check_balance() -> dict[str, Any]:
         cache, user_id,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
+        default_credit_ttl_seconds=settings.credit_ttl_seconds,
     )
     result["cache_health"] = cache.health()
     return result
@@ -1947,6 +1951,7 @@ async def restore_credits(invoice_id: str) -> dict[str, Any]:
         btcpay, cache, user_id, invoice_id,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
+        default_credit_ttl_seconds=settings.credit_ttl_seconds,
     )
 
 
@@ -1991,6 +1996,7 @@ async def btcpay_status() -> dict[str, Any]:
         tollbooth_royalty_percent=settings.tollbooth_royalty_percent,
         tollbooth_royalty_min_sats=settings.tollbooth_royalty_min_sats,
         authority_public_key=settings.authority_public_key,
+        credit_ttl_seconds=settings.credit_ttl_seconds,
     )
     result = await credits.btcpay_status_tool(config, btcpay_client)
 
@@ -2020,6 +2026,8 @@ async def _test_low_balance_warning_impl(simulated_balance_api_sats: int = 50) -
     """
     import dataclasses
 
+    from tollbooth.ledger import Tranche
+
     try:
         user_id = _get_effective_user_id()
         cache = _get_ledger_cache()
@@ -2027,7 +2035,17 @@ async def _test_low_balance_warning_impl(simulated_balance_api_sats: int = 50) -
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
 
-    fake_ledger = dataclasses.replace(ledger, balance_api_sats=simulated_balance_api_sats)
+    # Build a fake ledger with the simulated balance (balance_api_sats
+    # is now a computed property over tranches, not a settable field).
+    fake_ledger = dataclasses.replace(ledger)
+    fake_ledger.tranches = [
+        Tranche(
+            granted_at=time.time(),
+            original_sats=simulated_balance_api_sats,
+            remaining_sats=simulated_balance_api_sats,
+            invoice_id="simulation",
+        )
+    ]
     settings = get_settings()
     warning = credits.compute_low_balance_warning(fake_ledger, settings.seed_balance_sats)
 

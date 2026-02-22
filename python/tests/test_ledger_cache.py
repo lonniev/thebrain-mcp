@@ -41,7 +41,8 @@ class TestLedgerCacheGetMiss:
 
     @pytest.mark.asyncio
     async def test_cache_miss_loads_from_vault(self) -> None:
-        stored = UserLedger(balance_api_sats=500)
+        stored = UserLedger()
+        stored.credit_deposit(500, "seed")
         vault = _mock_vault(ledger_json=stored.to_json())
         cache = LedgerCache(vault, maxsize=5)
         ledger = await cache.get("user1")
@@ -72,7 +73,7 @@ class TestLedgerCacheGetHit:
         vault = _mock_vault()
         cache = LedgerCache(vault, maxsize=5)
         ledger = await cache.get("user1")
-        ledger.balance_api_sats = 999
+        ledger.credit_deposit(999, "test")
         cache.mark_dirty("user1")
         ledger2 = await cache.get("user1")
         assert ledger2.balance_api_sats == 999
@@ -102,7 +103,7 @@ class TestLedgerCacheEviction:
         vault = _mock_vault()
         cache = LedgerCache(vault, maxsize=2)
         ledger1 = await cache.get("user1")
-        ledger1.balance_api_sats = 42
+        ledger1.credit_deposit(42, "test")
         cache.mark_dirty("user1")
         await cache.get("user2")
         await cache.get("user3")  # evicts user1
@@ -145,7 +146,7 @@ class TestLedgerCacheFlush:
         vault = _mock_vault()
         cache = LedgerCache(vault, maxsize=5)
         ledger = await cache.get("user1")
-        ledger.balance_api_sats = 100
+        ledger.credit_deposit(100, "test")
         cache.mark_dirty("user1")
         count = await cache.flush_dirty()
         assert count == 1
@@ -281,7 +282,7 @@ class TestLedgerCacheBackgroundFlush:
         vault = _mock_vault()
         cache = LedgerCache(vault, maxsize=5, flush_interval_secs=0.1)
         ledger = await cache.get("user1")
-        ledger.balance_api_sats = 77
+        ledger.credit_deposit(77, "test")
         cache.mark_dirty("user1")
         await cache.start_background_flush()
         await asyncio.sleep(0.3)  # wait for at least one flush cycle
