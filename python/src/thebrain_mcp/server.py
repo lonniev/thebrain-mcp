@@ -1465,29 +1465,64 @@ def _get_vault() -> CredentialVault:
     return CredentialVault(vault=_get_credential_vault())
 
 
-_commerce_vault: TheBrainVault | None = None
+_commerce_vault: Any = None
 
 
-def _get_commerce_vault() -> TheBrainVault:
-    """Singleton TheBrainVault for commerce ledgers.
+def _get_commerce_vault() -> Any:
+    """Singleton vault for commerce ledgers.
 
-    Uses a separate vault home thought from the credential vault.
-    Raises VaultNotConfiguredError if the operator hasn't set THEBRAIN_VAULT_BRAIN_ID.
+    Primary: NeonVault (if NEON_DATABASE_URL is set) — fast, ACID, append-only journal.
+    Fallback: TheBrainVault (legacy) — if NEON_DATABASE_URL is not set.
+    Optional: Wrapped with AuditedVault for Nostr audit trail when configured.
+
+    Raises VaultNotConfiguredError if neither backend is configured.
     """
     global _commerce_vault
     if _commerce_vault is not None:
         return _commerce_vault
+
     settings = get_settings()
-    vault_brain_id = settings.thebrain_vault_brain_id
-    if not vault_brain_id:
-        raise VaultNotConfiguredError(
-            "Vault brain not configured. Operator must set THEBRAIN_VAULT_BRAIN_ID."
+
+    # Primary: NeonVault (if configured)
+    if settings.neon_database_url:
+        from tollbooth.vaults import NeonVault
+
+        vault: Any = NeonVault(database_url=settings.neon_database_url)
+        # ensure_schema is idempotent — safe on every cold start
+        import asyncio
+
+        try:
+            asyncio.ensure_future(vault.ensure_schema())
+        except RuntimeError:
+            pass  # No running event loop yet (e.g. during test setup)
+        logger.info("NeonVault initialized for ledger persistence.")
+    else:
+        # Fallback: TheBrainVault (legacy)
+        vault_brain_id = settings.thebrain_vault_brain_id
+        if not vault_brain_id:
+            raise VaultNotConfiguredError(
+                "Vault not configured. Set NEON_DATABASE_URL (preferred) "
+                "or THEBRAIN_VAULT_BRAIN_ID (legacy)."
+            )
+        vault = TheBrainVault(
+            api_key=settings.thebrain_api_key,
+            brain_id=vault_brain_id,
+            home_thought_id=_COMMERCE_VAULT_HOME,
         )
-    _commerce_vault = TheBrainVault(
-        api_key=settings.thebrain_api_key,
-        brain_id=vault_brain_id,
-        home_thought_id=_COMMERCE_VAULT_HOME,
-    )
+        logger.info("TheBrainVault initialized for ledger persistence (legacy fallback).")
+
+    # Optional: Nostr audit decorator
+    if settings.tollbooth_nostr_audit_enabled == "true":
+        from tollbooth.nostr_audit import AuditedVault, NostrAuditPublisher
+
+        publisher = NostrAuditPublisher(
+            operator_nsec=settings.tollbooth_nostr_operator_nsec or "",
+            relays=[r.strip() for r in (settings.tollbooth_nostr_relays or "").split(",") if r.strip()],
+        )
+        vault = AuditedVault(vault, publisher)
+        logger.info("Nostr audit enabled — publishing to %s", settings.tollbooth_nostr_relays)
+
+    _commerce_vault = vault
     return _commerce_vault
 
 
@@ -1626,7 +1661,9 @@ async def _graceful_shutdown() -> None:
             logger.error("Graceful shutdown timed out after 8s — some entries may be lost.")
 
     if _commerce_vault is not None:
-        await _commerce_vault.close()
+        _closer = getattr(_commerce_vault, "close", None)
+        if _closer is not None:
+            await _closer()
         _commerce_vault = None
 
 
