@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     authority_public_key: str | None = None
     credit_ttl_seconds: int | None = 604800  # 7 days; None = no expiration
 
+    # NeonVault (replaces TheBrainVault for commerce ledger persistence)
+    neon_database_url: str | None = None
+
+    # Nostr audit (optional — enabled when all 3 are set)
+    tollbooth_nostr_audit_enabled: str | None = None
+    tollbooth_nostr_operator_nsec: str | None = None
+    tollbooth_nostr_relays: str | None = None
+
     # DPYC Nostr Identity
     dpyc_operator_npub: str | None = None
     dpyc_authority_npub: str | None = None
