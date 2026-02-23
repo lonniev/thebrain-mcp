@@ -17,7 +17,7 @@ dependencies = [
     "cryptography>=42.0.0",
     "lark>=1.1.0",
     "cachetools>=5.3.0",
-    "tollbooth-dpyc>=0.1.19",
+    "tollbooth-dpyc>=0.1.20",
 ]
 
 [project.optional-dependencies]
