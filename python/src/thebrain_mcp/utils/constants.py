@@ -163,6 +163,7 @@ TOOL_COSTS: dict[str, int] = {
     "btcpay_status": ToolTier.FREE,
     "restore_credits": ToolTier.FREE,
     "account_statement": ToolTier.FREE,
+    "account_statement_infographic": ToolTier.READ,
     "test_low_balance_warning": ToolTier.FREE,
     # Read (1 sat)
     "get_brain": ToolTier.READ,

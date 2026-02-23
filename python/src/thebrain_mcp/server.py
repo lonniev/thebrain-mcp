@@ -1949,7 +1949,60 @@ async def account_statement(days: int = 30) -> dict[str, Any]:
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
 
-    return await credits.account_statement_tool(cache, user_id, days=days)
+    result = await credits.account_statement_tool(cache, user_id, days=days)
+    if result.get("success"):
+        result["infographic_hint"] = (
+            "Call account_statement_infographic for a visual SVG version (1 api_sat)."
+        )
+    return result
+
+
+@mcp.tool()
+async def account_statement_infographic(days: int = 30) -> dict[str, Any]:
+    """Generate a visual SVG infographic of your account statement.
+
+    Returns the same data as account_statement, rendered as a dark-themed
+    SVG graphic with balance hero, metrics cards, health gauge, tranche
+    table, and tool usage breakdown. Suitable for sharing or embedding.
+
+    Costs 1 api_sat per call.
+
+    Args:
+        days: Number of days of daily usage history to include (default 30).
+
+    Returns:
+        svg: The SVG markup string.
+        generated_at: ISO timestamp of generation.
+    """
+    gate = await _debit_or_error("account_statement_infographic")
+    if gate:
+        return gate
+
+    try:
+        user_id = _get_effective_user_id()
+        cache = _get_ledger_cache()
+    except (ValueError, VaultNotConfiguredError) as e:
+        await _rollback_debit("account_statement_infographic")
+        return {"success": False, "error": str(e)}
+
+    try:
+        from thebrain_mcp.infographic import render_account_infographic
+
+        data = await credits.account_statement_tool(cache, user_id, days=days)
+        if not data.get("success"):
+            await _rollback_debit("account_statement_infographic")
+            return data
+
+        svg = render_account_infographic(data)
+        result: dict[str, Any] = {
+            "success": True,
+            "svg": svg,
+            "generated_at": data.get("generated_at", ""),
+        }
+        return await _with_warning(result)
+    except Exception:
+        await _rollback_debit("account_statement_infographic")
+        raise
 
 
 @mcp.tool()
