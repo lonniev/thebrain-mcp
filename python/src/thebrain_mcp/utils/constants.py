@@ -165,6 +165,9 @@ TOOL_COSTS: dict[str, int] = {
     "account_statement": ToolTier.FREE,
     "account_statement_infographic": ToolTier.READ,
     "test_low_balance_warning": ToolTier.FREE,
+    "anchor_ledger": ToolTier.FREE,       # Operator-only
+    "get_anchor_proof": ToolTier.READ,    # Patron-facing, 1 sat
+    "list_anchors": ToolTier.FREE,        # Informational
     # Read (1 sat)
     "get_brain": ToolTier.READ,
     "get_brain_stats": ToolTier.READ,

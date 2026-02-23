@@ -2196,6 +2196,114 @@ async def test_low_balance_warning(simulated_balance_api_sats: int = 50) -> dict
     return await _test_low_balance_warning_impl(simulated_balance_api_sats)
 
 
+# OpenTimestamps Bitcoin Anchoring Tools
+
+
+def _get_neon_vault() -> Any:
+    """Unwrap AuditedVault to reach the NeonVault underneath.
+
+    OTS anchor tools require NeonVault-specific methods (fetch_all_balances,
+    store_anchor, etc.) that aren't part of the VaultBackend protocol.
+    """
+    vault = _get_commerce_vault()
+    # If wrapped in AuditedVault, unwrap to inner vault
+    inner = getattr(vault, "_inner", None)
+    if inner is not None:
+        vault = inner
+    # Verify it's a NeonVault (has fetch_all_balances)
+    if not hasattr(vault, "fetch_all_balances"):
+        raise ValueError(
+            "OTS anchoring requires NeonVault. "
+            "Set NEON_DATABASE_URL to enable NeonVault persistence."
+        )
+    return vault
+
+
+@mcp.tool()
+async def anchor_ledger() -> dict[str, Any]:
+    """Anchor all ledger balances to Bitcoin via OpenTimestamps.
+
+    Builds a SHA-256 Merkle tree of every patron's current balance,
+    submits the root to OTS calendar servers, and stores the anchor
+    record for later proof generation. Bitcoin confirmation takes 1-6 hours.
+
+    Operator-only tool. Requires TOLLBOOTH_OTS_ENABLED=true and NeonVault.
+    """
+    settings = get_settings()
+    if settings.tollbooth_ots_enabled != "true":
+        return {
+            "success": False,
+            "error": "OTS anchoring is not enabled. "
+            "Set TOLLBOOTH_OTS_ENABLED=true to enable.",
+        }
+
+    try:
+        vault = _get_neon_vault()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    calendars = None
+    if settings.tollbooth_ots_calendars:
+        calendars = [c.strip() for c in settings.tollbooth_ots_calendars.split(",") if c.strip()]
+
+    from tollbooth.tools.anchors import anchor_ledger_tool
+    return await anchor_ledger_tool(vault, ots_calendars=calendars)
+
+
+@mcp.tool()
+async def get_anchor_proof(anchor_id: str) -> dict[str, Any]:
+    """Get a Merkle inclusion proof for your balance in a Bitcoin anchor.
+
+    Proves that your balance (identified by npub) was included in a
+    Merkle tree whose root was submitted to Bitcoin via OpenTimestamps.
+    The proof can be independently verified using only SHA-256.
+
+    Args:
+        anchor_id: The anchor record ID (from list_anchors or anchor_ledger).
+    """
+    gate = await _debit_or_error("get_anchor_proof")
+    if gate:
+        return gate
+
+    try:
+        user_id = _get_effective_user_id()
+        vault = _get_neon_vault()
+    except (ValueError, VaultNotConfiguredError) as e:
+        await _rollback_debit("get_anchor_proof")
+        return {"success": False, "error": str(e)}
+
+    from tollbooth.tools.anchors import get_anchor_proof_tool
+    try:
+        result = await get_anchor_proof_tool(vault, anchor_id, user_id)
+        return await _with_warning(result)
+    except Exception:
+        await _rollback_debit("get_anchor_proof")
+        raise
+
+
+@mcp.tool()
+async def list_anchors(
+    limit: int = 20,
+    status: str | None = None,
+) -> dict[str, Any]:
+    """List recent Bitcoin anchor records.
+
+    Shows when ledger snapshots were anchored to Bitcoin, their status
+    (submitted, confirmed), and how many patron balances were included.
+
+    Args:
+        limit: Maximum number of anchors to return (default 20).
+        status: Optional filter by status (e.g., "submitted", "confirmed").
+    """
+    try:
+        vault = _get_neon_vault()
+    except (ValueError, VaultNotConfiguredError) as e:
+        return {"success": False, "error": str(e)}
+
+    from tollbooth.tools.anchors import list_anchors_tool
+    return await list_anchors_tool(vault, limit=limit, status=status)
+
+
 def main() -> None:
     """Main entry point for the server."""
     mcp.run()

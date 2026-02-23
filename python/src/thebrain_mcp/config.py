@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     dpyc_operator_npub: str | None = None
     dpyc_authority_npub: str | None = None
 
+    # OpenTimestamps Bitcoin anchoring
+    tollbooth_ots_enabled: str | None = None  # "true" to enable
+    tollbooth_ots_calendars: str | None = None  # Comma-separated URLs
+
 
 def get_settings() -> Settings:
     """Get application settings."""
