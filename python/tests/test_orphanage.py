@@ -9,6 +9,7 @@ from thebrain_mcp.api.client import TheBrainAPIError
 from thebrain_mcp.api.models import Brain, Link, Modification, Thought, ThoughtGraph
 from thebrain_mcp.tools.orphanage import (
     MAX_BATCH_SIZE,
+    MAX_CONCURRENCY,
     _build_census,
     _is_orphan,
     scan_orphans_tool,
@@ -474,4 +475,84 @@ class TestEdgeCases:
         api = _mock_api(graphs=graphs, mods=mods)
         result = await scan_orphans_tool(api, BRAIN)
 
+        assert result["orphans_found"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Concurrency tests
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrency:
+    @pytest.mark.asyncio
+    async def test_census_fetches_all_years_concurrently(self):
+        """Census should call get_brain_modifications for every year 2000..current."""
+        from datetime import date
+
+        api = _mock_api(mods=[])
+        await _build_census(api, BRAIN)
+
+        expected_years = date.today().year - 2000 + 1
+        assert api.get_brain_modifications.call_count == expected_years
+
+    @pytest.mark.asyncio
+    async def test_concurrent_scan_mixed_404s(self):
+        """Thoughts that 404 during scan should be skipped; valid ones scanned."""
+        orphan = _thought("orphan-1", "Lonely")
+        connected = _thought("connected-1", "Has Parent")
+        parent = _thought("parent-1", "Parent")
+        graphs = {
+            "orphan-1": _graph(orphan),
+            "connected-1": _graph(connected, parents=[parent]),
+            # "deleted-1" not in graphs → will 404
+        }
+        mods = [
+            _mod("orphan-1", 2, 101),
+            _mod("connected-1", 2, 101),
+            _mod("deleted-1", 2, 101),
+        ]
+
+        api = _mock_api(graphs=graphs, mods=mods)
+        result = await scan_orphans_tool(api, BRAIN)
+
+        assert result["success"] is True
+        assert result["census_size"] == 3
+        assert result["scanned"] == 2  # deleted-1 skipped
+        assert result["orphans_found"] == 1
+        assert result["orphans"][0]["id"] == "orphan-1"
+
+    @pytest.mark.asyncio
+    async def test_large_batch_completes(self):
+        """Batch larger than MAX_CONCURRENCY should still complete."""
+        count = MAX_CONCURRENCY + 5
+        graphs = {}
+        mods = []
+        for i in range(count):
+            tid = f"thought-{i}"
+            t = _thought(tid, f"Thought {i}")
+            graphs[tid] = _graph(t)  # all orphans
+            mods.append(_mod(tid, 2, 101))
+
+        api = _mock_api(graphs=graphs, mods=mods)
+        result = await scan_orphans_tool(api, BRAIN, batch_size=count)
+
+        assert result["success"] is True
+        assert result["scanned"] == count
+        assert result["orphans_found"] == count
+
+    @pytest.mark.asyncio
+    async def test_all_thoughts_404_yields_zero_scanned(self):
+        """If every thought 404s during scan, scanned should be 0."""
+        mods = [
+            _mod("gone-1", 2, 101),
+            _mod("gone-2", 2, 101),
+            _mod("gone-3", 2, 101),
+        ]
+        api = _mock_api(mods=mods)  # no graphs → all 404
+
+        result = await scan_orphans_tool(api, BRAIN)
+
+        assert result["success"] is True
+        assert result["census_size"] == 3
+        assert result["scanned"] == 0
         assert result["orphans_found"] == 0
