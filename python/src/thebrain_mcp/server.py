@@ -17,7 +17,7 @@ from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayError
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.ledger_cache import LedgerCache
-from thebrain_mcp.tools import attachments, brains, credits, links, morpher, notes, stats, thoughts
+from thebrain_mcp.tools import attachments, brains, credits, links, morpher, notes, orphanage, stats, thoughts
 from thebrain_mcp.utils.constants import TOOL_COSTS
 from tollbooth.vaults import TheBrainVault
 
@@ -1107,6 +1107,35 @@ async def morph_thought(
         ))
     except Exception:
         await _rollback_debit("morph_thought")
+        raise
+
+
+# Orphanage Tool
+
+
+@mcp.tool()
+async def scan_orphans(
+    brain_id: str | None = None,
+    dry_run: bool = True,
+    batch_size: int = 50,
+    orphanage_name: str = "Orphanage",
+) -> dict[str, Any]:
+    """Scan for orphaned thoughts with zero connections and optionally rescue them.
+
+    Enumerates all thoughts via modification history, checks each for
+    connections (parents, children, jumps, siblings, tags), and reports
+    those with none. Set dry_run=False to parent orphans under an
+    Orphanage collection thought.
+    """
+    gate = await _debit_or_error("scan_orphans")
+    if gate:
+        return gate
+    try:
+        return await _with_warning(await orphanage.scan_orphans_tool(
+            get_api(), get_brain_id(brain_id), dry_run, batch_size, orphanage_name
+        ))
+    except Exception:
+        await _rollback_debit("scan_orphans")
         raise
 
 
