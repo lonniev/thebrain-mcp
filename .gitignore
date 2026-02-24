@@ -21,6 +21,7 @@ coverage/
 
 # Claude Code
 .claude/
+.mcp.json
 
 # IDE
 .idea/
