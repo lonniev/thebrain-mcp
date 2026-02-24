@@ -7,12 +7,43 @@ from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.utils.formatters import get_attachment_type_name, get_source_type_name
 
 
+class PathTraversalError(Exception):
+    """Raised when a file path escapes the allowed safe directory."""
+
+
+def _validate_path_within(file_path: str, safe_directory: str) -> Path:
+    """Validate that file_path resolves to a location within safe_directory.
+
+    Prevents path traversal (../), symlink escapes, and absolute path escapes.
+
+    Args:
+        file_path: The user-provided file path.
+        safe_directory: The allowed root directory.
+
+    Returns:
+        The resolved Path object.
+
+    Raises:
+        PathTraversalError: If the path escapes the safe directory.
+    """
+    safe_root = Path(safe_directory).resolve()
+    resolved = (safe_root / file_path).resolve() if not Path(file_path).is_absolute() else Path(file_path).resolve()
+    try:
+        resolved.relative_to(safe_root)
+    except ValueError:
+        raise PathTraversalError(
+            f"Path '{file_path}' resolves outside the safe directory '{safe_directory}'."
+        )
+    return resolved
+
+
 async def add_file_attachment_tool(
     api: TheBrainAPI,
     brain_id: str,
     thought_id: str,
     file_path: str,
     file_name: str | None = None,
+    safe_directory: str | None = None,
 ) -> dict[str, Any]:
     """Add a file attachment (including images) to a thought.
 
@@ -22,13 +53,16 @@ async def add_file_attachment_tool(
         thought_id: The ID of the thought
         file_path: Path to the file to attach
         file_name: Name for the attachment (optional, uses filename if not provided)
+        safe_directory: If set, validate file_path is within this directory
 
     Returns:
         Dictionary with success status and attachment details
     """
     try:
-        # Verify file exists
-        path = Path(file_path)
+        if safe_directory:
+            path = _validate_path_within(file_path, safe_directory)
+        else:
+            path = Path(file_path)
         if not path.exists():
             raise TheBrainAPIError(f"File not found: {file_path}")
 
@@ -47,6 +81,8 @@ async def add_file_attachment_tool(
                 "thoughtId": thought_id,
             },
         }
+    except PathTraversalError as e:
+        return {"success": False, "error": str(e)}
     except TheBrainAPIError as e:
         return {"success": False, "error": str(e)}
 
@@ -143,6 +179,7 @@ async def get_attachment_content_tool(
     brain_id: str,
     attachment_id: str,
     save_to_path: str | None = None,
+    safe_directory: str | None = None,
 ) -> dict[str, Any]:
     """Get the binary content of an attachment (e.g., download an image).
 
@@ -151,6 +188,7 @@ async def get_attachment_content_tool(
         brain_id: The ID of the brain
         attachment_id: The ID of the attachment
         save_to_path: Optional path to save the file locally
+        safe_directory: If set, validate save_to_path is within this directory
 
     Returns:
         Dictionary with success status and content information
@@ -159,8 +197,10 @@ async def get_attachment_content_tool(
         content = await api.get_attachment_content(brain_id, attachment_id)
 
         if save_to_path:
-            # Save the content to a file
-            path = Path(save_to_path)
+            if safe_directory:
+                path = _validate_path_within(save_to_path, safe_directory)
+            else:
+                path = Path(save_to_path)
             path.write_bytes(content)
 
             return {
@@ -177,6 +217,8 @@ async def get_attachment_content_tool(
                 "size": len(content),
                 "hint": "Use saveToPath parameter to save the content to a file",
             }
+    except PathTraversalError as e:
+        return {"success": False, "error": str(e)}
     except TheBrainAPIError as e:
         return {"success": False, "error": str(e)}
 

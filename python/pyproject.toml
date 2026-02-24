@@ -14,10 +14,10 @@ dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
-    "cryptography>=42.0.0",
+    "cryptography>=46.0.5",
     "lark>=1.1.0",
     "cachetools>=5.3.0",
-    "tollbooth-dpyc[nostr]>=0.1.23",
+    "tollbooth-dpyc[nostr]>=0.1.25",
 ]
 
 [project.optional-dependencies]
