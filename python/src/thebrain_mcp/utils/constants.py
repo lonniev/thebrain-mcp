@@ -195,6 +195,7 @@ TOOL_COSTS: dict[str, int] = {
     "add_file_attachment": ToolTier.WRITE,
     "add_url_attachment": ToolTier.WRITE,
     "delete_attachment": ToolTier.WRITE,
+    "morph_thought": ToolTier.WRITE,
     # Heavy (10 sats)
     "brain_query": ToolTier.HEAVY,
     "get_modifications": ToolTier.HEAVY,
