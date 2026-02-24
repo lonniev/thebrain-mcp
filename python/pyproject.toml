@@ -18,6 +18,7 @@ dependencies = [
     "lark>=1.1.0",
     "cachetools>=5.3.0",
     "tollbooth-dpyc[nostr]>=0.1.25",
+    "python-dateutil>=2.8.0",
 ]
 
 [project.optional-dependencies]

@@ -17,7 +17,7 @@ from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayError
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.ledger_cache import LedgerCache
-from thebrain_mcp.tools import attachments, brains, credits, links, morpher, notes, orphanage, stats, thoughts
+from thebrain_mcp.tools import attachments, brains, credits, links, morpher, notes, orphanage, stats, thoughts, whowhen
 from thebrain_mcp.utils.constants import TOOL_COSTS
 from tollbooth.vaults import TheBrainVault
 
@@ -1136,6 +1136,43 @@ async def scan_orphans(
         ))
     except Exception:
         await _rollback_debit("scan_orphans")
+        raise
+
+
+# WhoWhen Tool
+
+
+@mcp.tool()
+async def event_for_person(
+    date: str,
+    person: str,
+    event_name: str | None = None,
+    notes: str | None = None,
+    brain_id: str | None = None,
+) -> dict[str, Any]:
+    """Create an Event+Person+Day in one action.
+
+    Parses a flexible date, finds (or creates) the Person and calendar Day
+    thoughts, creates an Event with the structured name
+    ``yyyy,MonthName,dd, event_name, person_name``, and wires jump-links
+    from the Event to both the Person and the Day.
+
+    Args:
+        date: Flexible date string (ISO, natural language, relative)
+        person: Full name or thought ID (UUID)
+        event_name: Custom event name (auto-generated if omitted)
+        notes: Optional markdown note for the Event
+        brain_id: The ID of the brain (uses active brain if not specified)
+    """
+    gate = await _debit_or_error("event_for_person")
+    if gate:
+        return gate
+    try:
+        return await _with_warning(await whowhen.event_for_person_tool(
+            get_api(), get_brain_id(brain_id), date, person, event_name, notes
+        ))
+    except Exception:
+        await _rollback_debit("event_for_person")
         raise
 
 
