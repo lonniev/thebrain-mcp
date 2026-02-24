@@ -2,6 +2,7 @@
 
 import json
 import mimetypes
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,22 @@ from thebrain_mcp.api.models import (
     ThoughtGraph,
 )
 from thebrain_mcp.utils.constants import MIME_TYPES
+
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _validate_uuid(value: str, param_name: str) -> str:
+    """Validate that value is a well-formed UUID. Returns the value unchanged."""
+    if not _UUID_RE.match(value):
+        raise ValueError(
+            f"Invalid {param_name}: '{value}' is not a valid UUID. "
+            f"TheBrain requires full UUIDs (e.g., '9e115e02-fedb-4254-a1ae-39cce16c63e6')."
+        )
+    return value
 
 
 class TheBrainAPIError(Exception):
@@ -137,11 +154,13 @@ class TheBrainAPI:
 
     async def get_brain(self, brain_id: str) -> Brain:
         """Get brain details."""
+        _validate_uuid(brain_id, "brain_id")
         data = await self._request("GET", f"/brains/{brain_id}")
         return Brain.model_validate(data)
 
     async def get_brain_stats(self, brain_id: str) -> BrainStats:
         """Get brain statistics."""
+        _validate_uuid(brain_id, "brain_id")
         data = await self._request("GET", f"/brains/{brain_id}/statistics")
         return BrainStats.model_validate(data)
 
@@ -153,6 +172,7 @@ class TheBrainAPI:
         end_time: str | None = None,
     ) -> list[Modification]:
         """Get brain modification history."""
+        _validate_uuid(brain_id, "brain_id")
         params = {}
         if max_logs:
             params["maxLogs"] = max_logs
@@ -172,11 +192,14 @@ class TheBrainAPI:
         Returns a dict with at least 'id' field. The API may return minimal data,
         so we return the raw response instead of validating as a full Thought.
         """
+        _validate_uuid(brain_id, "brain_id")
         data = await self._request("POST", f"/thoughts/{brain_id}", json_data=thought_data)
         return data
 
     async def get_thought(self, brain_id: str, thought_id: str) -> Thought:
         """Get thought details."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         data = await self._request("GET", f"/thoughts/{brain_id}/{thought_id}")
         return Thought.model_validate(data)
 
@@ -184,6 +207,8 @@ class TheBrainAPI:
         self, brain_id: str, thought_id: str, updates: dict[str, Any]
     ) -> dict[str, Any]:
         """Update thought using JSON Patch (bare array format)."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         patches = [
             {"op": "replace", "path": f"/{key}", "value": value}
             for key, value in updates.items()
@@ -192,12 +217,16 @@ class TheBrainAPI:
 
     async def delete_thought(self, brain_id: str, thought_id: str) -> dict[str, bool]:
         """Delete a thought."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         return await self._request("DELETE", f"/thoughts/{brain_id}/{thought_id}")
 
     async def get_thought_graph(
         self, brain_id: str, thought_id: str, include_siblings: bool = False
     ) -> ThoughtGraph:
         """Get thought with all connections."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         params = {"includeSiblings": str(include_siblings).lower()}
         data = await self._request(
             "GET", f"/thoughts/{brain_id}/{thought_id}/graph", params=params
@@ -212,6 +241,7 @@ class TheBrainAPI:
         only_search_thought_names: bool = False,
     ) -> list[SearchResult]:
         """Search for thoughts."""
+        _validate_uuid(brain_id, "brain_id")
         params = {
             "queryText": query_text,
             "maxResults": max_results,
@@ -225,6 +255,7 @@ class TheBrainAPI:
 
         Returns None if no thought matches (API returns 404).
         """
+        _validate_uuid(brain_id, "brain_id")
         try:
             response = await self.client.request(
                 method="GET",
@@ -245,11 +276,13 @@ class TheBrainAPI:
 
     async def get_types(self, brain_id: str) -> list[Thought]:
         """Get all thought types."""
+        _validate_uuid(brain_id, "brain_id")
         data = await self._request("GET", f"/thoughts/{brain_id}/types")
         return [Thought.model_validate(t) for t in data]
 
     async def get_tags(self, brain_id: str) -> list[Thought]:
         """Get all tags."""
+        _validate_uuid(brain_id, "brain_id")
         data = await self._request("GET", f"/thoughts/{brain_id}/tags")
         return [Thought.model_validate(t) for t in data]
 
@@ -261,11 +294,14 @@ class TheBrainAPI:
         Returns a dict with at least 'id' field. The API may return minimal data,
         so we return the raw response instead of validating as a full Link.
         """
+        _validate_uuid(brain_id, "brain_id")
         data = await self._request("POST", f"/links/{brain_id}", json_data=link_data)
         return data
 
     async def get_link(self, brain_id: str, link_id: str) -> Link:
         """Get link details."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(link_id, "link_id")
         data = await self._request("GET", f"/links/{brain_id}/{link_id}")
         return Link.model_validate(data)
 
@@ -273,6 +309,8 @@ class TheBrainAPI:
         self, brain_id: str, link_id: str, updates: dict[str, Any]
     ) -> dict[str, Any]:
         """Update link using JSON Patch (bare array format)."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(link_id, "link_id")
         patches = [
             {"op": "replace", "path": f"/{key}", "value": value}
             for key, value in updates.items()
@@ -281,6 +319,8 @@ class TheBrainAPI:
 
     async def delete_link(self, brain_id: str, link_id: str) -> dict[str, bool]:
         """Delete a link."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(link_id, "link_id")
         return await self._request("DELETE", f"/links/{brain_id}/{link_id}")
 
     # Attachment Operations
@@ -289,6 +329,8 @@ class TheBrainAPI:
         self, brain_id: str, thought_id: str, file_path: str, file_name: str | None = None
     ) -> dict[str, Any]:
         """Add file attachment to thought."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         path = Path(file_path)
         if not path.exists():
             raise TheBrainAPIError(f"File not found: {file_path}")
@@ -311,6 +353,8 @@ class TheBrainAPI:
         self, brain_id: str, thought_id: str, url: str, name: str | None = None
     ) -> dict[str, Any]:
         """Add URL attachment to thought."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         params = {"url": url}
         if name:
             params["name"] = name
@@ -320,19 +364,27 @@ class TheBrainAPI:
 
     async def get_attachment(self, brain_id: str, attachment_id: str) -> Attachment:
         """Get attachment metadata."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(attachment_id, "attachment_id")
         data = await self._request("GET", f"/attachments/{brain_id}/{attachment_id}/metadata")
         return Attachment.model_validate(data)
 
     async def get_attachment_content(self, brain_id: str, attachment_id: str) -> bytes:
         """Get attachment content."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(attachment_id, "attachment_id")
         return await self._request("GET", f"/attachments/{brain_id}/{attachment_id}/file-content")
 
     async def delete_attachment(self, brain_id: str, attachment_id: str) -> dict[str, bool]:
         """Delete an attachment."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(attachment_id, "attachment_id")
         return await self._request("DELETE", f"/attachments/{brain_id}/{attachment_id}")
 
     async def list_attachments(self, brain_id: str, thought_id: str) -> list[Attachment]:
         """List all attachments for a thought."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         data = await self._request("GET", f"/thoughts/{brain_id}/{thought_id}/attachments")
         return [Attachment.model_validate(att) for att in data]
 
@@ -340,6 +392,8 @@ class TheBrainAPI:
 
     async def get_note(self, brain_id: str, thought_id: str, format: str = "markdown") -> Note:
         """Get note content."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         endpoint = {
             "html": f"/notes/{brain_id}/{thought_id}/html",
             "text": f"/notes/{brain_id}/{thought_id}/text",
@@ -353,6 +407,8 @@ class TheBrainAPI:
         self, brain_id: str, thought_id: str, markdown: str
     ) -> dict[str, Any]:
         """Create or update a note."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         return await self._request(
             "POST", f"/notes/{brain_id}/{thought_id}/update", json_data={"markdown": markdown}
         )
@@ -361,6 +417,8 @@ class TheBrainAPI:
         self, brain_id: str, thought_id: str, markdown: str
     ) -> dict[str, Any]:
         """Append content to a note."""
+        _validate_uuid(brain_id, "brain_id")
+        _validate_uuid(thought_id, "thought_id")
         return await self._request(
             "POST", f"/notes/{brain_id}/{thought_id}/append", json_data={"markdown": markdown}
         )
