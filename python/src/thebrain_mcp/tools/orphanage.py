@@ -1,6 +1,7 @@
 """Orphanage tool: find and rescue unreachable thoughts with zero connections."""
 
-from datetime import date, timezone
+import asyncio
+from datetime import date
 from typing import Any
 
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
@@ -15,6 +16,7 @@ COLLECTION_TYPE_ID = "abc1a94c-b822-53d4-b46e-be9c205db3e2"
 TODO_TAG_ID = "065c5285-d785-5244-9b64-1d50d026282a"
 
 MAX_BATCH_SIZE = 100
+MAX_CONCURRENCY = 10  # Cap parallel API requests to be polite to TheBrain API
 
 
 async def _build_census(
@@ -23,21 +25,29 @@ async def _build_census(
 ) -> set[str]:
     """Enumerate all living thought IDs via modification history.
 
-    Walks year-windows from 2000 to the current year, collecting CREATED
-    thought events and subtracting DELETED ones.
+    Fetches year-windows from 2000 to the current year concurrently,
+    collecting CREATED thought events and subtracting DELETED ones.
     """
+    sem = asyncio.Semaphore(MAX_CONCURRENCY)
+
+    async def fetch_year(year: int) -> list:
+        async with sem:
+            return await api.get_brain_modifications(
+                brain_id,
+                max_logs=100_000,
+                start_time=f"{year}-01-01T00:00:00Z",
+                end_time=f"{year + 1}-01-01T00:00:00Z",
+            )
+
+    current_year = date.today().year
+    results = await asyncio.gather(
+        *(fetch_year(y) for y in range(2000, current_year + 1))
+    )
+
     created: set[str] = set()
     deleted: set[str] = set()
 
-    current_year = date.today().year
-
-    for year in range(2000, current_year + 1):
-        mods = await api.get_brain_modifications(
-            brain_id,
-            max_logs=100_000,
-            start_time=f"{year}-01-01T00:00:00Z",
-            end_time=f"{year + 1}-01-01T00:00:00Z",
-        )
+    for mods in results:
         for mod in mods:
             if mod.source_type == SourceType.THOUGHT:
                 if mod.mod_type == ModificationType.CREATED:
@@ -119,25 +129,23 @@ async def scan_orphans_tool(
             "dry_run": dry_run,
         }
 
-    # Phase 2: Scan
+    # Phase 2: Scan (concurrent per batch, capped by semaphore)
     orphans: list[dict[str, Any]] = []
     scanned = 0
     census_list = list(census)
+    sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
-    for i in range(0, len(census_list), batch_size):
-        batch = census_list[i : i + batch_size]
-        for thought_id in batch:
+    async def _scan_thought(thought_id: str) -> tuple[bool, dict[str, Any] | None]:
+        """Scan a single thought. Returns (was_scanned, orphan_dict_or_None)."""
+        async with sem:
             try:
                 graph = await api.get_thought_graph(brain_id, thought_id)
             except TheBrainAPIError:
-                # 404 or other error — thought deleted between census and scan
-                continue
-
-            scanned += 1
+                return (False, None)
 
             if _is_orphan(graph, home_thought_id):
                 t = graph.active_thought
-                orphans.append({
+                return (True, {
                     "id": t.id,
                     "name": t.name,
                     "kind": t.kind,
@@ -147,6 +155,13 @@ async def scan_orphans_tool(
                         else None
                     ),
                 })
+            return (True, None)
+
+    for i in range(0, len(census_list), batch_size):
+        batch = census_list[i : i + batch_size]
+        results = await asyncio.gather(*(_scan_thought(tid) for tid in batch))
+        scanned += sum(1 for was_scanned, _ in results if was_scanned)
+        orphans.extend(o for _, o in results if o is not None)
 
     # Phase 3: Adopt (if not dry_run)
     adopted = 0
