@@ -223,34 +223,15 @@ async def whoami() -> dict[str, Any]:
     This is a diagnostic tool to inspect what OAuth claims are available
     from the FastMCP Cloud authentication layer.
     """
-    import base64
-    import json
-
     result: dict[str, Any] = {}
-
-    # FastMCP Cloud custom headers (injected by proxy)
     headers = get_http_headers(include_all=True)
     result["fastmcp_cloud"] = {
         k: v for k, v in headers.items() if k.startswith("fastmcp-")
     } or None
-
-    # Decode JWT from authorization header (without verification)
-    auth_header = headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        raw_jwt = auth_header[len("Bearer "):]
-        try:
-            parts = raw_jwt.split(".")
-            if len(parts) >= 2:
-                payload_b64 = parts[1]
-                payload_b64 += "=" * (4 - len(payload_b64) % 4)
-                result["jwt_claims"] = json.loads(base64.urlsafe_b64decode(payload_b64))
-            else:
-                result["jwt_claims"] = {"error": f"Malformed JWT: {len(parts)} parts"}
-        except Exception as e:
-            result["jwt_claims"] = {"error": f"JWT decode failed: {e}"}
-    else:
-        result["jwt_claims"] = None
-
+    user_id = _get_current_user_id()
+    if user_id:
+        npub = _dpyc_sessions.get(user_id)
+        result["dpyc_session"] = {"active": npub is not None, "npub": npub}
     return result
 
 
@@ -800,7 +781,8 @@ async def add_file_attachment(
         return gate
     try:
         return await _with_warning(await attachments.add_file_attachment_tool(
-            get_api(), get_brain_id(brain_id), thought_id, file_path, file_name
+            get_api(), get_brain_id(brain_id), thought_id, file_path, file_name,
+            safe_directory=get_settings().attachment_safe_directory,
         ))
     except Exception:
         await _rollback_debit("add_file_attachment")
@@ -865,7 +847,8 @@ async def get_attachment_content(
         return gate
     try:
         return await _with_warning(await attachments.get_attachment_content_tool(
-            get_api(), get_brain_id(brain_id), attachment_id, save_to_path
+            get_api(), get_brain_id(brain_id), attachment_id, save_to_path,
+            safe_directory=get_settings().attachment_safe_directory,
         ))
     except Exception:
         await _rollback_debit("get_attachment_content")
