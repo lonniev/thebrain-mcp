@@ -17,7 +17,7 @@ from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayError
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.ledger_cache import LedgerCache
-from thebrain_mcp.tools import attachments, brains, credits, links, notes, stats, thoughts
+from thebrain_mcp.tools import attachments, brains, credits, links, morpher, notes, stats, thoughts
 from thebrain_mcp.utils.constants import TOOL_COSTS
 from tollbooth.vaults import TheBrainVault
 
@@ -1073,6 +1073,40 @@ async def brain_query(
         return await _with_warning(result.to_dict())
     except Exception:
         await _rollback_debit("brain_query")
+        raise
+
+
+# Morpher Tool
+
+
+@mcp.tool()
+async def morph_thought(
+    thought_id: str,
+    brain_id: str | None = None,
+    new_parent_id: str | None = None,
+    new_type_id: str | None = None,
+) -> dict[str, Any]:
+    """Atomically reparent and/or retype a thought in one operation.
+
+    Moves a thought to a new parent and/or assigns a new type. Handles
+    breaking existing parent links and creating the new parent link.
+    At least one of new_parent_id or new_type_id must be provided.
+
+    Args:
+        thought_id: The ID of the thought to morph
+        brain_id: The ID of the brain (uses active brain if not specified)
+        new_parent_id: ID of the new parent thought (replaces all current parents)
+        new_type_id: ID of the new type to assign
+    """
+    gate = await _debit_or_error("morph_thought")
+    if gate:
+        return gate
+    try:
+        return await _with_warning(await morpher.morpher_tool(
+            get_api(), get_brain_id(brain_id), thought_id, new_parent_id, new_type_id
+        ))
+    except Exception:
+        await _rollback_debit("morph_thought")
         raise
 
 
