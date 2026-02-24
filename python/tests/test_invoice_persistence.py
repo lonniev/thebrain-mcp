@@ -12,9 +12,9 @@ from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools.credits import (
     check_balance_tool,
     check_payment_tool,
-    purchase_tax_credits_tool,
     restore_credits_tool,
 )
+from tollbooth.tools.credits import purchase_tax_credits_tool
 
 
 # ---------------------------------------------------------------------------

@@ -1793,14 +1793,14 @@ async def purchase_credits(
     """Create a BTCPay Lightning invoice to purchase credits for tool calls.
 
     Every credit purchase requires an Authority-signed certificate. Obtain one
-    by calling the Tollbooth Authority's certify_purchase tool first, then pass
+    by calling the Tollbooth Authority's certify_credits tool first, then pass
     the JWT here. The invoice is created for the certificate's net_sats (the
     purchase amount minus the Authority's tax).
 
     No certificate, no invoice. No exceptions.
 
     Call flow:
-    1. Call Authority's certify_purchase(operator_id, amount_sats) → get JWT
+    1. Call Authority's certify_credits(operator_id, amount_sats) → get JWT
     2. Call purchase_credits(amount_sats, certificate=JWT) → get Lightning invoice
     3. Pay the invoice with any Lightning wallet
     4. Call check_payment(invoice_id) → credits land in your balance
@@ -1810,9 +1810,9 @@ async def purchase_credits(
 
     Args:
         amount_sats: Number of satoshis to purchase (minimum 1, maximum 1,000,000).
-            Should match the amount you passed to the Authority's certify_purchase.
+            Should match the amount you passed to the Authority's certify_credits.
             The invoice will be for net_sats from the certificate (amount minus tax).
-        certificate: Authority-signed JWT from certify_purchase. Required.
+        certificate: Authority-signed JWT from certify_credits. Required.
 
     Returns:
         invoice_id: BTCPay invoice ID (pass to check_payment after paying).
@@ -1847,7 +1847,7 @@ async def purchase_credits(
             "success": False,
             "error": (
                 "A valid Authority certificate is required for every credit purchase. "
-                "Call the Authority's certify_purchase tool first to obtain a signed JWT, "
+                "Call the Authority's certify_credits tool first to obtain a signed JWT, "
                 "then pass it as the certificate parameter. No certificate, no invoice."
             ),
         }
