@@ -25,8 +25,8 @@ from thebrain_mcp.tools.credits import (
     check_balance_tool,
     check_payment_tool,
     compute_low_balance_warning,
-    purchase_tax_credits_tool,
 )
+from tollbooth.tools.credits import purchase_tax_credits_tool
 from thebrain_mcp.utils.constants import MAX_INVOICE_SATS
 
 

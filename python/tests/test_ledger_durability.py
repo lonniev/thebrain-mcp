@@ -122,7 +122,7 @@ class TestCreditPathFlushing:
     @pytest.mark.asyncio
     async def test_purchase_credits_flushes_pending_invoice(self) -> None:
         """purchase_credits must flush to vault after adding pending invoice."""
-        from thebrain_mcp.tools.credits import purchase_tax_credits_tool
+        from tollbooth.tools.credits import purchase_tax_credits_tool
 
         cache = _make_cache()
         btcpay = _mock_btcpay({"id": "inv-42", "checkoutLink": "https://pay.example.com"})

@@ -7,7 +7,6 @@ from tollbooth.tools.credits import (  # explicit for type checkers + private na
     _get_multiplier,
     _get_tier_info,
     purchase_credits_tool,
-    purchase_tax_credits_tool,
     check_payment_tool,
     check_balance_tool,
     btcpay_status_tool,
