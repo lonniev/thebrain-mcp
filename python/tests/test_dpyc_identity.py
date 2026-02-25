@@ -160,12 +160,16 @@ async def test_activate_session_with_npub_in_vault():
     mock_vault = AsyncMock()
     mock_vault.fetch = AsyncMock(return_value="encrypted-blob")
 
+    mock_settings = MagicMock()
+    mock_settings.seed_balance_sats = 0
+
     with patch.object(srv, "_require_user_id", return_value="horizon-1"), \
          patch.object(srv, "_get_vault", return_value=mock_vault), \
          patch("thebrain_mcp.server.decrypt_credentials", return_value={
              "api_key": "key-1", "brain_id": "brain-1", "npub": SAMPLE_NPUB,
          }), \
-         patch("thebrain_mcp.server.set_session"):
+         patch("thebrain_mcp.server.set_session"), \
+         patch.object(srv, "get_settings", return_value=mock_settings):
         result = await srv.activate_session(passphrase="pass")
 
     assert result["success"] is True
