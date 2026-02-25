@@ -1915,13 +1915,13 @@ async def purchase_credits(
 
     settings = get_settings()
 
-    if not settings.authority_public_key and not settings.dpyc_authority_npub:
+    if not settings.dpyc_authority_npub:
         return {
             "success": False,
             "error": (
-                "Operator misconfigured: neither AUTHORITY_PUBLIC_KEY nor "
-                "DPYC_AUTHORITY_NPUB is set. This operator cannot sell credits "
-                "without a trusted Authority verification key."
+                "Operator misconfigured: DPYC_AUTHORITY_NPUB is not set. "
+                "This operator cannot sell credits without a trusted "
+                "Authority verification key."
             ),
         }
 
@@ -1939,7 +1939,6 @@ async def purchase_credits(
     return await credits.purchase_credits_tool(
         btcpay, cache, user_id, amount_sats,
         certificate=certificate,
-        authority_public_key=settings.authority_public_key or "",
         authority_npub=settings.dpyc_authority_npub or "",
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
@@ -2201,7 +2200,6 @@ async def btcpay_status() -> dict[str, Any]:
         tollbooth_royalty_address=settings.tollbooth_royalty_address,
         tollbooth_royalty_percent=settings.tollbooth_royalty_percent,
         tollbooth_royalty_min_sats=settings.tollbooth_royalty_min_sats,
-        authority_public_key=settings.authority_public_key,
         authority_npub=settings.dpyc_authority_npub,
         credit_ttl_seconds=settings.credit_ttl_seconds,
     )
