@@ -18,12 +18,20 @@ from thebrain_mcp.ledger_cache import LedgerCache
 def _make_cache(
     vault: AsyncMock | None = None,
     flush_interval_secs: int = 600,
+    flush_batch_size: int = 10,
+    flush_staleness_secs: float = 120.0,
 ) -> LedgerCache:
     """Create a LedgerCache with a mock vault."""
     v = vault or AsyncMock()
     v.store_ledger = AsyncMock()
     v.fetch_ledger = AsyncMock(return_value=None)
-    return LedgerCache(v, maxsize=20, flush_interval_secs=flush_interval_secs)
+    return LedgerCache(
+        v,
+        maxsize=20,
+        flush_interval_secs=flush_interval_secs,
+        flush_batch_size=flush_batch_size,
+        flush_staleness_secs=flush_staleness_secs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -225,13 +233,13 @@ class TestGracefulShutdown:
 class TestOpportunisticFlush:
     @pytest.mark.asyncio
     async def test_opportunistic_flush_after_interval(self) -> None:
-        """get() triggers flush when interval has elapsed and entries are dirty."""
-        cache = _make_cache(flush_interval_secs=0)  # interval=0 → flush on every get()
+        """get() triggers flush when staleness threshold is exceeded and entries are dirty."""
+        cache = _make_cache(flush_staleness_secs=0)  # staleness=0 → flush on next get()
         ledger = await cache.get("user-1")
         ledger.balance_sats = 500
         cache.mark_dirty("user-1")
 
-        # Next get() should trigger opportunistic flush
+        # Next get() should trigger opportunistic flush (staleness exceeded)
         await cache.get("user-1")
         cache._vault.store_ledger.assert_called_once()
         assert cache._total_flushes == 1
@@ -256,12 +264,12 @@ class TestOpportunisticFlush:
         cache._vault.store_ledger.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_health_includes_flush_check_age(self) -> None:
-        """health() includes last_flush_check_age_secs."""
+    async def test_health_includes_flush_staleness_secs(self) -> None:
+        """health() includes flush_staleness_secs configuration."""
         cache = _make_cache()
         h = cache.health()
-        assert "last_flush_check_age_secs" in h
-        assert isinstance(h["last_flush_check_age_secs"], float)
+        assert "flush_staleness_secs" in h
+        assert isinstance(h["flush_staleness_secs"], float)
 
 
 # ---------------------------------------------------------------------------

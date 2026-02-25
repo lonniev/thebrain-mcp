@@ -201,6 +201,7 @@ TOOL_COSTS: dict[str, int] = {
     "get_modifications": ToolTier.HEAVY,
     "get_thought_graph_paginated": ToolTier.HEAVY,
     "scan_orphans": ToolTier.HEAVY,
+    "event_for_person": ToolTier.HEAVY,
 }
 
 
