@@ -1276,7 +1276,7 @@ class TestBTCPayPreflight:
         mock_settings.btcpay_store_id = "store-123"
         mock_settings.btcpay_host = "https://btcpay.example.com"
         mock_settings.btcpay_api_key = "key"
-        mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
+        mock_settings.dpyc_authority_npub = "npub1somekey"
 
         with patch.object(srv, "_require_user_id", return_value="user-1"), \
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
@@ -1289,13 +1289,13 @@ class TestBTCPayPreflight:
 
     @pytest.mark.asyncio
     async def test_purchase_credits_requires_certificate_when_authority_configured(self) -> None:
-        """purchase_credits rejects calls without certificate when authority_public_key is set."""
+        """purchase_credits rejects calls without certificate when dpyc_authority_npub is set."""
         import thebrain_mcp.server as srv
 
         srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
-        mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
+        mock_settings.dpyc_authority_npub = "npub1somekey"
         mock_settings.btcpay_tier_config = None
         mock_settings.btcpay_user_tiers = None
 
@@ -1322,7 +1322,6 @@ class TestBTCPayPreflight:
         srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
-        mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
         mock_settings.dpyc_authority_npub = "npub1authority_test"
         mock_settings.btcpay_tier_config = None
         mock_settings.btcpay_user_tiers = None
@@ -1348,7 +1347,6 @@ class TestBTCPayPreflight:
         mock_certified.assert_called_once()
         call_kwargs = mock_certified.call_args
         assert call_kwargs.kwargs["certificate"] == "jwt.token.here"
-        assert call_kwargs.kwargs["authority_public_key"] == mock_settings.authority_public_key
         assert call_kwargs.kwargs["authority_npub"] == "npub1authority_test"
 
     @pytest.mark.asyncio
@@ -1359,7 +1357,6 @@ class TestBTCPayPreflight:
         srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
-        mock_settings.authority_public_key = None
         mock_settings.dpyc_authority_npub = None
         mock_settings.btcpay_tier_config = None
         mock_settings.btcpay_user_tiers = None
@@ -1377,4 +1374,4 @@ class TestBTCPayPreflight:
             result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.here")
 
         assert result["success"] is False
-        assert "AUTHORITY_PUBLIC_KEY" in result["error"] or "DPYC_AUTHORITY_NPUB" in result["error"]
+        assert "DPYC_AUTHORITY_NPUB" in result["error"]
