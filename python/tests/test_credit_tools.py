@@ -1323,6 +1323,7 @@ class TestBTCPayPreflight:
 
         mock_settings = MagicMock()
         mock_settings.authority_public_key = "-----BEGIN PUBLIC KEY-----\nMCowBQ...\n-----END PUBLIC KEY-----"
+        mock_settings.dpyc_authority_npub = "npub1authority_test"
         mock_settings.btcpay_tier_config = None
         mock_settings.btcpay_user_tiers = None
 
@@ -1348,16 +1349,18 @@ class TestBTCPayPreflight:
         call_kwargs = mock_certified.call_args
         assert call_kwargs.kwargs["certificate"] == "jwt.token.here"
         assert call_kwargs.kwargs["authority_public_key"] == mock_settings.authority_public_key
+        assert call_kwargs.kwargs["authority_npub"] == "npub1authority_test"
 
     @pytest.mark.asyncio
     async def test_purchase_credits_rejected_without_authority_key(self) -> None:
-        """purchase_credits rejects all purchases when AUTHORITY_PUBLIC_KEY is not configured."""
+        """purchase_credits rejects all purchases when no Authority verification key is configured."""
         import thebrain_mcp.server as srv
 
         srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
         mock_settings.authority_public_key = None
+        mock_settings.dpyc_authority_npub = None
         mock_settings.btcpay_tier_config = None
         mock_settings.btcpay_user_tiers = None
 
@@ -1374,4 +1377,4 @@ class TestBTCPayPreflight:
             result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.here")
 
         assert result["success"] is False
-        assert "AUTHORITY_PUBLIC_KEY" in result["error"]
+        assert "AUTHORITY_PUBLIC_KEY" in result["error"] or "DPYC_AUTHORITY_NPUB" in result["error"]
