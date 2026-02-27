@@ -156,6 +156,7 @@ TOOL_COSTS: dict[str, int] = {
     "register_credentials": ToolTier.FREE,
     "upgrade_credentials": ToolTier.FREE,
     "activate_session": ToolTier.FREE,
+    "activate_dpyc": ToolTier.FREE,        # Deprecated but still registered
     "list_brains": ToolTier.FREE,
     "purchase_credits": ToolTier.FREE,
     "check_payment": ToolTier.FREE,
