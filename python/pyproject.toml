@@ -1,6 +1,6 @@
 [project]
 name = "thebrain-mcp"
-version = "1.0.0"
+version = "1.7.0"
 description = "FastMCP server for TheBrain API - enables AI assistants to interact with TheBrain knowledge management system"
 authors = [{name = "TheBrain MCP Contributors"}]
 readme = "README.md"
