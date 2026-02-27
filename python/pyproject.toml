@@ -17,7 +17,7 @@ dependencies = [
     "cryptography>=46.0.5",
     "lark>=1.1.0",
     "cachetools>=5.3.0",
-    "tollbooth-dpyc[nostr]>=0.1.37",
+    "tollbooth-dpyc[nostr]>=0.1.38",
     "python-dateutil>=2.8.0",
 ]
 
