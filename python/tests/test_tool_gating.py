@@ -230,9 +230,9 @@ class TestToolCostsCompleteness:
         """All free tools should be cost 0."""
         free_tools = [
             "whoami", "session_status", "register_credentials",
-            "upgrade_credentials", "activate_session", "list_brains",
-            "purchase_credits", "check_payment", "check_balance",
-            "btcpay_status", "test_low_balance_warning",
+            "upgrade_credentials", "activate_session", "activate_dpyc",
+            "list_brains", "purchase_credits", "check_payment",
+            "check_balance", "btcpay_status", "test_low_balance_warning",
         ]
         for tool in free_tools:
             assert TOOL_COSTS[tool] == 0, f"{tool} should be free"
