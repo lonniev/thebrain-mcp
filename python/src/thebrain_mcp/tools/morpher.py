@@ -1,8 +1,11 @@
 """Morpher tool: atomically reparent and/or retype a thought."""
 
+import logging
 from typing import Any
 
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
+
+logger = logging.getLogger(__name__)
 
 
 async def morpher_tool(
@@ -55,7 +58,14 @@ async def morpher_tool(
         deleted_link_ids = []
         try:
             for link in parent_links:
-                await api.delete_link(brain_id, link.id)
+                try:
+                    await api.delete_link(brain_id, link.id)
+                except TheBrainAPIError as e:
+                    if "400" in str(e):
+                        # Stale graph cache: link already deleted server-side
+                        logger.debug("Link %s already gone (stale cache): %s", link.id, e)
+                    else:
+                        raise
                 deleted_link_ids.append(link.id)
 
             new_link = await api.create_link(brain_id, {
