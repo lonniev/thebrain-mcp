@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from thebrain_mcp.api.client import TheBrainAPIError
 from thebrain_mcp.api.models import SearchResult, Thought, ThoughtGraph
 from thebrain_mcp.brainquery import execute, parse
 
@@ -1810,6 +1811,78 @@ class TestDeleteExecution:
 
         assert result.success is False
         assert any("not defined" in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_delete_relationship_stale_400_tolerated(self) -> None:
+        """DELETE r tolerates HTTP 400 from stale graph cache (ghost links)."""
+        api = _mock_api()
+        alice = _thought("a1", "Alice")
+        bob = _thought("b1", "Bob")
+
+        async def name_lookup(brain_id, name):
+            if name == "Alice":
+                return alice
+            return None
+        api.get_thought_by_name = AsyncMock(side_effect=name_lookup)
+
+        from thebrain_mcp.api.models import Link
+        ghost_link = Link.model_validate({
+            "id": "ghost-link",
+            "brainId": "brain",
+            "thoughtIdA": "a1",
+            "thoughtIdB": "b1",
+            "relation": 3,  # JUMP
+        })
+        graph_with_links = _graph(alice, jumps=[bob])
+        graph_with_links.links = [ghost_link]
+        api.get_thought_graph = AsyncMock(return_value=graph_with_links)
+        api.delete_link = AsyncMock(
+            side_effect=TheBrainAPIError("HTTP 400: Bad Request")
+        )
+
+        q = parse('MATCH (a {name: "Alice"})-[r:JUMP]->(b) DELETE r')
+        q.confirm_delete = True
+        result = await execute(api, "brain", q)
+
+        assert result.success is True
+        assert len(result.deleted) == 1
+        assert result.deleted[0]["type"] == "link"
+        assert result.deleted[0]["linkId"] == "ghost-link"
+
+    @pytest.mark.asyncio
+    async def test_delete_relationship_non_400_still_fails(self) -> None:
+        """Non-400 errors on link deletion still fail the operation."""
+        api = _mock_api()
+        alice = _thought("a1", "Alice")
+        bob = _thought("b1", "Bob")
+
+        async def name_lookup(brain_id, name):
+            if name == "Alice":
+                return alice
+            return None
+        api.get_thought_by_name = AsyncMock(side_effect=name_lookup)
+
+        from thebrain_mcp.api.models import Link
+        link = Link.model_validate({
+            "id": "link-1",
+            "brainId": "brain",
+            "thoughtIdA": "a1",
+            "thoughtIdB": "b1",
+            "relation": 3,
+        })
+        graph_with_links = _graph(alice, jumps=[bob])
+        graph_with_links.links = [link]
+        api.get_thought_graph = AsyncMock(return_value=graph_with_links)
+        api.delete_link = AsyncMock(
+            side_effect=TheBrainAPIError("HTTP 500: Internal Server Error")
+        )
+
+        q = parse('MATCH (a {name: "Alice"})-[r:JUMP]->(b) DELETE r')
+        q.confirm_delete = True
+        result = await execute(api, "brain", q)
+
+        assert result.success is False
+        assert any("500" in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_delete_link_preview(self) -> None:
