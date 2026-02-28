@@ -1,35 +1,34 @@
 # TheBrain MCP Server (Python/FastMCP)
 
-A FastMCP server that enables AI assistants to interact with TheBrain's knowledge management system. This is a Python implementation using the FastMCP framework.
+A FastMCP server that gives AI agents read-write access to [TheBrain](https://www.thebrain.com/) personal knowledge graphs --- and pays for itself with Bitcoin Lightning micropayments.
 
 ## Features
 
-- **Complete TheBrain API Coverage**: 25+ tools for managing thoughts, links, attachments, and notes
-- **Natural Language Interface**: Interact with TheBrain using plain English through Claude
-- **Rich Visual Properties**: Support for colors, styling, and graphical customization
-- **File Management**: Upload and manage images, documents, and web links
-- **Full-Text Search**: Search across thoughts, notes, and attachments
-- **Brain Management**: Switch between multiple brains seamlessly
+- **49 MCP Tools**: Full CRUD on thoughts, links, attachments, notes, plus compound operations, billing, and auditing
+- **BrainQuery (BQL)**: A Cypher-subset query language for pattern-based graph operations --- `MATCH`, `CREATE`, `SET`, `MERGE`, `DELETE` in one tool call
+- **Tollbooth Monetization**: Pre-funded Lightning micropayments via BTCPay Server; zero payment friction during conversations
+- **Multi-Tenant Credential Vault**: Per-user encrypted credential storage; passphrase-activated sessions
+- **OpenTimestamps Bitcoin Anchoring**: Cryptographic proof-of-balance anchored to the Bitcoin blockchain
+- **Rich Visual Properties**: Colors, styling, and graphical customization for thoughts and links
+- **File Management**: Upload and manage images, documents, and web links as attachments
 
-## Tollbooth — API Monetization
+## Tollbooth --- API Monetization
 
 > the Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates
 
 thebrain-mcp is the first Tollbooth-powered MCP server. Tollbooth is the built-in monetization layer that lets operators charge for API usage without interrupting the client's workflow.
 
-**DPYC** is a direct rebuke of the Know Your Customer (KYC) mantra. Think of Tollbooth as the cash-only lane on an EZPass highway: sure, you *can* subject yourself and your traffic to automated scrutiny, but with Tollbooth and Lightning Network currency, you can monetize with BTC and never have to divulge your bank or financial details. Pre-fund, use, top up. No identity interrogation required.
-
 **How it works:**
 - Clients pre-fund an `api_sats` balance via Lightning Network (BTCPay Server)
-- Each tool call silently debits the balance — no per-request payment prompts
+- Each tool call silently debits the balance --- no per-request payment prompts
 - Free tools (auth, balance checks) are never gated
 - If the balance runs low, a single `purchase_credits` call tops it up
 
 **Key principles:**
-- **DPYC (Don't Pester Your Client)** — pre-funded balance means zero payment friction during conversations
-- **Lightning-native** — BTCPay Server + Lightning Network; no fiat rails, no bank details
-- **Identity-first** — layers on Horizon OAuth; never replaces auth with payment
-- **Serverless-aware** — ledger persists across ephemeral FastMCP Cloud deployments
+- **DPYC (Don't Pester Your Client)** --- pre-funded balance means zero payment friction during conversations
+- **Lightning-native** --- BTCPay Server + Lightning Network; no fiat rails, no bank details
+- **Identity-first** --- layers on Horizon OAuth; never replaces auth with payment
+- **Serverless-aware** --- ledger persists across ephemeral FastMCP Cloud deployments
 
 See the [Tollbooth protocol flow diagram](../docs/diagrams/tollbooth-protocol-flow.svg) for the full architecture.
 
@@ -37,7 +36,7 @@ See the [Tollbooth protocol flow diagram](../docs/diagrams/tollbooth-protocol-fl
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.12
 - TheBrain API key ([Get one here](https://api.bra.in))
 
 ### Setup
@@ -49,7 +48,7 @@ cd python
 
 2. Create a virtual environment:
 ```bash
-python -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
@@ -65,6 +64,34 @@ cp .env.example .env
 ```
 
 ## Configuration
+
+### Environment Variables
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `THEBRAIN_API_KEY` | Yes | Operator's TheBrain API key (for vault access) |
+| `THEBRAIN_DEFAULT_BRAIN_ID` | No | Default brain ID for STDIO mode |
+| `THEBRAIN_API_URL` | No | TheBrain API base URL (default: `https://api.bra.in`) |
+| `THEBRAIN_VAULT_BRAIN_ID` | No | Brain ID for the encrypted credential vault |
+| `BTCPAY_HOST` | No | BTCPay Server URL for credit purchases |
+| `BTCPAY_STORE_ID` | No | BTCPay store ID |
+| `BTCPAY_API_KEY` | No | BTCPay API key with invoice + payout permissions |
+| `BTCPAY_TIER_CONFIG` | No | JSON string mapping tier names to credit multipliers |
+| `BTCPAY_USER_TIERS` | No | JSON string mapping user IDs to tier names |
+| `SEED_BALANCE_SATS` | No | Free starter balance for new users (0 = disabled) |
+| `NEON_DATABASE_URL` | No | NeonVault Postgres URL for commerce ledger persistence |
+| `TOLLBOOTH_OTS_ENABLED` | No | Set to `"true"` to enable OpenTimestamps Bitcoin anchoring |
+| `TOLLBOOTH_OTS_CALENDARS` | No | Comma-separated OTS calendar server URLs |
+| `TOLLBOOTH_ROYALTY_ADDRESS` | No | Lightning Address for royalty payouts |
+| `TOLLBOOTH_ROYALTY_PERCENT` | No | Royalty percentage (default: `0.02`) |
+| `TOLLBOOTH_ROYALTY_MIN_SATS` | No | Minimum royalty payout in sats (default: `10`) |
+| `CREDIT_TTL_SECONDS` | No | Credit expiration in seconds (default: `604800` = 7 days) |
+| `DPYC_OPERATOR_NPUB` | No | Operator's Nostr public key for DPYC identity |
+| `DPYC_AUTHORITY_NPUB` | No | Authority's Nostr public key |
+| `TOLLBOOTH_NOSTR_AUDIT_ENABLED` | No | Enable Nostr audit trail |
+| `TOLLBOOTH_NOSTR_OPERATOR_NSEC` | No | Operator's Nostr secret key for audit signing |
+| `TOLLBOOTH_NOSTR_RELAYS` | No | Comma-separated Nostr relay URLs |
+| `ATTACHMENT_SAFE_DIRECTORY` | No | Filesystem path for attachment storage (default: `/tmp/thebrain-attachments`) |
 
 ### For Claude Desktop
 
@@ -100,65 +127,132 @@ Alternatively, if you installed the package:
 }
 ```
 
-## Available Tools
+## Available Tools (49)
 
-### Brain Management
-- `list_brains` - List all available brains
-- `get_brain` - Get brain details
-- `set_active_brain` - Set the active brain for operations
-- `get_brain_stats` - Get comprehensive brain statistics
+### Session & Auth (free)
+
+| Tool | Description |
+|------|-------------|
+| `whoami` | Return the authenticated user's identity and OAuth claims |
+| `register_credentials` | Encrypt and store TheBrain credentials in the operator's vault |
+| `activate_session` | Decrypt credentials with your passphrase to start a session |
+| `session_status` | Check current session state (active brain, vault, DPYC identity) |
+| `upgrade_credentials` | Re-encrypt credentials with updated API key, brain ID, or npub |
+| `activate_dpyc` | *(Deprecated)* Bind a Nostr npub to the current session |
+
+### Brain Management (1 sat)
+
+| Tool | Description |
+|------|-------------|
+| `list_brains` | List all available brains (free) |
+| `get_brain` | Get brain details by ID |
+| `set_active_brain` | Set the active brain for subsequent operations |
+| `get_brain_stats` | Get comprehensive brain statistics (thought/link/attachment counts) |
 
 ### Thought Operations
-- `create_thought` - Create thoughts with visual properties
-- `get_thought` - Retrieve thought details
-- `update_thought` - Update thought properties
-- `delete_thought` - Delete a thought
-- `search_thoughts` - Full-text search across the brain
-- `get_thought_graph` - Get thought with all connections
-- `get_types` - List all thought types
-- `get_tags` - List all tags
+
+| Tool | Cost | Description |
+|------|------|-------------|
+| `get_thought` | 1 sat | Retrieve thought details by ID |
+| `get_thought_by_name` | 1 sat | Look up a thought by exact name |
+| `search_thoughts` | 1 sat | Full-text search across the brain |
+| `get_thought_graph` | 1 sat | Get a thought with all its connections (parents, children, jumps, siblings) |
+| `get_thought_graph_paginated` | 10 sats | Paginated graph traversal for thoughts with many connections |
+| `get_types` | 1 sat | List all thought types defined in the brain |
+| `get_tags` | 1 sat | List all tags defined in the brain |
+| `create_thought` | 5 sats | Create a thought with optional type, label, colors, and parent link |
+| `update_thought` | 5 sats | Update thought properties (name, label, colors, type) |
+| `delete_thought` | 5 sats | Delete a thought by ID |
 
 ### Link Operations
-- `create_link` - Create links between thoughts with visual properties
-- `update_link` - Modify link properties
-- `get_link` - Get link details
-- `delete_link` - Remove a link
+
+| Tool | Cost | Description |
+|------|------|-------------|
+| `get_link` | 1 sat | Get link details by ID |
+| `create_link` | 5 sats | Create a link between two thoughts (child, parent, jump, sibling) |
+| `update_link` | 5 sats | Modify link properties (name, color, thickness, direction) |
+| `delete_link` | 5 sats | Remove a link by ID |
 
 ### Attachment Operations
-- `add_file_attachment` - Attach files/images to thoughts
-- `add_url_attachment` - Attach web URLs
-- `get_attachment` - Get attachment metadata
-- `get_attachment_content` - Download attachment content
-- `delete_attachment` - Remove attachments
-- `list_attachments` - List thought attachments
+
+| Tool | Cost | Description |
+|------|------|-------------|
+| `list_attachments` | 1 sat | List all attachments on a thought |
+| `get_attachment` | 1 sat | Get attachment metadata by ID |
+| `get_attachment_content` | 1 sat | Download attachment content (base64-encoded) |
+| `add_file_attachment` | 5 sats | Attach a file or image to a thought |
+| `add_url_attachment` | 5 sats | Attach a web URL to a thought |
+| `delete_attachment` | 5 sats | Remove an attachment by ID |
 
 ### Note Operations
-- `get_note` - Retrieve notes in markdown/html/text
-- `create_or_update_note` - Create or update notes
-- `append_to_note` - Append content to existing notes
 
-### Advanced Features
-- `get_modifications` - View brain modification history
+| Tool | Cost | Description |
+|------|------|-------------|
+| `get_note` | 1 sat | Retrieve a thought's note in markdown, HTML, or plain text |
+| `create_or_update_note` | 5 sats | Create or replace a thought's note (markdown) |
+| `append_to_note` | 5 sats | Append markdown content to an existing note |
 
-## Usage Examples
+### BrainQuery and Compound Operations
 
-### Basic Usage
+| Tool | Cost | Description |
+|------|------|-------------|
+| `brain_query` | 10 sats | Execute a BQL (Cypher-subset) query --- the primary tool for pattern-based graph operations |
+| `morph_thought` | 5 sats | Atomically reparent and/or retype a thought in one operation |
+| `scan_orphans` | 10 sats | Scan for orphaned thoughts with zero connections; optionally rescue them |
+| `event_for_person` | 10 sats | Create an Event linked to a Person and a calendar Day in one action |
+| `get_modifications` | 10 sats | View brain modification history (creates, deletes, renames, etc.) |
 
-```python
-# In Claude Desktop or via MCP client:
+### Credit & Billing (free unless noted)
 
-# Set your active brain
-"Set my active brain to My Knowledge Base"
+| Tool | Cost | Description |
+|------|------|-------------|
+| `purchase_credits` | free | Generate a Lightning invoice to top up your credit balance |
+| `check_payment` | free | Check the status of a pending Lightning invoice |
+| `check_balance` | free | View your current credit balance and session stats |
+| `account_statement` | free | Detailed transaction history for the last N days |
+| `account_statement_infographic` | 1 sat | Visual SVG infographic of your account activity |
+| `restore_credits` | free | Recover credits from a paid invoice that was not credited |
+| `test_low_balance_warning` | free | Simulate a low-balance warning (testing/debug) |
+| `btcpay_status` | free | Check BTCPay Server connectivity and configuration |
 
-# Create a project structure
-"Create a project called 'Kitchen Renovation' with phases for planning, demolition, and installation"
+### Operator & Auditing
 
-# Add rich content
-"Add a detailed note about the timeline to the planning phase"
+| Tool | Cost | Description |
+|------|------|-------------|
+| `anchor_ledger` | free | Anchor all ledger balances to Bitcoin via OpenTimestamps (operator-only) |
+| `get_anchor_proof` | 1 sat | Get a Merkle inclusion proof for your balance in a Bitcoin anchor |
+| `list_anchors` | free | List recent Bitcoin anchor records with status and patron counts |
 
-# Search your brain
-"Find all thoughts related to contractors"
+## BrainQuery (BQL)
+
+`brain_query` is the marquee tool --- a Cypher-subset query language purpose-built for TheBrain. Agents and humans express graph operations in the same formalism:
+
+```cypher
+-- Find children of a thought
+MATCH (n {name: "Projects"})-[:CHILD]->(m) RETURN m
+
+-- Fuzzy search with similarity ranking
+MATCH (n) WHERE n.name =~ "quarterly review" RETURN n
+
+-- Create a thought under an existing parent
+MATCH (p {name: "Ideas"}) CREATE (p)-[:CHILD]->(n {name: "New Concept"})
+
+-- Variable-length path traversal (1-3 hops deep)
+MATCH (root {name: "Company"})-[:CHILD*1..3]->(d) WHERE d.name CONTAINS "Budget" RETURN d
+
+-- Upsert with conditional SET
+MERGE (p {name: "Weekly Review"})
+ON CREATE SET p.label = "Created by agent"
+ON MATCH SET p.label = "Updated by agent"
+RETURN p
+
+-- Delete with preview (dry-run by default, confirm=true to execute)
+MATCH (n {name: "Old Note"}) DELETE n
 ```
+
+BQL supports `MATCH`, `CREATE`, `SET`, `MERGE`, `DELETE`, `WHERE` (with `AND`/`OR`/`NOT`/`XOR`, `IS NULL`/`IS NOT NULL`), variable-length paths (`*1..3`), multi-hop chains, wildcard and union relation types, and property existence checks.
+
+Full grammar, resolution strategy, and examples: **[BRAINQUERY.md](BRAINQUERY.md)**
 
 ## DPYC Identity (Nostr npub)
 
@@ -178,20 +272,21 @@ DPYC_OPERATOR_NPUB=npub1...
 DPYC_AUTHORITY_NPUB=npub1...   # the Authority this Operator is registered with
 ```
 
-Users provide their own npub at session time via `activate_dpyc()` — no env var needed.
+Users provide their own npub at registration time via `register_credentials()`.
 
 ## Development
 
 ### Running Tests
 
 ```bash
-pytest
+cd python
+venv/bin/pytest
 ```
 
 ### Type Checking
 
 ```bash
-mypy src/thebrain_mcp
+venv/bin/mypy src/thebrain_mcp
 ```
 
 ### Code Formatting
@@ -203,9 +298,11 @@ ruff check src/ tests/
 
 ## Known Limitations
 
-- **Visual styling issues**: Some visual properties (colors, link thickness) may not apply consistently due to TheBrain API limitations
-- **Large files**: Very large attachments may timeout
-- **Long notes**: Keep notes under 10,000 characters for best results
+- **TheBrain search index is incomplete**: The cloud search index covers a subset of thoughts (typically older/synced ones). Newer thoughts may not appear in `search_thoughts`. Use `get_thought_graph` traversal or BQL scoped paths for reliable access.
+- **Graph endpoint caches stale link data**: Azure App Service caching can cause `get_thought_graph` to return deleted links or hide newly created links. The BQL planner tolerates this.
+- **Visual styling issues**: Some visual properties (colors, link thickness) may not apply consistently due to TheBrain API limitations.
+- **Large files**: Very large attachments may timeout.
+- **Long notes**: Keep notes under 10,000 characters for best results.
 
 ## Prior Art & Attribution
 
