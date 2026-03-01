@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     thebrain_api_key: str
     thebrain_default_brain_id: str | None = None
     thebrain_api_url: str = "https://api.bra.in"
-    thebrain_vault_brain_id: str | None = None
 
     btcpay_host: str | None = None
     btcpay_store_id: str | None = None

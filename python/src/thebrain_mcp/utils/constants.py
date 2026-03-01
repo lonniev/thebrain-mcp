@@ -153,10 +153,9 @@ TOOL_COSTS: dict[str, int] = {
     # Free (0 sats) — never gated
     "whoami": ToolTier.FREE,
     "session_status": ToolTier.FREE,
-    "register_credentials": ToolTier.FREE,
-    "upgrade_credentials": ToolTier.FREE,
-    "activate_session": ToolTier.FREE,
-    "activate_dpyc": ToolTier.FREE,        # Deprecated but still registered
+    "request_credential_channel": ToolTier.FREE,
+    "receive_credentials": ToolTier.FREE,
+    "forget_credentials": ToolTier.FREE,
     "list_brains": ToolTier.FREE,
     "purchase_credits": ToolTier.FREE,
     "check_payment": ToolTier.FREE,

@@ -19,16 +19,10 @@ from thebrain_mcp.config import get_settings
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools import attachments, brains, credits, links, morpher, notes, orphanage, stats, thoughts, whowhen
 from thebrain_mcp.utils.constants import TOOL_COSTS
-from tollbooth.vaults import TheBrainVault
 
 from thebrain_mcp.vault import (
-    CredentialNotFoundError,
-    CredentialVault,
     CredentialValidationError,
-    DecryptionError,
     VaultNotConfiguredError,
-    decrypt_credentials,
-    encrypt_credentials,
     get_session,
     set_session,
 )
@@ -52,16 +46,13 @@ mcp = FastMCP(
         "variables, no local install, just connect.\n\n"
         "## Getting Started\n\n"
         "1. Call `session_status` to check your current session.\n"
-        "2. If no active session, you need to register:\n"
-        "   - Get a TheBrain API key at https://api.bra.in\n"
-        "   - Find your brain ID in TheBrain's settings\n"
-        "   - Get your DPYC npub from the dpyc-oracle's how_to_join() tool\n"
-        "   - Call `register_credentials(api_key, brain_id, passphrase, npub)`\n"
-        "3. Returning users: call `activate_session(passphrase)` each session "
-        "(your npub is auto-activated from the vault).\n"
-        "4. Legacy users (registered before npub was required): call "
-        "`activate_session(passphrase)` then `upgrade_credentials(passphrase, npub)` "
-        "to add your npub without re-entering your API key.\n\n"
+        "2. If no active session, follow the Secure Courier onboarding flow:\n"
+        "   - Get your Nostr npub from the dpyc-oracle's how_to_join() tool\n"
+        "   - Call `request_credential_channel(recipient_npub=<npub>)` to receive a welcome DM\n"
+        "   - Reply via your Nostr client with your TheBrain API key and brain ID in JSON\n"
+        "   - Call `receive_credentials(sender_npub=<npub>)` to vault your credentials\n"
+        "3. Returning users: call `receive_credentials(sender_npub=<npub>)` — vault-first "
+        "lookup activates instantly, no relay I/O needed.\n\n"
         "## Starter Credits\n\n"
         "First-time users receive a seed balance on registration — enough to "
         "explore your brain without purchasing credits up front.\n\n"
@@ -207,8 +198,10 @@ def _get_effective_user_id() -> str:
     if not npub:
         raise ValueError(
             "No DPYC identity active. Credit operations require an npub. "
-            "Call register_credentials (first time) or activate_session (returning user) "
-            "with your npub. Get one from the dpyc-oracle's how_to_join() tool."
+            "Follow the Secure Courier onboarding flow: call "
+            "request_credential_channel(recipient_npub=<npub>), reply via Nostr DM, "
+            "then call receive_credentials(sender_npub=<npub>). "
+            "Get your npub from the dpyc-oracle's how_to_join() tool."
         )
     return npub
 
@@ -237,8 +230,9 @@ def get_api() -> TheBrainAPI:
         if session:
             return session.api_client
         raise ValueError(
-            "No active session. Call register_credentials (first time) "
-            "or activate_session (returning user) to use your own TheBrain credentials."
+            "No active session. Follow the Secure Courier onboarding flow "
+            "(see session_status) or call receive_credentials(sender_npub=<npub>) "
+            "if you've already delivered credentials."
         )
 
     # STDIO mode (local dev): use operator's client
@@ -1227,258 +1221,22 @@ async def event_for_person(
         raise
 
 
-# Credential Vault Tools
+# ---------------------------------------------------------------------------
+# Onboarding guidance (included in session_status for Claude self-guidance)
+# ---------------------------------------------------------------------------
+
+_ONBOARDING_NEXT_STEPS = {
+    "action": "secure_courier_onboarding",
+    "step_1": "Ask the user for their Nostr npub. They can get one from the dpyc-oracle's how_to_join() tool.",
+    "step_2": "Call request_credential_channel(recipient_npub=<npub>) to send a welcome DM.",
+    "step_3": "Tell the user to open their Nostr client and reply with their TheBrain API key and brain ID in JSON format. Credentials must NEVER appear in this chat.",
+    "step_4": "Once the user confirms they replied, call receive_credentials(sender_npub=<npub>) to vault the credentials.",
+}
 
 
-@mcp.tool()
-async def register_credentials(
-    thebrain_api_key: str,
-    brain_id: str,
-    passphrase: str,
-    npub: str,
-) -> dict[str, Any]:
-    """Register your TheBrain credentials for multi-tenant access.
-
-    First-time setup: encrypts your API key with your passphrase and stores
-    the encrypted blob in the operator's credential vault. The passphrase is
-    never stored — you will need it each session to activate access.
-
-    Your DPYC npub (Nostr public key) is required — it serves as your
-    persistent identity for credit operations. Obtain one from the
-    dpyc-oracle's how_to_join() tool if you don't have one yet.
-
-    Args:
-        thebrain_api_key: Your personal TheBrain API key
-        brain_id: The ID of your TheBrain brain
-        passphrase: A passphrase to encrypt your credentials (remember this!)
-        npub: Your Nostr public key in bech32 format (npub1...). Required for
-            credit operations. Get one via the dpyc-oracle's how_to_join() tool.
-    """
-    # Validate npub format
-    if not npub.startswith("npub1") or len(npub) < 60:
-        return {
-            "success": False,
-            "error": (
-                "Invalid npub format. Must start with 'npub1' and be at least 60 characters. "
-                "Get your npub from the dpyc-oracle's how_to_join() tool."
-            ),
-        }
-
-    try:
-        user_id = _require_user_id()
-        vault = _get_vault()
-    except (ValueError, VaultNotConfiguredError) as e:
-        return {"success": False, "error": str(e)}
-
-    # Validate the provided API key by attempting to access the brain
-    test_api = TheBrainAPI(thebrain_api_key)
-    try:
-        await test_api.get_brain(brain_id)
-    except Exception:
-        return {"success": False, "error": "Invalid API key or brain ID."}
-    finally:
-        await test_api.close()
-
-    # Encrypt and store (v2 blob includes npub)
-    blob = encrypt_credentials(thebrain_api_key, brain_id, passphrase, npub=npub)
-    thought_id = await vault.store(user_id, blob)
-
-    # Activate session immediately
-    set_session(user_id, thebrain_api_key, brain_id)
-
-    # Auto-activate DPYC identity
-    _dpyc_sessions[user_id] = npub
-
-    # Seed starter balance for new users (idempotent via sentinel)
-    # Seed keyed by npub (the effective credit identity)
-    seed_sats = get_settings().seed_balance_sats
-    seed_applied = False
-    if seed_sats > 0:
-        try:
-            cache = _get_ledger_cache()
-            ledger = await cache.get(npub)
-            sentinel = "seed_balance_v1"
-            if sentinel not in ledger.credited_invoices:
-                ledger.credit_deposit(seed_sats, sentinel)
-                cache.mark_dirty(npub)
-                await cache.flush_user(npub)
-                seed_applied = True
-        except Exception:
-            pass  # Seed failure never blocks registration
-
-    result: dict[str, Any] = {
-        "success": True,
-        "message": "Credentials registered and session activated.",
-        "userId": user_id,
-        "brainId": brain_id,
-        "dpyc_npub": npub,
-        "vaultThoughtId": thought_id,
-    }
-    if seed_applied:
-        result["seed_applied"] = True
-        result["seed_balance_api_sats"] = seed_sats
-    return result
-
-
-@mcp.tool()
-async def upgrade_credentials(
-    passphrase: str,
-    npub: str,
-) -> dict[str, Any]:
-    """Upgrade existing vault credentials to include your DPYC npub.
-
-    Use this if you registered before npub was required and activate_session
-    shows a dpyc_warning. Reads your active session's api_key and brain_id,
-    re-encrypts with npub, and stores the updated blob. No need to re-enter
-    your API key or brain ID.
-
-    Requires an active session — call activate_session(passphrase) first.
-
-    Args:
-        passphrase: The passphrase you used when registering credentials
-        npub: Your Nostr public key in bech32 format (npub1...). Required for
-            credit operations. Get one via the dpyc-oracle's how_to_join() tool.
-    """
-    # Validate npub format
-    if not npub.startswith("npub1") or len(npub) < 60:
-        return {
-            "success": False,
-            "error": (
-                "Invalid npub format. Must start with 'npub1' and be at least 60 characters. "
-                "Get your npub from the dpyc-oracle's how_to_join() tool."
-            ),
-        }
-
-    try:
-        user_id = _require_user_id()
-    except ValueError as e:
-        return {"success": False, "error": str(e)}
-
-    # Require an active session (so we can read api_key and brain_id)
-    session = get_session(user_id)
-    if session is None:
-        return {
-            "success": False,
-            "error": (
-                "No active session. Call activate_session(passphrase) first "
-                "to decrypt your existing credentials, then retry upgrade_credentials."
-            ),
-        }
-
-    try:
-        vault = _get_vault()
-    except VaultNotConfiguredError as e:
-        return {"success": False, "error": str(e)}
-
-    # Re-encrypt with npub included (v2 blob)
-    blob = encrypt_credentials(session.api_key, session.brain_id, passphrase, npub=npub)
-    await vault.store(user_id, blob)
-
-    # Activate DPYC identity
-    _dpyc_sessions[user_id] = npub
-
-    # Seed starter balance for new DPYC identities (idempotent via sentinel)
-    seed_sats = get_settings().seed_balance_sats
-    seed_applied = False
-    if seed_sats > 0:
-        try:
-            cache = _get_ledger_cache()
-            ledger = await cache.get(npub)
-            sentinel = "seed_balance_v1"
-            if sentinel not in ledger.credited_invoices:
-                ledger.credit_deposit(seed_sats, sentinel)
-                cache.mark_dirty(npub)
-                await cache.flush_user(npub)
-                seed_applied = True
-        except Exception:
-            pass  # Seed failure never blocks upgrade
-
-    result: dict[str, Any] = {
-        "success": True,
-        "message": (
-            "Credentials upgraded with npub. DPYC identity activated. "
-            "All paid tools are now available."
-        ),
-        "brainId": session.brain_id,
-        "dpyc_npub": npub,
-    }
-    if seed_applied:
-        result["seed_applied"] = True
-        result["seed_balance_api_sats"] = seed_sats
-    return result
-
-
-@mcp.tool()
-async def activate_session(passphrase: str) -> dict[str, Any]:
-    """Activate your personal TheBrain session by decrypting stored credentials.
-
-    Call this at the start of each session. Provide the same passphrase you
-    used during register_credentials.
-
-    Args:
-        passphrase: The passphrase you used when registering credentials
-    """
-    try:
-        user_id = _require_user_id()
-        vault = _get_vault()
-        blob = await vault.fetch(user_id)
-        creds = decrypt_credentials(blob, passphrase)
-    except ValueError as e:
-        return {"success": False, "error": str(e)}
-    except VaultNotConfiguredError as e:
-        return {"success": False, "error": str(e)}
-    except CredentialNotFoundError as e:
-        return {"success": False, "error": str(e)}
-    except DecryptionError as e:
-        return {"success": False, "error": str(e)}
-
-    set_session(user_id, creds["api_key"], creds["brain_id"])
-
-    # Auto-activate DPYC identity from vault blob
-    npub = creds.get("npub")
-    dpyc_warning = None
-    if npub:
-        _dpyc_sessions[user_id] = npub
-    else:
-        dpyc_warning = (
-            "Your vault credentials were registered before npub was required. "
-            "Credit operations will not work until you upgrade with "
-            "upgrade_credentials(passphrase, npub) — no need to re-enter "
-            "your API key or brain ID. "
-            "Get your npub from the dpyc-oracle's how_to_join() tool."
-        )
-
-    # Seed starter balance for returning users whose vault ledger was lost
-    # (e.g. after vault consolidation). Idempotent via sentinel.
-    seed_applied = False
-    if npub:
-        seed_sats = get_settings().seed_balance_sats
-        if seed_sats > 0:
-            try:
-                cache = _get_ledger_cache()
-                ledger = await cache.get(npub)
-                sentinel = "seed_balance_v1"
-                if sentinel not in ledger.credited_invoices:
-                    ledger.credit_deposit(seed_sats, sentinel)
-                    cache.mark_dirty(npub)
-                    await cache.flush_user(npub)
-                    seed_applied = True
-            except Exception:
-                pass  # Non-fatal — user can still purchase credits
-
-    result: dict[str, Any] = {
-        "success": True,
-        "message": "Session activated. All tools now use your personal credentials.",
-        "brainId": creds["brain_id"],
-    }
-    if npub:
-        result["dpyc_npub"] = npub
-    if dpyc_warning:
-        result["dpyc_warning"] = dpyc_warning
-    if seed_applied:
-        result["seed_applied"] = True
-        result["seed_balance_api_sats"] = seed_sats
-    return result
+# ---------------------------------------------------------------------------
+# Session status
+# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
@@ -1487,6 +1245,11 @@ async def session_status() -> dict[str, Any]:
 
     Shows whether you have an active personal session or are using
     the operator's default credentials. Also shows DPYC identity state.
+
+    If no credentials are registered, the response includes a next_steps
+    guide for the Secure Courier onboarding flow — follow it to register
+    the user's TheBrain credentials via encrypted Nostr DM (credentials
+    never appear in chat).
     """
     user_id = _get_current_user_id()
 
@@ -1506,9 +1269,12 @@ async def session_status() -> dict[str, Any]:
         else:
             result["mode"] = "not activated"
             result["message"] = (
-                "Call register_credentials (first time) "
-                "or activate_session (returning user)."
+                "No active session. Follow the next_steps to onboard via "
+                "Secure Courier — credentials travel via encrypted Nostr DM "
+                "and never appear in this chat. Returning users: call "
+                "receive_credentials(sender_npub=<npub>) to activate instantly."
             )
+            result["next_steps"] = _ONBOARDING_NEXT_STEPS
 
         # DPYC identity
         dpyc_npub = _dpyc_sessions.get(user_id)
@@ -1519,42 +1285,229 @@ async def session_status() -> dict[str, Any]:
             result["effective_credit_id"] = None
             result["dpyc_warning"] = (
                 "No DPYC identity active. Credit operations require an npub. "
-                "Call register_credentials with your npub, or activate_session "
-                "if your vault already contains one."
+                "Follow the Secure Courier onboarding flow (see next_steps)."
             )
 
     return result
 
 
 # ---------------------------------------------------------------------------
-# DPYC Identity Tools
+# Secure Courier — credential delivery via encrypted Nostr DM
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
-async def activate_dpyc(npub: str) -> dict[str, Any]:
-    """Deprecated — npub is now set via register_credentials.
+async def _on_thebrain_credentials_received(
+    sender_npub: str, credentials: dict[str, str], service: str,
+) -> dict[str, Any] | None:
+    """Operator callback: activate session + DPYC identity after credential receipt.
 
-    Your npub is stored in the encrypted vault alongside your TheBrain
-    credentials and auto-activated by activate_session. Use
-    register_credentials(api_key, brain_id, passphrase, npub) to set up
-    your identity. Get your npub from the dpyc-oracle's how_to_join() tool.
-
-    Args:
-        npub: Ignored — use register_credentials instead.
+    Validates the API key + brain ID against TheBrain API, then activates
+    the in-memory session, maps the DPYC npub, and seeds the starter balance.
     """
-    return {
-        "success": False,
-        "error": (
-            "activate_dpyc is deprecated. Your npub is now stored in the vault "
-            "and auto-activated by activate_session. Re-register with "
-            "register_credentials(api_key, brain_id, passphrase, npub) to "
-            "include your npub. Get one from the dpyc-oracle's how_to_join() tool."
+    result: dict[str, Any] = {}
+
+    user_id = _get_current_user_id()
+    if not user_id:
+        return result
+
+    if not all(k in credentials for k in ("api_key", "brain_id")):
+        return result
+
+    api_key = credentials["api_key"]
+    brain_id = credentials["brain_id"]
+
+    # Validate credentials against TheBrain API
+    test_api = TheBrainAPI(api_key)
+    try:
+        await test_api.get_brain(brain_id)
+    except Exception:
+        result["session_activated"] = False
+        result["error"] = "Invalid API key or brain ID."
+        return result
+    finally:
+        await test_api.close()
+
+    set_session(user_id, api_key, brain_id)
+    _dpyc_sessions[user_id] = sender_npub
+    result["session_activated"] = True
+    result["dpyc_npub"] = sender_npub
+
+    # Seed starter balance (idempotent via sentinel)
+    seed_applied = await _seed_balance(sender_npub)
+    if seed_applied:
+        result["seed_applied"] = True
+        result["seed_balance_api_sats"] = get_settings().seed_balance_sats
+
+    return result
+
+
+_courier_service = None
+
+
+def _get_courier_service():
+    """Get or create the SecureCourierService singleton."""
+    global _courier_service
+    if _courier_service is not None:
+        return _courier_service
+
+    from tollbooth.credential_templates import CredentialTemplate, FieldSpec
+    from tollbooth.nostr_credentials import NostrProfile
+    from tollbooth.secure_courier import SecureCourierService
+    from tollbooth.vaults import NeonCredentialVault
+
+    settings = get_settings()
+
+    nsec = settings.tollbooth_nostr_operator_nsec
+    if not nsec:
+        raise ValueError(
+            "Secure Courier not configured. "
+            "Set TOLLBOOTH_NOSTR_OPERATOR_NSEC to enable credential delivery via Nostr DM."
+        )
+
+    relays_str = settings.tollbooth_nostr_relays or "wss://relay.primal.net,wss://relay.damus.io,wss://nos.lol"
+    relays = [r.strip() for r in relays_str.split(",") if r.strip()]
+
+    templates = {
+        "thebrain": CredentialTemplate(
+            service="thebrain",
+            version=2,
+            fields={
+                "api_key": FieldSpec(required=True, sensitive=True),
+                "brain_id": FieldSpec(required=True, sensitive=False),
+            },
+            description="TheBrain API key and brain ID for personal knowledge graph access",
         ),
     }
 
+    # Credential vault backed by the same NeonVault used for commerce
+    commerce_vault = _get_commerce_vault()
+    # commerce_vault may be wrapped in AuditedVault; unwrap to get the NeonVault
+    neon_vault = commerce_vault
+    if hasattr(neon_vault, "_vault"):
+        neon_vault = neon_vault._vault
+    credential_vault = NeonCredentialVault(neon_vault=neon_vault)
 
-_CREDENTIAL_VAULT_HOME = "529bd3cb-59cb-42b9-b360-f0963f1b1c0f"
+    _courier_service = SecureCourierService(
+        operator_nsec=nsec,
+        relays=relays,
+        templates=templates,
+        credential_vault=credential_vault,
+        profile=NostrProfile(
+            name="thebrain-mcp",
+            display_name="Personal Brain MCP",
+            about=(
+                "AI agent access to your personal knowledge graph — "
+                "Tollbooth DPYC monetized, Nostr-native. "
+                "Send credentials via encrypted DM (Secure Courier)."
+            ),
+            website="https://github.com/lonniev/thebrain-mcp",
+        ),
+        on_credentials_received=_on_thebrain_credentials_received,
+    )
+
+    return _courier_service
+
+
+@mcp.tool()
+async def request_credential_channel(
+    service: str = "thebrain",
+    recipient_npub: str | None = None,
+) -> dict[str, Any]:
+    """Open a Secure Courier channel for out-of-band credential delivery.
+
+    If you provide your npub, the service sends you a welcome DM — just
+    open your Nostr client and reply to it with your credentials. No need
+    to copy-paste an npub or compose a new message.
+
+    How it works:
+    1. Call this tool with your npub — a welcome DM arrives in your Nostr inbox.
+    2. Open your Nostr client (Primal, Damus, Amethyst, etc.).
+    3. Reply to the welcome message with a JSON payload: {"api_key": "...", "brain_id": "..."}
+    4. Return here and call receive_credentials with your npub.
+
+    Your credentials never appear in this chat — they travel on a
+    separate, encrypted Nostr channel (the "diplomatic pouch").
+
+    Args:
+        service: Which credential template to use (default "thebrain").
+        recipient_npub: Your Nostr public key (npub1...). If provided, you'll
+            receive a welcome DM to reply to instead of composing from scratch.
+    """
+    try:
+        courier = _get_courier_service()
+    except (ValueError, RuntimeError) as e:
+        return {"success": False, "error": str(e)}
+
+    try:
+        return await courier.open_channel(
+            service,
+            greeting=(
+                "Hi — I'm Personal Brain MCP, a Tollbooth service for AI agent "
+                "access to your TheBrain knowledge graph. You (or your AI agent) "
+                "requested a credential channel."
+            ),
+            recipient_npub=recipient_npub,
+        )
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def receive_credentials(
+    sender_npub: str,
+    service: str = "thebrain",
+) -> dict[str, Any]:
+    """Pick up credentials delivered via the Secure Courier.
+
+    If you've previously delivered credentials for this service, they'll
+    be returned from the encrypted vault without any relay I/O (instant).
+
+    If this is your first time, the tool checks Nostr relays for your
+    encrypted DM, validates it against the template, stores it in the
+    vault for future sessions, and activates your session.
+
+    Credential values are NEVER echoed back — only the field count and
+    service name are returned.
+
+    Args:
+        sender_npub: Your Nostr public key (npub1...) — the one you
+            sent the DM from.
+        service: Which credential template to match (default "thebrain").
+    """
+    try:
+        courier = _get_courier_service()
+    except (ValueError, RuntimeError) as e:
+        return {"success": False, "error": str(e)}
+
+    try:
+        return await courier.receive(sender_npub, service=service)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def forget_credentials(sender_npub: str, service: str = "thebrain") -> dict[str, Any]:
+    """Delete vaulted credentials so you can re-deliver via Secure Courier.
+
+    Use this when you've rotated your API keys and need to send fresh
+    credentials through the diplomatic pouch.
+
+    Args:
+        sender_npub: Your Nostr public key (npub1...).
+        service: Which service's credentials to forget (default "thebrain").
+    """
+    try:
+        courier = _get_courier_service()
+    except (ValueError, RuntimeError) as e:
+        return {"success": False, "error": str(e)}
+
+    return await courier.forget(sender_npub, service=service)
+
+
+# ---------------------------------------------------------------------------
+# Vault + credit infrastructure singletons
+# ---------------------------------------------------------------------------
+
 _COMMERCE_VAULT_HOME = "4a6ebe9b-88a8-48a8-b0e0-9be688d81f45"
 
 # BTCPay / credit singletons (lazy-initialized)
@@ -1572,44 +1525,35 @@ def _require_user_id() -> str:
     return user_id
 
 
-_credential_vault: TheBrainVault | None = None
-
-
-def _get_credential_vault() -> TheBrainVault:
-    """Singleton TheBrainVault for credential storage."""
-    global _credential_vault
-    if _credential_vault is not None:
-        return _credential_vault
+async def _seed_balance(npub: str) -> bool:
+    """Apply seed balance for a new user (idempotent via sentinel)."""
     settings = get_settings()
-    vault_brain_id = settings.thebrain_vault_brain_id
-    if not vault_brain_id:
-        raise VaultNotConfiguredError(
-            "Vault brain not configured. Operator must set THEBRAIN_VAULT_BRAIN_ID."
-        )
-    _credential_vault = TheBrainVault(
-        api_key=settings.thebrain_api_key,
-        brain_id=vault_brain_id,
-        home_thought_id=_CREDENTIAL_VAULT_HOME,
-    )
-    return _credential_vault
-
-
-def _get_vault() -> CredentialVault:
-    """Get a configured CredentialVault instance."""
-    return CredentialVault(vault=_get_credential_vault())
+    if settings.seed_balance_sats <= 0:
+        return False
+    try:
+        cache = _get_ledger_cache()
+        ledger = await cache.get(npub)
+        sentinel = "seed_balance_v1"
+        if sentinel not in ledger.credited_invoices:
+            ledger.credit_deposit(settings.seed_balance_sats, sentinel)
+            cache.mark_dirty(npub)
+            await cache.flush_user(npub)
+            return True
+    except Exception:
+        pass
+    return False
 
 
 _commerce_vault: Any = None
 
 
 def _get_commerce_vault() -> Any:
-    """Singleton vault for commerce ledgers.
+    """Singleton NeonVault for commerce ledgers.
 
-    Primary: NeonVault (if NEON_DATABASE_URL is set) — fast, ACID, append-only journal.
-    Fallback: TheBrainVault (legacy) — if NEON_DATABASE_URL is not set.
-    Optional: Wrapped with AuditedVault for Nostr audit trail when configured.
+    Requires NEON_DATABASE_URL. Optional: Wrapped with AuditedVault for
+    Nostr audit trail when configured.
 
-    Raises VaultNotConfiguredError if neither backend is configured.
+    Raises VaultNotConfiguredError if not configured.
     """
     global _commerce_vault
     if _commerce_vault is not None:
@@ -1617,33 +1561,31 @@ def _get_commerce_vault() -> Any:
 
     settings = get_settings()
 
-    # Primary: NeonVault (if configured)
-    if settings.neon_database_url:
-        from tollbooth.vaults import NeonVault
-
-        vault: Any = NeonVault(database_url=settings.neon_database_url)
-        # ensure_schema is idempotent — safe on every cold start
-        import asyncio
-
-        try:
-            asyncio.ensure_future(vault.ensure_schema())
-        except RuntimeError:
-            pass  # No running event loop yet (e.g. during test setup)
-        logger.info("NeonVault initialized for ledger persistence.")
-    else:
-        # Fallback: TheBrainVault (legacy)
-        vault_brain_id = settings.thebrain_vault_brain_id
-        if not vault_brain_id:
-            raise VaultNotConfiguredError(
-                "Vault not configured. Set NEON_DATABASE_URL (preferred) "
-                "or THEBRAIN_VAULT_BRAIN_ID (legacy)."
-            )
-        vault = TheBrainVault(
-            api_key=settings.thebrain_api_key,
-            brain_id=vault_brain_id,
-            home_thought_id=_COMMERCE_VAULT_HOME,
+    if not settings.neon_database_url:
+        raise VaultNotConfiguredError(
+            "Commerce vault not configured. Set NEON_DATABASE_URL to enable credits."
         )
-        logger.info("TheBrainVault initialized for ledger persistence (legacy fallback).")
+
+    from tollbooth.vaults import NeonVault
+
+    vault: Any = NeonVault(database_url=settings.neon_database_url)
+    # ensure_schema is idempotent — safe on every cold start
+    import asyncio
+
+    try:
+        asyncio.ensure_future(vault.ensure_schema())
+    except RuntimeError:
+        pass  # No running event loop yet (e.g. during test setup)
+    logger.info("NeonVault initialized for ledger persistence.")
+
+    # Also ensure credential vault schema
+    from tollbooth.vaults import NeonCredentialVault
+
+    cred_vault = NeonCredentialVault(neon_vault=vault)
+    try:
+        asyncio.ensure_future(cred_vault.ensure_schema())
+    except RuntimeError:
+        pass
 
     # Optional: Nostr audit decorator
     if settings.tollbooth_nostr_audit_enabled == "true":
