@@ -1,7 +1,7 @@
 """Tests verifying that auth/identity tools are zero-cost.
 
 The bootstrap deadlock scenario: a user at 0 balance must be able to
-activate_session -> purchase_credits -> check_payment without being
+receive_credentials -> purchase_credits -> check_payment without being
 blocked by insufficient-balance errors. This file proves that every
 auth/identity/diagnostic tool in the TOOL_COSTS table resolves to
 0 api_sats, and that _debit_or_error lets them through even when
@@ -70,10 +70,9 @@ def _activate_dpyc(horizon_id: str, npub: str = SAMPLE_NPUB):
 AUTH_IDENTITY_TOOLS = [
     "whoami",
     "session_status",
-    "register_credentials",
-    "upgrade_credentials",
-    "activate_session",
-    "activate_dpyc",
+    "request_credential_channel",
+    "receive_credentials",
+    "forget_credentials",
 ]
 
 
@@ -144,7 +143,7 @@ class TestZeroBalanceGating:
 
 
 BOOTSTRAP_TOOLS = [
-    "activate_session",
+    "receive_credentials",
     "session_status",
     "whoami",
     "purchase_credits",
@@ -155,7 +154,7 @@ BOOTSTRAP_TOOLS = [
 
 class TestBootstrapPath:
     """A user at 0 balance must be able to walk the full bootstrap path:
-    activate_session -> purchase_credits -> check_payment.
+    receive_credentials -> purchase_credits -> check_payment.
     All of these tools are FREE, so none should be gated."""
 
     @pytest.mark.asyncio
@@ -217,8 +216,8 @@ class TestNoDebitRecorded:
     """Free tools must not leave any usage footprint on the ledger."""
 
     @pytest.mark.asyncio
-    async def test_activate_session_no_debit_at_positive_balance(self) -> None:
-        """Even with positive balance, activate_session should debit 0."""
+    async def test_receive_credentials_no_debit_at_positive_balance(self) -> None:
+        """Even with positive balance, receive_credentials should debit 0."""
         from thebrain_mcp.server import _debit_or_error
 
         ledger = _ledger_with_balance(1000)
@@ -226,7 +225,7 @@ class TestNoDebitRecorded:
         _activate_dpyc("user-1")
 
         with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
-            result = await _debit_or_error("activate_session")
+            result = await _debit_or_error("receive_credentials")
 
         assert result is None
         # Balance unchanged

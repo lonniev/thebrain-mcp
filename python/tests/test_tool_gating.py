@@ -148,7 +148,7 @@ class TestDebitOrError:
         assert result is not None
         assert result["success"] is False
         assert "No DPYC identity active" in result["error"]
-        assert "register_credentials" in result["error"]
+        assert "Secure Courier" in result["error"]
 
     @pytest.mark.asyncio
     async def test_stdio_mode_skips_gating(self) -> None:
@@ -229,8 +229,8 @@ class TestToolCostsCompleteness:
     def test_free_tools_cost_zero(self) -> None:
         """All free tools should be cost 0."""
         free_tools = [
-            "whoami", "session_status", "register_credentials",
-            "upgrade_credentials", "activate_session", "activate_dpyc",
+            "whoami", "session_status", "request_credential_channel",
+            "receive_credentials", "forget_credentials",
             "list_brains", "purchase_credits", "check_payment",
             "check_balance", "btcpay_status", "test_low_balance_warning",
         ]
