@@ -138,6 +138,57 @@ def _get_current_user_id() -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# DPYC registry resolution — derive authority npub from NSEC + community registry
+# ---------------------------------------------------------------------------
+
+_cached_authority_npub: str | None = None
+
+
+async def _resolve_authority_npub() -> str:
+    """Derive operator npub from NSEC and look up upstream authority in registry.
+
+    Cached for process lifetime. Raises RuntimeError on failure.
+    """
+    global _cached_authority_npub
+    if _cached_authority_npub is not None:
+        return _cached_authority_npub
+
+    from pynostr.key import PrivateKey  # type: ignore[import-untyped]
+    from tollbooth.registry import DPYCRegistry, RegistryError
+
+    settings = get_settings()
+    nsec = settings.tollbooth_nostr_operator_nsec
+    if not nsec:
+        raise RuntimeError(
+            "Operator misconfigured: TOLLBOOTH_NOSTR_OPERATOR_NSEC not set. "
+            "Cannot derive operator identity for registry lookup."
+        )
+
+    pk = PrivateKey.from_nsec(nsec)
+    operator_npub = pk.public_key.bech32()
+
+    registry = DPYCRegistry(
+        url=settings.dpyc_registry_url,
+        cache_ttl_seconds=settings.dpyc_registry_cache_ttl_seconds,
+    )
+    try:
+        authority_npub = await registry.resolve_authority_npub(operator_npub)
+    except RegistryError as e:
+        raise RuntimeError(
+            f"Failed to resolve authority npub for operator {operator_npub}: {e}"
+        ) from e
+    finally:
+        await registry.close()
+
+    _cached_authority_npub = authority_npub
+    logger.info(
+        "Resolved authority npub from registry: operator=%s authority=%s",
+        operator_npub, authority_npub,
+    )
+    return authority_npub
+
+
+# ---------------------------------------------------------------------------
 # DPYC identity (npub-primary: Horizon ID is transport auth, npub is DPYC ID)
 # ---------------------------------------------------------------------------
 
@@ -1915,15 +1966,10 @@ async def purchase_credits(
 
     settings = get_settings()
 
-    if not settings.dpyc_authority_npub:
-        return {
-            "success": False,
-            "error": (
-                "Operator misconfigured: DPYC_AUTHORITY_NPUB is not set. "
-                "This operator cannot sell credits without a trusted "
-                "Authority verification key."
-            ),
-        }
+    try:
+        authority_npub = await _resolve_authority_npub()
+    except RuntimeError as e:
+        return {"success": False, "error": str(e)}
 
     if not certificate:
         return {
@@ -1939,7 +1985,7 @@ async def purchase_credits(
     return await credits.purchase_credits_tool(
         btcpay, cache, user_id, amount_sats,
         certificate=certificate,
-        authority_npub=settings.dpyc_authority_npub or "",
+        authority_npub=authority_npub,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
         default_credit_ttl_seconds=settings.credit_ttl_seconds,
@@ -2190,6 +2236,11 @@ async def btcpay_status() -> dict[str, Any]:
     except ValueError:
         pass
 
+    try:
+        authority_npub = await _resolve_authority_npub()
+    except RuntimeError:
+        authority_npub = None  # Non-fatal for diagnostics
+
     config = TollboothConfig(
         btcpay_host=settings.btcpay_host,
         btcpay_store_id=settings.btcpay_store_id,
@@ -2200,7 +2251,7 @@ async def btcpay_status() -> dict[str, Any]:
         tollbooth_royalty_address=settings.tollbooth_royalty_address,
         tollbooth_royalty_percent=settings.tollbooth_royalty_percent,
         tollbooth_royalty_min_sats=settings.tollbooth_royalty_min_sats,
-        authority_npub=settings.dpyc_authority_npub,
+        authority_npub=authority_npub,
         credit_ttl_seconds=settings.credit_ttl_seconds,
     )
     result = await credits.btcpay_status_tool(config, btcpay_client)

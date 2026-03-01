@@ -1289,13 +1289,12 @@ class TestBTCPayPreflight:
 
     @pytest.mark.asyncio
     async def test_purchase_credits_requires_certificate_when_authority_configured(self) -> None:
-        """purchase_credits rejects calls without certificate when dpyc_authority_npub is set."""
+        """purchase_credits rejects calls without certificate when authority npub is resolved."""
         import thebrain_mcp.server as srv
 
         srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
-        mock_settings.dpyc_authority_npub = "npub1somekey"
         mock_settings.btcpay_tier_config = None
         mock_settings.btcpay_user_tiers = None
 
@@ -1305,9 +1304,13 @@ class TestBTCPayPreflight:
         })
         srv._btcpay_preflight_done = True
 
+        async def fake_resolve():
+            return "npub1somekey"
+
         with patch.object(srv, "_require_user_id", return_value="user-1"), \
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch.object(srv, "_resolve_authority_npub", side_effect=fake_resolve), \
              patch.object(srv, "_get_ledger_cache"):
             result = await srv.purchase_credits(amount_sats=1000, certificate="")
 
@@ -1322,7 +1325,6 @@ class TestBTCPayPreflight:
         srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
-        mock_settings.dpyc_authority_npub = "npub1authority_test"
         mock_settings.btcpay_tier_config = None
         mock_settings.btcpay_user_tiers = None
 
@@ -1334,9 +1336,13 @@ class TestBTCPayPreflight:
 
         fake_cert_result = {"success": True, "invoice_id": "cert-inv-1", "certificate_jti": "jti-abc"}
 
+        async def fake_resolve():
+            return "npub1authority_test"
+
         with patch.object(srv, "_require_user_id", return_value="user-1"), \
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch.object(srv, "_resolve_authority_npub", side_effect=fake_resolve), \
              patch.object(srv, "_get_ledger_cache") as mock_cache, \
              patch.object(srv.credits, "purchase_credits_tool", new_callable=AsyncMock,
                           return_value=fake_cert_result) as mock_certified:
@@ -1351,13 +1357,12 @@ class TestBTCPayPreflight:
 
     @pytest.mark.asyncio
     async def test_purchase_credits_rejected_without_authority_key(self) -> None:
-        """purchase_credits rejects all purchases when no Authority verification key is configured."""
+        """purchase_credits rejects when authority npub cannot be resolved."""
         import thebrain_mcp.server as srv
 
         srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
 
         mock_settings = MagicMock()
-        mock_settings.dpyc_authority_npub = None
         mock_settings.btcpay_tier_config = None
         mock_settings.btcpay_user_tiers = None
 
@@ -1367,11 +1372,15 @@ class TestBTCPayPreflight:
         })
         srv._btcpay_preflight_done = True
 
+        async def fake_resolve_fail():
+            raise RuntimeError("TOLLBOOTH_NOSTR_OPERATOR_NSEC not set")
+
         with patch.object(srv, "_require_user_id", return_value="user-1"), \
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch.object(srv, "_resolve_authority_npub", side_effect=fake_resolve_fail), \
              patch.object(srv, "_get_ledger_cache"):
             result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.here")
 
         assert result["success"] is False
-        assert "DPYC_AUTHORITY_NPUB" in result["error"]
+        assert "TOLLBOOTH_NOSTR_OPERATOR_NSEC" in result["error"]
