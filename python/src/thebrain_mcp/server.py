@@ -1383,8 +1383,8 @@ def _get_courier_service():
     commerce_vault = _get_commerce_vault()
     # commerce_vault may be wrapped in AuditedVault; unwrap to get the NeonVault
     neon_vault = commerce_vault
-    if hasattr(neon_vault, "_vault"):
-        neon_vault = neon_vault._vault
+    if hasattr(neon_vault, "_inner"):
+        neon_vault = neon_vault._inner
     credential_vault = NeonCredentialVault(neon_vault=neon_vault)
 
     _courier_service = SecureCourierService(
