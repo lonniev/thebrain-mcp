@@ -1265,16 +1265,20 @@ async def _execute_delete(
                             else link.thought_id_a
                         )
                         if other_id in target_ids:
-                            try:
-                                await api.delete_link(brain_id, link.id)
-                            except TheBrainAPIError as stale_err:
-                                if "400" not in str(stale_err):
-                                    raise
-                                # Stale graph cache: link already deleted
                             other_name = next(
                                 (t.name for t in target_thoughts if t.id == other_id),
                                 "?",
                             )
+                            try:
+                                await api.delete_link_verified(brain_id, link.id)
+                            except TheBrainAPIError as del_err:
+                                # Link exists but API won't delete it
+                                result.errors.append(
+                                    f"Cannot delete link {link.id} "
+                                    f"from '{src.name}' to '{other_name}': {del_err}"
+                                )
+                                result.success = False
+                                continue
                             result.deleted.append({
                                 "type": "link",
                                 "linkId": link.id,

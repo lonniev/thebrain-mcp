@@ -1754,7 +1754,7 @@ class TestDeleteExecution:
         graph_with_links = _graph(alice, jumps=[bob])
         graph_with_links.links = [link]
         api.get_thought_graph = AsyncMock(return_value=graph_with_links)
-        api.delete_link = AsyncMock(return_value={"success": True})
+        api.delete_link_verified = AsyncMock(return_value={"success": True})
 
         q = parse('MATCH (a {name: "Alice"})-[r:JUMP]->(b) DELETE r')
         q.confirm_delete = True
@@ -1764,7 +1764,7 @@ class TestDeleteExecution:
         assert len(result.deleted) == 1
         assert result.deleted[0]["type"] == "link"
         assert result.deleted[0]["linkId"] == "link-1"
-        api.delete_link.assert_called_once_with("brain", "link-1")
+        api.delete_link_verified.assert_called_once_with("brain", "link-1")
         api.delete_thought.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1813,8 +1813,8 @@ class TestDeleteExecution:
         assert any("not defined" in e for e in result.errors)
 
     @pytest.mark.asyncio
-    async def test_delete_relationship_stale_400_tolerated(self) -> None:
-        """DELETE r tolerates HTTP 400 from stale graph cache (ghost links)."""
+    async def test_delete_relationship_ghost_link_tolerated(self) -> None:
+        """DELETE r tolerates ghost links (delete_link_verified returns ghost flag)."""
         api = _mock_api()
         alice = _thought("a1", "Alice")
         bob = _thought("b1", "Bob")
@@ -1836,8 +1836,8 @@ class TestDeleteExecution:
         graph_with_links = _graph(alice, jumps=[bob])
         graph_with_links.links = [ghost_link]
         api.get_thought_graph = AsyncMock(return_value=graph_with_links)
-        api.delete_link = AsyncMock(
-            side_effect=TheBrainAPIError("HTTP 400: Bad Request")
+        api.delete_link_verified = AsyncMock(
+            return_value={"success": True, "ghost": True}
         )
 
         q = parse('MATCH (a {name: "Alice"})-[r:JUMP]->(b) DELETE r')
@@ -1850,8 +1850,8 @@ class TestDeleteExecution:
         assert result.deleted[0]["linkId"] == "ghost-link"
 
     @pytest.mark.asyncio
-    async def test_delete_relationship_non_400_still_fails(self) -> None:
-        """Non-400 errors on link deletion still fail the operation."""
+    async def test_delete_relationship_api_refusal_fails(self) -> None:
+        """API refusal on link deletion (undeletable) fails the operation."""
         api = _mock_api()
         alice = _thought("a1", "Alice")
         bob = _thought("b1", "Bob")
@@ -1873,8 +1873,11 @@ class TestDeleteExecution:
         graph_with_links = _graph(alice, jumps=[bob])
         graph_with_links.links = [link]
         api.get_thought_graph = AsyncMock(return_value=graph_with_links)
-        api.delete_link = AsyncMock(
-            side_effect=TheBrainAPIError("HTTP 500: Internal Server Error")
+        api.delete_link_verified = AsyncMock(
+            side_effect=TheBrainAPIError(
+                "TheBrain API refused to delete link link-1. "
+                "Links synced from the desktop app cannot be deleted via the API."
+            )
         )
 
         q = parse('MATCH (a {name: "Alice"})-[r:JUMP]->(b) DELETE r')
@@ -1882,7 +1885,7 @@ class TestDeleteExecution:
         result = await execute(api, "brain", q)
 
         assert result.success is False
-        assert any("500" in e for e in result.errors)
+        assert any("Cannot delete link" in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_delete_link_preview(self) -> None:
