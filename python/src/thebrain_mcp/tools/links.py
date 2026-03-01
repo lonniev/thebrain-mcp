@@ -207,10 +207,10 @@ async def delete_link_tool(api: TheBrainAPI, brain_id: str, link_id: str) -> dic
         Dictionary with success status and message
     """
     try:
-        await api.delete_link(brain_id, link_id)
-        return {
-            "success": True,
-            "message": f"Link {link_id} deleted successfully",
-        }
+        result = await api.delete_link_verified(brain_id, link_id)
+        msg = f"Link {link_id} deleted successfully"
+        if result.get("ghost"):
+            msg += " (was a stale cached reference)"
+        return {"success": True, "message": msg}
     except TheBrainAPIError as e:
         return {"success": False, "error": str(e)}

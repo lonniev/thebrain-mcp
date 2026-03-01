@@ -59,7 +59,7 @@ def _mock_api(graph: ThoughtGraph | None = None) -> AsyncMock:
     api = AsyncMock()
     if graph:
         api.get_thought_graph = AsyncMock(return_value=graph)
-    api.delete_link = AsyncMock(return_value={"success": True})
+    api.delete_link_verified = AsyncMock(return_value={"success": True})
     api.create_link = AsyncMock(return_value={"id": "new-link-id"})
     api.update_thought = AsyncMock(return_value={})
     return api
@@ -83,7 +83,7 @@ class TestReparentOnly:
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-b")
 
         assert result["success"] is True
-        api.delete_link.assert_called_once_with(BRAIN, "link-1")
+        api.delete_link_verified.assert_called_once_with(BRAIN, "link-1")
         api.create_link.assert_called_once_with(BRAIN, {
             "thoughtIdA": "parent-b",
             "thoughtIdB": "child-1",
@@ -104,7 +104,7 @@ class TestReparentOnly:
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-b")
 
         assert result["success"] is True
-        api.delete_link.assert_not_called()
+        api.delete_link_verified.assert_not_called()
         api.create_link.assert_called_once()
 
 
@@ -142,7 +142,7 @@ class TestReparentAndRetype:
         assert result["success"] is True
         assert "reparent" in result
         assert "retype" in result
-        api.delete_link.assert_called_once()
+        api.delete_link_verified.assert_called_once()
         api.create_link.assert_called_once()
         api.update_thought.assert_called_once()
 
@@ -173,7 +173,7 @@ class TestMultiParentReparent:
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-c")
 
         assert result["success"] is True
-        assert api.delete_link.call_count == 2
+        assert api.delete_link_verified.call_count == 2
         assert set(result["reparent"]["deleted_links"]) == {"link-a", "link-b"}
         api.create_link.assert_called_once()
 
@@ -191,18 +191,19 @@ class TestApiErrorPropagated:
 
     @pytest.mark.asyncio
     async def test_delete_link_error(self):
+        """Undeletable links are tracked, not fatal — operation continues."""
         child = _thought("child-1", "My Thought")
         old_parent = _thought("parent-a", "Old Parent")
         parent_link = _link("link-1", "parent-a", "child-1")
 
         graph = _graph(child, parents=[old_parent], links=[parent_link])
         api = _mock_api(graph)
-        api.delete_link = AsyncMock(side_effect=TheBrainAPIError("Server error"))
+        api.delete_link_verified = AsyncMock(side_effect=TheBrainAPIError("Server error"))
 
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-b")
 
-        assert result["success"] is False
-        assert "server error" in result["error"].lower()
+        assert result["success"] is True
+        assert result["reparent"]["undeletable_links"] == ["link-1"]
 
     @pytest.mark.asyncio
     async def test_update_thought_error(self):
@@ -218,23 +219,24 @@ class TestApiErrorPropagated:
 
 
 class TestStaleCacheTolerance:
-    """Graph endpoint may return ghost links that are already deleted server-side.
+    """Ghost links (stale cache) are handled by delete_link_verified.
 
-    When delete_link returns HTTP 400 for a stale/ghost link, the morpher
-    should treat it as 'already gone' and continue rather than failing.
+    The morpher delegates to delete_link_verified which returns
+    {"success": True, "ghost": True} for ghost links. These are
+    counted as deleted.
     """
 
     @pytest.mark.asyncio
-    async def test_stale_link_400_tolerated(self):
-        """Single ghost link in graph — morpher succeeds despite 400."""
+    async def test_ghost_link_tolerated(self):
+        """Single ghost link in graph — delete_link_verified returns ghost flag."""
         child = _thought("child-1", "My Thought")
         old_parent = _thought("parent-a", "Old Parent")
         ghost_link = _link("ghost-link", "parent-a", "child-1")
 
         graph = _graph(child, parents=[old_parent], links=[ghost_link])
         api = _mock_api(graph)
-        api.delete_link = AsyncMock(
-            side_effect=TheBrainAPIError("HTTP 400: Bad Request")
+        api.delete_link_verified = AsyncMock(
+            return_value={"success": True, "ghost": True}
         )
 
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-b")
@@ -244,8 +246,8 @@ class TestStaleCacheTolerance:
         api.create_link.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stale_link_mixed_real_and_ghost(self):
-        """Two parent links: one real (deletes ok), one ghost (400). Both tolerated."""
+    async def test_mixed_real_and_ghost_links(self):
+        """Two parent links: one real (deletes ok), one ghost. Both succeed."""
         child = _thought("child-1", "My Thought")
         parent_a = _thought("parent-a", "Parent A")
         parent_b = _thought("parent-b", "Parent B")
@@ -257,10 +259,10 @@ class TestStaleCacheTolerance:
 
         async def selective_delete(brain_id, link_id):
             if link_id == "ghost-link":
-                raise TheBrainAPIError("HTTP 400: Bad Request")
+                return {"success": True, "ghost": True}
             return {"success": True}
 
-        api.delete_link = AsyncMock(side_effect=selective_delete)
+        api.delete_link_verified = AsyncMock(side_effect=selective_delete)
 
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-c")
 
@@ -268,20 +270,58 @@ class TestStaleCacheTolerance:
         assert set(result["reparent"]["deleted_links"]) == {"real-link", "ghost-link"}
         api.create_link.assert_called_once()
 
+
+class TestUndeletableLinks:
+    """Links that exist but the API refuses to delete (desktop-synced).
+
+    delete_link_verified raises TheBrainAPIError for these. The morpher
+    tracks them as undeletable rather than failing the whole operation.
+    """
+
     @pytest.mark.asyncio
-    async def test_non_400_error_still_fails(self):
-        """Non-400 errors (500, 403, etc.) still propagate as failures."""
+    async def test_undeletable_link_tracked_in_result(self):
+        """Desktop-synced link → tracked in undeletable_links, operation continues."""
         child = _thought("child-1", "My Thought")
         old_parent = _thought("parent-a", "Old Parent")
-        parent_link = _link("link-1", "parent-a", "child-1")
+        desktop_link = _link("desktop-link", "parent-a", "child-1")
 
-        graph = _graph(child, parents=[old_parent], links=[parent_link])
+        graph = _graph(child, parents=[old_parent], links=[desktop_link])
         api = _mock_api(graph)
-        api.delete_link = AsyncMock(
-            side_effect=TheBrainAPIError("HTTP 500: Internal Server Error")
+        api.delete_link_verified = AsyncMock(
+            side_effect=TheBrainAPIError(
+                "TheBrain API refused to delete link desktop-link. "
+                "Links synced from the desktop app cannot be deleted via the API."
+            )
         )
 
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-b")
 
-        assert result["success"] is False
-        assert "500" in result["error"]
+        assert result["success"] is True
+        assert result["reparent"]["deleted_links"] == []
+        assert result["reparent"]["undeletable_links"] == ["desktop-link"]
+        api.create_link.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_mixed_deletable_and_undeletable(self):
+        """One link deletes ok, one is undeletable — both tracked separately."""
+        child = _thought("child-1", "My Thought")
+        parent_a = _thought("parent-a", "Parent A")
+        parent_b = _thought("parent-b", "Parent B")
+        ok_link = _link("ok-link", "parent-a", "child-1")
+        stuck_link = _link("stuck-link", "parent-b", "child-1")
+
+        graph = _graph(child, parents=[parent_a, parent_b], links=[ok_link, stuck_link])
+        api = _mock_api(graph)
+
+        async def selective_delete(brain_id, link_id):
+            if link_id == "stuck-link":
+                raise TheBrainAPIError("API refused to delete")
+            return {"success": True}
+
+        api.delete_link_verified = AsyncMock(side_effect=selective_delete)
+
+        result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-c")
+
+        assert result["success"] is True
+        assert result["reparent"]["deleted_links"] == ["ok-link"]
+        assert result["reparent"]["undeletable_links"] == ["stuck-link"]

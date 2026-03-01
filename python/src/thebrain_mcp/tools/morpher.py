@@ -56,16 +56,16 @@ async def morpher_tool(
         ]
 
         deleted_link_ids = []
+        undeletable_link_ids = []
         try:
             for link in parent_links:
                 try:
-                    await api.delete_link(brain_id, link.id)
+                    await api.delete_link_verified(brain_id, link.id)
                 except TheBrainAPIError as e:
-                    if "400" in str(e):
-                        # Stale graph cache: link already deleted server-side
-                        logger.debug("Link %s already gone (stale cache): %s", link.id, e)
-                    else:
-                        raise
+                    # Link exists but API won't delete it — not a ghost
+                    logger.warning("Cannot delete link %s: %s", link.id, e)
+                    undeletable_link_ids.append(link.id)
+                    continue
                 deleted_link_ids.append(link.id)
 
             new_link = await api.create_link(brain_id, {
@@ -76,12 +76,15 @@ async def morpher_tool(
         except TheBrainAPIError as e:
             return {"success": False, "error": str(e)}
 
-        result["reparent"] = {
+        reparent_info: dict[str, Any] = {
             "old_parents": old_parents,
             "new_parent_id": new_parent_id,
             "deleted_links": deleted_link_ids,
             "created_link_id": new_link.get("id"),
         }
+        if undeletable_link_ids:
+            reparent_info["undeletable_links"] = undeletable_link_ids
+        result["reparent"] = reparent_info
 
     # --- Retype ---
     if new_type_id:

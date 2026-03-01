@@ -323,6 +323,31 @@ class TheBrainAPI:
         _validate_uuid(link_id, "link_id")
         return await self._request("DELETE", f"/links/{brain_id}/{link_id}")
 
+    async def delete_link_verified(self, brain_id: str, link_id: str) -> dict[str, Any]:
+        """Delete a link with verification on failure.
+
+        If DELETE returns 400, checks whether the link still exists:
+        - Link gone → ghost (stale cache), returns success
+        - Link still exists → API won't delete it, raises TheBrainAPIError
+        """
+        try:
+            return await self.delete_link(brain_id, link_id)
+        except TheBrainAPIError as e:
+            if "400" not in str(e):
+                raise
+            # 400 — check if ghost link or genuine API refusal
+            try:
+                await self.get_link(brain_id, link_id)
+            except TheBrainAPIError:
+                # Link doesn't exist → ghost link, tolerate
+                return {"success": True, "ghost": True}
+            # Link still exists → API refuses to delete it
+            raise TheBrainAPIError(
+                f"TheBrain API refused to delete link {link_id}. "
+                f"Links synced from the desktop app cannot be deleted via the API. "
+                f"Delete this link from the TheBrain desktop application instead."
+            ) from e
+
     # Attachment Operations
 
     async def add_file_attachment(
