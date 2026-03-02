@@ -1454,8 +1454,9 @@ async def request_credential_channel(
 
 @mcp.tool()
 async def receive_credentials(
-    sender_npub: str,
+    sender_npub: str = "",
     service: str = "thebrain",
+    credential_card: str = "",
 ) -> dict[str, Any]:
     """Pick up credentials delivered via the Secure Courier.
 
@@ -1466,13 +1467,18 @@ async def receive_credentials(
     encrypted DM, validates it against the template, stores it in the
     vault for future sessions, and activates your session.
 
+    Alternatively, pass a credential_card (ncred1... string) to redeem
+    a QR credential card — bypasses relay DM flow entirely.
+
     Credential values are NEVER echoed back — only the field count and
     service name are returned.
 
     Args:
         sender_npub: Your Nostr public key (npub1...) — the one you
-            sent the DM from.
+            sent the DM from.  Required unless credential_card is provided.
         service: Which credential template to match (default "thebrain").
+        credential_card: Optional ncred1... credential card string.
+            If provided, redeems the card directly (no relay DM needed).
     """
     try:
         courier = _get_courier_service()
@@ -1480,6 +1486,13 @@ async def receive_credentials(
         return {"success": False, "error": str(e)}
 
     try:
+        if credential_card:
+            return await courier.redeem_card(credential_card, service=service)
+        if not sender_npub:
+            return {
+                "success": False,
+                "error": "Either sender_npub or credential_card is required.",
+            }
         return await courier.receive(sender_npub, service=service)
     except Exception as e:
         return {"success": False, "error": str(e)}
