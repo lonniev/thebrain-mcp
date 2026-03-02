@@ -1343,6 +1343,44 @@ async def _on_thebrain_credentials_received(
 
 _courier_service = None
 
+_DEFAULT_RELAY = "wss://nostr.wine"
+_FALLBACK_POOL = [
+    "wss://relay.primal.net",
+    "wss://relay.damus.io",
+    "wss://nos.lol",
+    "wss://relay.nostr.band",
+]
+
+
+def _resolve_relays(configured: str | None) -> list[str]:
+    """Resolve relay list: env var -> default -> probe fallback pool."""
+    from tollbooth.nostr_diagnostics import probe_relay_liveness
+
+    if configured:
+        relays = [r.strip() for r in configured.split(",") if r.strip()]
+    else:
+        relays = [_DEFAULT_RELAY]
+
+    results = probe_relay_liveness(relays, timeout=5)
+    live = [r["relay"] for r in results if r["connected"]]
+
+    if live:
+        logger.info("Relay probe: %d/%d configured relays live", len(live), len(relays))
+        return live
+
+    # All configured relays down — probe fallback pool
+    logger.warning("All configured relays down (%s), probing fallback pool...", ", ".join(relays))
+    fallback_results = probe_relay_liveness(_FALLBACK_POOL, timeout=5)
+    fallback_live = [r["relay"] for r in fallback_results if r["connected"]]
+
+    if fallback_live:
+        logger.info("Fallback relays live: %s", ", ".join(fallback_live))
+        return fallback_live
+
+    # Nothing alive — return configured + fallback and hope for recovery
+    logger.warning("No relays responded — using full list, hoping for recovery")
+    return relays + _FALLBACK_POOL
+
 
 def _get_courier_service():
     """Get or create the SecureCourierService singleton."""
@@ -1364,8 +1402,7 @@ def _get_courier_service():
             "Set TOLLBOOTH_NOSTR_OPERATOR_NSEC to enable credential delivery via Nostr DM."
         )
 
-    relays_str = settings.tollbooth_nostr_relays or "wss://relay.primal.net,wss://relay.damus.io,wss://nos.lol"
-    relays = [r.strip() for r in relays_str.split(",") if r.strip()]
+    relays = _resolve_relays(settings.tollbooth_nostr_relays)
 
     templates = {
         "thebrain": CredentialTemplate(
