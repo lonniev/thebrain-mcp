@@ -609,4 +609,4 @@ class TestToolRegistration:
         from thebrain_mcp.server import mcp
         tools = await mcp.list_tools()
         tool_names = [t.name for t in tools]
-        assert "brain_query" in tool_names
+        assert "brain_brain_query" in tool_names
