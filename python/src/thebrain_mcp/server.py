@@ -134,7 +134,33 @@ def _get_current_user_id() -> str | None:
 # DPYC registry resolution — derive authority npub from NSEC + community registry
 # ---------------------------------------------------------------------------
 
+_cached_operator_npub: str | None = None
 _cached_authority_npub: str | None = None
+_cached_authority_service_url: str | None = None
+
+
+def _get_operator_npub() -> str:
+    """Derive and cache the operator's npub from its NSEC.
+
+    Raises RuntimeError if TOLLBOOTH_NOSTR_OPERATOR_NSEC is not set.
+    """
+    global _cached_operator_npub
+    if _cached_operator_npub is not None:
+        return _cached_operator_npub
+
+    from pynostr.key import PrivateKey  # type: ignore[import-untyped]
+
+    settings = get_settings()
+    nsec = settings.tollbooth_nostr_operator_nsec
+    if not nsec:
+        raise RuntimeError(
+            "Operator misconfigured: TOLLBOOTH_NOSTR_OPERATOR_NSEC not set. "
+            "Cannot derive operator identity for registry lookup."
+        )
+
+    pk = PrivateKey.from_nsec(nsec)
+    _cached_operator_npub = pk.public_key.bech32()
+    return _cached_operator_npub
 
 
 async def _resolve_authority_npub() -> str:
@@ -146,19 +172,10 @@ async def _resolve_authority_npub() -> str:
     if _cached_authority_npub is not None:
         return _cached_authority_npub
 
-    from pynostr.key import PrivateKey  # type: ignore[import-untyped]
     from tollbooth.registry import DPYCRegistry, RegistryError
 
+    operator_npub = _get_operator_npub()
     settings = get_settings()
-    nsec = settings.tollbooth_nostr_operator_nsec
-    if not nsec:
-        raise RuntimeError(
-            "Operator misconfigured: TOLLBOOTH_NOSTR_OPERATOR_NSEC not set. "
-            "Cannot derive operator identity for registry lookup."
-        )
-
-    pk = PrivateKey.from_nsec(nsec)
-    operator_npub = pk.public_key.bech32()
 
     registry = DPYCRegistry(
         url=settings.dpyc_registry_url,
@@ -179,6 +196,40 @@ async def _resolve_authority_npub() -> str:
         operator_npub, authority_npub,
     )
     return authority_npub
+
+
+async def _resolve_authority_service_url() -> str:
+    """Resolve the Authority's MCP service URL from the DPYC community registry.
+
+    Cached for process lifetime. Raises RuntimeError on failure.
+    """
+    global _cached_authority_service_url
+    if _cached_authority_service_url is not None:
+        return _cached_authority_service_url
+
+    from tollbooth.registry import DPYCRegistry, RegistryError
+
+    operator_npub = _get_operator_npub()
+    settings = get_settings()
+
+    registry = DPYCRegistry(
+        url=settings.dpyc_registry_url,
+        cache_ttl_seconds=settings.dpyc_registry_cache_ttl_seconds,
+    )
+    try:
+        svc = await registry.resolve_authority_service(operator_npub)
+    except RegistryError as e:
+        raise RuntimeError(
+            f"Failed to resolve authority service for operator {operator_npub}: {e}"
+        ) from e
+    finally:
+        await registry.close()
+
+    _cached_authority_service_url = svc["url"]
+    logger.info(
+        "Resolved authority service URL from registry: %s", svc["url"],
+    )
+    return _cached_authority_service_url
 
 
 # ---------------------------------------------------------------------------
@@ -1916,31 +1967,24 @@ async def _rollback_debit(tool_name: str) -> None:
 @tool
 async def purchase_credits(
     amount_sats: int,
-    certificate: str,
 ) -> dict[str, Any]:
     """Create a BTCPay Lightning invoice to purchase credits for tool calls.
 
-    Every credit purchase requires an Authority-signed certificate. Obtain one
-    by calling the Tollbooth Authority's certify_credits tool first, then pass
-    the JWT here. The invoice is created for the certificate's net_sats (the
-    purchase amount minus the Authority's tax).
-
-    No certificate, no invoice. No exceptions.
+    Automatically obtains an Authority-signed certificate behind the scenes —
+    no manual certification step needed.
 
     Call flow:
-    1. Call Authority's certify_credits(operator_id, amount_sats) → get JWT
-    2. Call purchase_credits(amount_sats, certificate=JWT) → get Lightning invoice
-    3. Pay the invoice with any Lightning wallet
-    4. Call check_payment(invoice_id) → credits land in your balance
+    1. Call purchase_credits(amount_sats) → get Lightning invoice
+    2. Pay the invoice with any Lightning wallet
+    3. Call check_payment(invoice_id) → credits land in your balance
 
     Credits are denominated in api_sats: 1 sat buys 1 api_sat (default tier).
     VIP tiers may have higher multipliers. Maximum 1,000,000 sats (0.01 BTC) per invoice.
 
     Args:
         amount_sats: Number of satoshis to purchase (minimum 1, maximum 1,000,000).
-            Should match the amount you passed to the Authority's certify_credits.
-            The invoice will be for net_sats from the certificate (amount minus tax).
-        certificate: Authority-signed JWT from certify_credits. Required.
+            The Authority's certification fee is deducted automatically; the
+            invoice will be for the net amount (purchase minus tax).
 
     Returns:
         invoice_id: BTCPay invoice ID (pass to check_payment after paying).
@@ -1962,23 +2006,23 @@ async def purchase_credits(
 
     try:
         authority_npub = await _resolve_authority_npub()
+        authority_url = await _resolve_authority_service_url()
+        operator_npub = _get_operator_npub()
     except RuntimeError as e:
         return {"success": False, "error": str(e)}
 
-    if not certificate:
-        return {
-            "success": False,
-            "error": (
-                "A valid Authority certificate is required for every credit purchase. "
-                "Call the Authority's certify_credits tool first to obtain a signed "
-                "certificate, then pass it as the certificate parameter. "
-                "No certificate, no invoice."
-            ),
-        }
+    # Auto-certify via server-to-server MCP call with Horizon OAuth
+    from tollbooth.authority_client import AuthorityCertifier, AuthorityCertifyError
+
+    certifier = AuthorityCertifier(authority_url, operator_npub)
+    try:
+        cert_result = await certifier.certify(amount_sats)
+    except AuthorityCertifyError as e:
+        return {"success": False, "error": f"Authority certification failed: {e}"}
 
     return await credits.purchase_credits_tool(
         btcpay, cache, user_id, amount_sats,
-        certificate=certificate,
+        certificate=cert_result["certificate"],
         authority_npub=authority_npub,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
