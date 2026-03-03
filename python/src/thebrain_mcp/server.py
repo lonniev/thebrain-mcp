@@ -12,6 +12,7 @@ from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
 from tollbooth.config import TollboothConfig
+from tollbooth.slug_tools import make_slug_tool
 
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayError
@@ -95,6 +96,7 @@ mcp = FastMCP(
         "tool calls start being rejected for insufficient balance."
     ),
 )
+tool = make_slug_tool(mcp, "brain")
 
 # Global API client and active brain state (initialized at runtime)
 _operator_api_client: TheBrainAPI | None = None
@@ -261,7 +263,7 @@ def get_brain_id(brain_id: str | None = None) -> str:
 # Authentication Diagnostics
 
 
-@mcp.tool()
+@tool
 async def whoami() -> dict[str, Any]:
     """Return the authenticated user's identity and token claims.
 
@@ -283,13 +285,13 @@ async def whoami() -> dict[str, Any]:
 # Brain Management Tools
 
 
-@mcp.tool()
+@tool
 async def list_brains() -> dict[str, Any]:
     """List all available brains for the user."""
     return await brains.list_brains_tool(get_api())
 
 
-@mcp.tool()
+@tool
 async def get_brain(brain_id: str) -> dict[str, Any]:
     """Get details about a specific brain.
 
@@ -306,7 +308,7 @@ async def get_brain(brain_id: str) -> dict[str, Any]:
         raise
 
 
-@mcp.tool()
+@tool
 async def set_active_brain(brain_id: str) -> dict[str, Any]:
     """Set the active brain for subsequent operations.
 
@@ -333,7 +335,7 @@ async def set_active_brain(brain_id: str) -> dict[str, Any]:
     return await _with_warning(result)
 
 
-@mcp.tool()
+@tool
 async def get_brain_stats(brain_id: str | None = None) -> dict[str, Any]:
     """Get statistics about a brain.
 
@@ -353,7 +355,7 @@ async def get_brain_stats(brain_id: str | None = None) -> dict[str, Any]:
 # Thought Operations
 
 
-@mcp.tool()
+@tool
 async def create_thought(
     name: str,
     brain_id: str | None = None,
@@ -407,7 +409,7 @@ async def create_thought(
         raise
 
 
-@mcp.tool()
+@tool
 async def get_thought(thought_id: str, brain_id: str | None = None) -> dict[str, Any]:
     """Get details about a specific thought.
 
@@ -425,7 +427,7 @@ async def get_thought(thought_id: str, brain_id: str | None = None) -> dict[str,
         raise
 
 
-@mcp.tool()
+@tool
 async def get_thought_by_name(
     name_exact: str, brain_id: str | None = None
 ) -> dict[str, Any]:
@@ -455,7 +457,7 @@ async def get_thought_by_name(
         raise
 
 
-@mcp.tool()
+@tool
 async def update_thought(
     thought_id: str,
     brain_id: str | None = None,
@@ -504,7 +506,7 @@ async def update_thought(
         raise
 
 
-@mcp.tool()
+@tool
 async def delete_thought(thought_id: str, brain_id: str | None = None) -> dict[str, Any]:
     """Permanently delete a thought by ID. Cannot be undone.
 
@@ -526,7 +528,7 @@ async def delete_thought(thought_id: str, brain_id: str | None = None) -> dict[s
         raise
 
 
-@mcp.tool()
+@tool
 async def search_thoughts(
     query_text: str,
     brain_id: str | None = None,
@@ -560,7 +562,7 @@ async def search_thoughts(
         raise
 
 
-@mcp.tool()
+@tool
 async def get_thought_graph(
     thought_id: str, brain_id: str | None = None, include_siblings: bool = False
 ) -> dict[str, Any]:
@@ -592,7 +594,7 @@ async def get_thought_graph(
         raise
 
 
-@mcp.tool()
+@tool
 async def get_thought_graph_paginated(
     thought_id: str,
     page_size: int = 10,
@@ -637,7 +639,7 @@ async def get_thought_graph_paginated(
         raise
 
 
-@mcp.tool()
+@tool
 async def get_types(brain_id: str | None = None) -> dict[str, Any]:
     """List all thought types defined in the brain (e.g., Person, Geographical, Organization).
 
@@ -658,7 +660,7 @@ async def get_types(brain_id: str | None = None) -> dict[str, Any]:
         raise
 
 
-@mcp.tool()
+@tool
 async def get_tags(brain_id: str | None = None) -> dict[str, Any]:
     """Get all tags in a brain.
 
@@ -678,7 +680,7 @@ async def get_tags(brain_id: str | None = None) -> dict[str, Any]:
 # Link Operations
 
 
-@mcp.tool()
+@tool
 async def create_link(
     thought_id_a: str,
     thought_id_b: str,
@@ -731,7 +733,7 @@ async def create_link(
         raise
 
 
-@mcp.tool()
+@tool
 async def update_link(
     link_id: str,
     brain_id: str | None = None,
@@ -764,7 +766,7 @@ async def update_link(
         raise
 
 
-@mcp.tool()
+@tool
 async def get_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
     """Get details about a specific link.
 
@@ -782,7 +784,7 @@ async def get_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
         raise
 
 
-@mcp.tool()
+@tool
 async def delete_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
     """Permanently delete a link by ID. Cannot be undone.
 
@@ -806,7 +808,7 @@ async def delete_link(link_id: str, brain_id: str | None = None) -> dict[str, An
 # Attachment Operations
 
 
-@mcp.tool()
+@tool
 async def add_file_attachment(
     thought_id: str,
     file_path: str,
@@ -834,7 +836,7 @@ async def add_file_attachment(
         raise
 
 
-@mcp.tool()
+@tool
 async def add_url_attachment(
     thought_id: str, url: str, brain_id: str | None = None, name: str | None = None
 ) -> dict[str, Any]:
@@ -858,7 +860,7 @@ async def add_url_attachment(
         raise
 
 
-@mcp.tool()
+@tool
 async def get_attachment(attachment_id: str, brain_id: str | None = None) -> dict[str, Any]:
     """Get metadata about an attachment.
 
@@ -876,7 +878,7 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None) -> dic
         raise
 
 
-@mcp.tool()
+@tool
 async def get_attachment_content(
     attachment_id: str, brain_id: str | None = None, save_to_path: str | None = None
 ) -> dict[str, Any]:
@@ -900,7 +902,7 @@ async def get_attachment_content(
         raise
 
 
-@mcp.tool()
+@tool
 async def delete_attachment(attachment_id: str, brain_id: str | None = None) -> dict[str, Any]:
     """Delete an attachment.
 
@@ -920,7 +922,7 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None) -> 
         raise
 
 
-@mcp.tool()
+@tool
 async def list_attachments(thought_id: str, brain_id: str | None = None) -> dict[str, Any]:
     """List all attachments for a thought.
 
@@ -943,7 +945,7 @@ async def list_attachments(thought_id: str, brain_id: str | None = None) -> dict
 # Note Operations
 
 
-@mcp.tool()
+@tool
 async def get_note(
     thought_id: str, brain_id: str | None = None, format: str = "markdown"
 ) -> dict[str, Any]:
@@ -964,7 +966,7 @@ async def get_note(
         raise
 
 
-@mcp.tool()
+@tool
 async def create_or_update_note(
     thought_id: str, markdown: str, brain_id: str | None = None
 ) -> dict[str, Any]:
@@ -987,7 +989,7 @@ async def create_or_update_note(
         raise
 
 
-@mcp.tool()
+@tool
 async def append_to_note(
     thought_id: str, markdown: str, brain_id: str | None = None
 ) -> dict[str, Any]:
@@ -1013,7 +1015,7 @@ async def append_to_note(
 # Advanced Operations
 
 
-@mcp.tool()
+@tool
 async def get_modifications(
     brain_id: str | None = None,
     max_logs: int = 100,
@@ -1043,7 +1045,7 @@ async def get_modifications(
 # BrainQuery Tool
 
 
-@mcp.tool()
+@tool
 async def brain_query(
     query: str,
     brain_id: str | None = None,
@@ -1124,7 +1126,7 @@ async def brain_query(
 # Morpher Tool
 
 
-@mcp.tool()
+@tool
 async def morph_thought(
     thought_id: str,
     brain_id: str | None = None,
@@ -1158,7 +1160,7 @@ async def morph_thought(
 # Orphanage Tool
 
 
-@mcp.tool()
+@tool
 async def scan_orphans(
     brain_id: str | None = None,
     dry_run: bool = True,
@@ -1187,7 +1189,7 @@ async def scan_orphans(
 # WhoWhen Tool
 
 
-@mcp.tool()
+@tool
 async def event_for_person(
     date: str,
     person: str,
@@ -1239,7 +1241,7 @@ _ONBOARDING_NEXT_STEPS = {
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@tool
 async def session_status() -> dict[str, Any]:
     """Check the status of your current session.
 
@@ -1445,7 +1447,7 @@ def _get_courier_service():
     return _courier_service
 
 
-@mcp.tool()
+@tool
 async def request_credential_channel(
     service: str = "thebrain",
     recipient_npub: str | None = None,
@@ -1489,7 +1491,7 @@ async def request_credential_channel(
         return {"success": False, "error": str(e)}
 
 
-@mcp.tool()
+@tool
 async def receive_credentials(
     sender_npub: str = "",
     service: str = "thebrain",
@@ -1535,7 +1537,7 @@ async def receive_credentials(
         return {"success": False, "error": str(e)}
 
 
-@mcp.tool()
+@tool
 async def forget_credentials(sender_npub: str, service: str = "thebrain") -> dict[str, Any]:
     """Delete vaulted credentials so you can re-deliver via Secure Courier.
 
@@ -1911,7 +1913,7 @@ async def _rollback_debit(tool_name: str) -> None:
 # Credit Management Tools
 
 
-@mcp.tool()
+@tool
 async def purchase_credits(
     amount_sats: int,
     certificate: str,
@@ -1984,7 +1986,7 @@ async def purchase_credits(
     )
 
 
-@mcp.tool()
+@tool
 async def check_payment(invoice_id: str) -> dict[str, Any]:
     """Verify that a Lightning invoice has settled and credit the payment to your balance.
 
@@ -2025,7 +2027,7 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
     )
 
 
-@mcp.tool()
+@tool
 async def check_balance() -> dict[str, Any]:
     """Check your current credit balance, tier info, usage summary, and cache health.
 
@@ -2080,7 +2082,7 @@ async def check_balance() -> dict[str, Any]:
     return result
 
 
-@mcp.tool()
+@tool
 async def account_statement(days: int = 30) -> dict[str, Any]:
     """Generate a customer-facing account statement with purchase history and usage.
 
@@ -2116,7 +2118,7 @@ async def account_statement(days: int = 30) -> dict[str, Any]:
     return result
 
 
-@mcp.tool()
+@tool
 async def account_statement_infographic(days: int = 30) -> dict[str, Any]:
     """Generate a visual SVG infographic of your account statement.
 
@@ -2164,7 +2166,7 @@ async def account_statement_infographic(days: int = 30) -> dict[str, Any]:
         raise
 
 
-@mcp.tool()
+@tool
 async def restore_credits(invoice_id: str) -> dict[str, Any]:
     """Restore credits from a paid invoice that was lost due to cache or vault issues.
 
@@ -2198,7 +2200,7 @@ async def restore_credits(invoice_id: str) -> dict[str, Any]:
     )
 
 
-@mcp.tool()
+@tool
 async def btcpay_status() -> dict[str, Any]:
     """Check BTCPay Server configuration, connectivity, and permissions.
 
@@ -2309,7 +2311,7 @@ async def _test_low_balance_warning_impl(simulated_balance_api_sats: int = 50) -
     return result
 
 
-@mcp.tool()
+@tool
 async def test_low_balance_warning(simulated_balance_api_sats: int = 50) -> dict[str, Any]:
     """Simulate a low-balance tool response with an overridden balance.
 
@@ -2346,7 +2348,7 @@ def _get_neon_vault() -> Any:
     return vault
 
 
-@mcp.tool()
+@tool
 async def anchor_ledger() -> dict[str, Any]:
     """Anchor all ledger balances to Bitcoin via OpenTimestamps.
 
@@ -2377,7 +2379,7 @@ async def anchor_ledger() -> dict[str, Any]:
     return await anchor_ledger_tool(vault, ots_calendars=calendars)
 
 
-@mcp.tool()
+@tool
 async def get_anchor_proof(anchor_id: str) -> dict[str, Any]:
     """Get a Merkle inclusion proof for your balance in a Bitcoin anchor.
 
@@ -2408,7 +2410,7 @@ async def get_anchor_proof(anchor_id: str) -> dict[str, Any]:
         raise
 
 
-@mcp.tool()
+@tool
 async def list_anchors(
     limit: int = 20,
     status: str | None = None,
