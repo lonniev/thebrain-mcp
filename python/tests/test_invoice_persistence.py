@@ -14,7 +14,7 @@ from thebrain_mcp.tools.credits import (
     check_payment_tool,
     restore_credits_tool,
 )
-from tollbooth.tools.credits import purchase_tax_credits_tool
+from tollbooth.tools.credits import direct_purchase_tool
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@ class TestPurchaseCreditsInvoiceRecord:
         btcpay = _mock_btcpay({"id": "inv-new", "checkoutLink": "https://pay"})
         cache = _mock_cache(ledger)
 
-        result = await purchase_tax_credits_tool(btcpay, cache, "user-1", 1000)
+        result = await direct_purchase_tool(btcpay, cache, "user-1", 1000)
         assert result["success"] is True
         assert "inv-new" in ledger.invoices
         assert ledger.invoices["inv-new"].status == "Pending"
@@ -249,7 +249,7 @@ class TestPurchaseCreditsInvoiceRecord:
         btcpay = _mock_btcpay({"id": "inv-meta", "checkoutLink": "https://pay"})
         cache = _mock_cache(ledger)
 
-        result = await purchase_tax_credits_tool(
+        result = await direct_purchase_tool(
             btcpay, cache, "user-vip", 2000,
             tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
         )
@@ -265,7 +265,7 @@ class TestPurchaseCreditsInvoiceRecord:
         btcpay = _mock_btcpay({"id": "inv-flush", "checkoutLink": "https://pay"})
         cache = _mock_cache(ledger)
 
-        await purchase_tax_credits_tool(btcpay, cache, "user-1", 1000)
+        await direct_purchase_tool(btcpay, cache, "user-1", 1000)
         cache.mark_dirty.assert_called_with("user-1")
         cache.flush_user.assert_called_with("user-1")
 
