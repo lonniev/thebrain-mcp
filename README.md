@@ -91,6 +91,30 @@ To run your own instance, set these environment variables:
 | `TOLLBOOTH_ROYALTY_PERCENT` | Royalty percentage | `0.02` (default) |
 | `TOLLBOOTH_ROYALTY_MIN_SATS` | Minimum royalty payout in sats | `10` (default) |
 
+## Actor Protocol
+
+The `BrainOperator` class (in `actor.py`) satisfies `OperatorProtocol` from [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc). It's a thin delegation layer over existing `server.py` tool functions.
+
+```python
+from thebrain_mcp.actor import BrainOperator
+from tollbooth import OperatorProtocol
+
+assert isinstance(BrainOperator(), OperatorProtocol)
+```
+
+The actor exposes:
+
+- **`slug`** — returns `"brain"` for tool-name prefixing
+- **`tool_catalog()`** — returns `list[ToolPathInfo]` metadata for all 15 protocol tools
+
+| Path | Tools | Status |
+|------|-------|--------|
+| Hot (local ledger) | `check_balance`, `account_statement`, `account_statement_infographic`, `restore_credits`, `service_status` | Implemented — delegates to server.py |
+| Delegation (Authority) | `purchase_credits`, `check_payment`, `certify_credits`, `register_operator`, `operator_status` | Stub — connect to the Authority MCP directly |
+| Delegation (Oracle) | `lookup_member`, `how_to_join`, `get_tax_rate`, `about`, `network_advisory` | Stub — connect to the Oracle MCP directly |
+
+Payment processing (`purchase_credits`, `check_payment`) is delegated to the Tollbooth Authority rather than handled locally. Delegation stubs are marked with `# DELEGATION_STUB` for easy grep when the MCP-to-MCP wiring task lands.
+
 ## Architecture
 
 The Tollbooth ecosystem is a three-party protocol spanning three repositories:
