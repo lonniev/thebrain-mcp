@@ -201,20 +201,18 @@ class BrainOperator:
     async def purchase_credits(
         self, npub: str, amount_sats: int, certificate: str
     ) -> dict[str, Any]:
-        """(delegation, delegates to Authority) Not yet implemented."""
-        return {  # DELEGATION_STUB
-            "success": False,
-            "error": _DELEGATION_MSG.format(actor="Authority"),
-        }
+        """Delegate to server.py — auto-certifies via Authority."""
+        from thebrain_mcp.server import purchase_credits
+
+        return await purchase_credits(amount_sats=amount_sats)
 
     async def check_payment(
         self, npub: str, invoice_id: str
     ) -> dict[str, Any]:
-        """(delegation, delegates to Authority) Not yet implemented."""
-        return {  # DELEGATION_STUB
-            "success": False,
-            "error": _DELEGATION_MSG.format(actor="Authority"),
-        }
+        """Delegate to server.py — polls BTCPay invoice status."""
+        from thebrain_mcp.server import check_payment
+
+        return await check_payment(invoice_id=invoice_id)
 
     # ── Delegation stubs (Authority) ─────────────────────────────
     # DELEGATION_STUB

@@ -1227,44 +1227,14 @@ class TestBTCPayPreflight:
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
              patch.object(srv, "_get_ledger_cache"):
-            result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.token")
+            result = await srv.purchase_credits(amount_sats=1000)
 
         assert result["success"] is False
         assert "missing required permissions" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_purchase_credits_requires_certificate_when_authority_configured(self) -> None:
-        """purchase_credits rejects calls without certificate when authority npub is resolved."""
-        import thebrain_mcp.server as srv
-
-        srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
-
-        mock_settings = MagicMock()
-        mock_settings.btcpay_tier_config = None
-        mock_settings.btcpay_user_tiers = None
-
-        mock_btcpay = AsyncMock(spec=BTCPayClient)
-        mock_btcpay.get_api_key_info = AsyncMock(return_value={
-            "permissions": ["btcpay.store.cancreateinvoice", "btcpay.store.canviewinvoices"]
-        })
-        srv._btcpay_preflight_done = True
-
-        async def fake_resolve():
-            return "npub1somekey"
-
-        with patch.object(srv, "_require_user_id", return_value="user-1"), \
-             patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
-             patch.object(srv, "get_settings", return_value=mock_settings), \
-             patch.object(srv, "_resolve_authority_npub", side_effect=fake_resolve), \
-             patch.object(srv, "_get_ledger_cache"):
-            result = await srv.purchase_credits(amount_sats=1000, certificate="")
-
-        assert result["success"] is False
-        assert "certificate" in result["error"].lower()
-
-    @pytest.mark.asyncio
-    async def test_purchase_credits_certified_path(self) -> None:
-        """purchase_credits calls purchase_credits_tool when certificate is provided."""
+    async def test_purchase_credits_auto_certifies(self) -> None:
+        """purchase_credits auto-certifies via AuthorityCertifier and creates invoice."""
         import thebrain_mcp.server as srv
 
         srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
@@ -1285,21 +1255,79 @@ class TestBTCPayPreflight:
         async def fake_resolve():
             return "npub1authority_test"
 
+        async def fake_resolve_url():
+            return "https://authority.example.com/mcp"
+
+        mock_certifier = AsyncMock()
+        mock_certifier.certify = AsyncMock(return_value={
+            "certificate": "jwt.auto.cert",
+            "jti": "jti-auto",
+            "amount_sats": 1000,
+            "fee_sats": 20,
+            "net_sats": 980,
+        })
+
         with patch.object(srv, "_require_user_id", return_value="user-1"), \
              patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
              patch.object(srv, "get_settings", return_value=mock_settings), \
              patch.object(srv, "_resolve_authority_npub", side_effect=fake_resolve), \
-             patch.object(srv, "_get_ledger_cache") as mock_cache, \
+             patch.object(srv, "_resolve_authority_service_url", side_effect=fake_resolve_url), \
+             patch.object(srv, "_get_operator_npub", return_value="npub1operator"), \
+             patch("tollbooth.authority_client.AuthorityCertifier", return_value=mock_certifier), \
+             patch.object(srv, "_get_ledger_cache"), \
              patch.object(srv.credits, "purchase_credits_tool", new_callable=AsyncMock,
-                          return_value=fake_cert_result) as mock_certified:
-            result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.token.here")
+                          return_value=fake_cert_result) as mock_purchase:
+            result = await srv.purchase_credits(amount_sats=1000)
 
         assert result["success"] is True
         assert result["certificate_jti"] == "jti-abc"
-        mock_certified.assert_called_once()
-        call_kwargs = mock_certified.call_args
-        assert call_kwargs.kwargs["certificate"] == "jwt.token.here"
+        mock_certifier.certify.assert_awaited_once_with(1000)
+        mock_purchase.assert_called_once()
+        call_kwargs = mock_purchase.call_args
+        assert call_kwargs.kwargs["certificate"] == "jwt.auto.cert"
         assert call_kwargs.kwargs["authority_npub"] == "npub1authority_test"
+
+    @pytest.mark.asyncio
+    async def test_purchase_credits_certify_failure(self) -> None:
+        """purchase_credits returns error when auto-certification fails."""
+        import thebrain_mcp.server as srv
+        from tollbooth.authority_client import AuthorityCertifyError
+
+        srv._dpyc_sessions["user-1"] = SAMPLE_NPUB
+
+        mock_settings = MagicMock()
+        mock_settings.btcpay_tier_config = None
+        mock_settings.btcpay_user_tiers = None
+
+        mock_btcpay = AsyncMock(spec=BTCPayClient)
+        mock_btcpay.get_api_key_info = AsyncMock(return_value={
+            "permissions": ["btcpay.store.cancreateinvoice", "btcpay.store.canviewinvoices"]
+        })
+        srv._btcpay_preflight_done = True
+
+        mock_certifier = AsyncMock()
+        mock_certifier.certify = AsyncMock(
+            side_effect=AuthorityCertifyError("Insufficient credit balance")
+        )
+
+        async def fake_resolve():
+            return "npub1authority_test"
+
+        async def fake_resolve_url():
+            return "https://authority.example.com/mcp"
+
+        with patch.object(srv, "_require_user_id", return_value="user-1"), \
+             patch.object(srv, "_get_btcpay", return_value=mock_btcpay), \
+             patch.object(srv, "get_settings", return_value=mock_settings), \
+             patch.object(srv, "_resolve_authority_npub", side_effect=fake_resolve), \
+             patch.object(srv, "_resolve_authority_service_url", side_effect=fake_resolve_url), \
+             patch.object(srv, "_get_operator_npub", return_value="npub1operator"), \
+             patch("tollbooth.authority_client.AuthorityCertifier", return_value=mock_certifier), \
+             patch.object(srv, "_get_ledger_cache"):
+            result = await srv.purchase_credits(amount_sats=1000)
+
+        assert result["success"] is False
+        assert "Authority certification failed" in result["error"]
 
     @pytest.mark.asyncio
     async def test_purchase_credits_rejected_without_authority_key(self) -> None:
@@ -1326,7 +1354,7 @@ class TestBTCPayPreflight:
              patch.object(srv, "get_settings", return_value=mock_settings), \
              patch.object(srv, "_resolve_authority_npub", side_effect=fake_resolve_fail), \
              patch.object(srv, "_get_ledger_cache"):
-            result = await srv.purchase_credits(amount_sats=1000, certificate="jwt.here")
+            result = await srv.purchase_credits(amount_sats=1000)
 
         assert result["success"] is False
         assert "TOLLBOOTH_NOSTR_OPERATOR_NSEC" in result["error"]
