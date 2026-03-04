@@ -4,6 +4,10 @@ Thin delegation layer over existing server.py tool functions.
 Hot-path methods delegate to server.py; cold-path methods that
 reach the Authority or Oracle return delegation stubs.
 
+The tool catalog inherits from ``OPERATOR_BASE_CATALOG`` — the
+library-level single source of truth for tool metadata.  Brain-specific
+commentary is added via operator-local extensions.
+
 purchase_credits and check_payment are also delegation stubs —
 the long-term design delegates all Lightning payment processing
 to the Tollbooth Authority.
@@ -14,135 +18,13 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from tollbooth.actor_types import ActorRole, ToolPath, ToolPathInfo
-from tollbooth.operator_protocol import OperatorProtocol
+from tollbooth.actor_types import ToolPathInfo
+from tollbooth.operator_protocol import OPERATOR_BASE_CATALOG, OperatorProtocol
 
 _DELEGATION_MSG = (
     "Cold-path delegation not yet implemented. "
     "Connect to the {actor} MCP directly."
 )
-
-_CATALOG: list[ToolPathInfo] = [
-    # ── Hot-path (local ledger) ──────────────────────────────────
-    ToolPathInfo(
-        tool_name="check_balance",
-        path=ToolPath.HOT,
-        requires_auth=True,
-        cost_tier="FREE",
-        agent_hint="Return the patron's credit balance.",
-    ),
-    ToolPathInfo(
-        tool_name="account_statement",
-        path=ToolPath.HOT,
-        requires_auth=True,
-        cost_tier="FREE",
-        agent_hint="Return the patron's transaction history.",
-    ),
-    ToolPathInfo(
-        tool_name="account_statement_infographic",
-        path=ToolPath.HOT,
-        requires_auth=True,
-        cost_tier="READ",
-        agent_hint="Return a visual summary of the patron's account.",
-    ),
-    ToolPathInfo(
-        tool_name="restore_credits",
-        path=ToolPath.HOT,
-        requires_auth=True,
-        cost_tier="FREE",
-        agent_hint="Restore credits from a previously paid invoice.",
-    ),
-    ToolPathInfo(
-        tool_name="service_status",
-        path=ToolPath.HOT,
-        requires_auth=False,
-        cost_tier="FREE",
-        agent_hint="Return the Operator's health and version info.",
-    ),
-    # ── Delegation (BTCPay via Authority) ────────────────────────
-    ToolPathInfo(
-        tool_name="purchase_credits",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.AUTHORITY,
-        requires_auth=True,
-        cost_tier="FREE",
-        agent_hint="Create a Lightning invoice for patron credit purchase.",
-    ),
-    ToolPathInfo(
-        tool_name="check_payment",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.AUTHORITY,
-        requires_auth=True,
-        cost_tier="FREE",
-        agent_hint="Poll a Lightning invoice for settlement status.",
-    ),
-    # ── Delegation (Authority) ───────────────────────────────────
-    ToolPathInfo(
-        tool_name="certify_credits",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.AUTHORITY,
-        requires_auth=True,
-        cost_tier="FREE",
-        agent_hint="Certify a credit purchase via the Authority.",
-    ),
-    ToolPathInfo(
-        tool_name="register_operator",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.AUTHORITY,
-        requires_auth=True,
-        cost_tier="FREE",
-        agent_hint="Register as an operator via the Authority.",
-    ),
-    ToolPathInfo(
-        tool_name="operator_status",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.AUTHORITY,
-        requires_auth=True,
-        cost_tier="FREE",
-        agent_hint="Get operator registration info from the Authority.",
-    ),
-    # ── Delegation (Oracle via Authority) ────────────────────────
-    ToolPathInfo(
-        tool_name="lookup_member",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.ORACLE,
-        requires_auth=False,
-        cost_tier="FREE",
-        agent_hint="Look up a DPYC member via the Oracle.",
-    ),
-    ToolPathInfo(
-        tool_name="how_to_join",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.ORACLE,
-        requires_auth=False,
-        cost_tier="FREE",
-        agent_hint="Get onboarding instructions from the Oracle.",
-    ),
-    ToolPathInfo(
-        tool_name="get_tax_rate",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.ORACLE,
-        requires_auth=False,
-        cost_tier="FREE",
-        agent_hint="Get the current tax rate from the Oracle.",
-    ),
-    ToolPathInfo(
-        tool_name="about",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.ORACLE,
-        requires_auth=False,
-        cost_tier="FREE",
-        agent_hint="Describe the DPYC ecosystem via the Oracle.",
-    ),
-    ToolPathInfo(
-        tool_name="network_advisory",
-        path=ToolPath.DELEGATION,
-        delegates_to=ActorRole.ORACLE,
-        requires_auth=False,
-        cost_tier="FREE",
-        agent_hint="Get active network advisories from the Oracle.",
-    ),
-]
 
 
 class BrainOperator:
@@ -158,7 +40,7 @@ class BrainOperator:
 
     @classmethod
     def tool_catalog(cls) -> list[ToolPathInfo]:
-        return list(_CATALOG)
+        return list(OPERATOR_BASE_CATALOG)
 
     # ── Hot-path (local ledger) ──────────────────────────────────
 
@@ -194,6 +76,44 @@ class BrainOperator:
             "thebrain_mcp_version": thebrain_mcp.__version__,
             "python_version": sys.version,
         }
+
+    # ── Hot-path (Secure Courier) ────────────────────────────────
+
+    async def session_status(self) -> dict[str, Any]:
+        """Delegate to server.py — checks session and DPYC identity."""
+        from thebrain_mcp.server import session_status
+
+        return await session_status()
+
+    async def request_credential_channel(
+        self, service: str, greeting: str, recipient_npub: str | None,
+    ) -> dict[str, Any]:
+        """Delegate to server.py — opens Secure Courier channel."""
+        from thebrain_mcp.server import request_credential_channel
+
+        return await request_credential_channel(
+            service=service, recipient_npub=recipient_npub or "",
+        )
+
+    async def receive_credentials(
+        self, sender_npub: str, service: str, credential_card: str,
+    ) -> dict[str, Any]:
+        """Delegate to server.py — receives credentials, sends card DM."""
+        from thebrain_mcp.server import receive_credentials
+
+        return await receive_credentials(
+            sender_npub=sender_npub,
+            service=service,
+            credential_card=credential_card,
+        )
+
+    async def forget_credentials(
+        self, sender_npub: str, service: str,
+    ) -> dict[str, Any]:
+        """Delegate to server.py — deletes vaulted credentials."""
+        from thebrain_mcp.server import forget_credentials
+
+        return await forget_credentials(sender_npub=sender_npub, service=service)
 
     # ── Delegation stubs (BTCPay via Authority) ──────────────────
     # DELEGATION_STUB
