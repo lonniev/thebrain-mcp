@@ -105,16 +105,17 @@ assert isinstance(BrainOperator(), OperatorProtocol)
 The actor exposes:
 
 - **`slug`** — returns `"brain"` for tool-name prefixing
-- **`tool_catalog()`** — returns `list[ToolPathInfo]` metadata for all 15 protocol tools
+- **`tool_catalog()`** — returns `OPERATOR_BASE_CATALOG` (19 `ToolPathInfo` entries) — the canonical tool surface from tollbooth-dpyc
 
 | Path | Tools | Status |
 |------|-------|--------|
 | Hot (local ledger) | `check_balance`, `account_statement`, `account_statement_infographic`, `restore_credits`, `service_status` | Implemented — delegates to server.py |
+| Hot (Secure Courier) | `session_status`, `request_credential_channel`, `receive_credentials`, `forget_credentials` | Implemented — Nostr credential delivery with credential card DM |
 | Delegation (Authority) | `purchase_credits`, `check_payment` | Implemented — auto-certifies via MCP-to-MCP |
 | Delegation (Authority) | `certify_credits`, `register_operator`, `operator_status` | Stub — connect to the Authority MCP directly |
 | Delegation (Oracle) | `lookup_member`, `how_to_join`, `get_tax_rate`, `about`, `network_advisory` | Implemented — MCP-to-MCP via OracleClient |
 
-Payment processing auto-certifies via the Authority (server-to-server OAuth). Oracle community tools route directly to the DPYC Oracle — free and unauthenticated.
+Payment processing auto-certifies via the Authority (server-to-server OAuth). Secure Courier delivers encrypted credentials via Nostr DMs with automatic credential card (`ncred1...`) DM-back on first receipt. Oracle community tools route directly to the DPYC Oracle — free and unauthenticated.
 
 ## Architecture
 
@@ -122,7 +123,7 @@ The Tollbooth ecosystem is a three-party protocol spanning three repositories:
 
 | Repo | Role |
 |------|------|
-| [tollbooth-authority](https://github.com/lonniev/tollbooth-authority) | The institution — tax collection, EdDSA signing, purchase order certification |
+| [tollbooth-authority](https://github.com/lonniev/tollbooth-authority) | The institution — tax collection, Schnorr signing, purchase order certification |
 | [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc) | The booth — operator-side credit ledger, BTCPay client, tool gating |
 | [dpyc-oracle](https://github.com/lonniev/dpyc-oracle) | The concierge — community onboarding, tax rates, membership lookup |
 | **thebrain-mcp** (this repo) | The first city — reference MCP server powered by Tollbooth |
