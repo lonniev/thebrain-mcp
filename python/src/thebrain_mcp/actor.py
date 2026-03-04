@@ -240,31 +240,34 @@ class BrainOperator:
             "error": _DELEGATION_MSG.format(actor="Authority"),
         }
 
-    # ── Delegation stubs (Oracle via Authority) ──────────────────
-    # DELEGATION_STUB
+    # ── Delegation (Oracle — direct routing) ────────────────────
 
     async def lookup_member(self, npub: str) -> dict[str, Any] | str:
-        """(delegation, delegates to Oracle) Not yet implemented."""
-        return {  # DELEGATION_STUB
-            "success": False,
-            "error": _DELEGATION_MSG.format(actor="Oracle"),
-        }
+        """Delegate to server.py — routes to Oracle via MCP-to-MCP."""
+        from thebrain_mcp.server import lookup_member
+
+        return await lookup_member(npub=npub)
 
     async def how_to_join(self) -> str:
-        """(delegation, delegates to Oracle) Not yet implemented."""
-        return _DELEGATION_MSG.format(actor="Oracle")  # DELEGATION_STUB
+        """Delegate to server.py — routes to Oracle via MCP-to-MCP."""
+        from thebrain_mcp.server import how_to_join
+
+        return await how_to_join()
 
     async def get_tax_rate(self) -> dict[str, Any]:
-        """(delegation, delegates to Oracle) Not yet implemented."""
-        return {  # DELEGATION_STUB
-            "success": False,
-            "error": _DELEGATION_MSG.format(actor="Oracle"),
-        }
+        """Delegate to server.py — routes to Oracle via MCP-to-MCP."""
+        from thebrain_mcp.server import get_tax_rate
+
+        return await get_tax_rate()
 
     async def about(self) -> str:
-        """(delegation, delegates to Oracle) Not yet implemented."""
-        return _DELEGATION_MSG.format(actor="Oracle")  # DELEGATION_STUB
+        """Delegate to server.py — routes to Oracle via MCP-to-MCP."""
+        from thebrain_mcp.server import dpyc_about
+
+        return await dpyc_about()
 
     async def network_advisory(self) -> str:
-        """(delegation, delegates to Oracle) Not yet implemented."""
-        return _DELEGATION_MSG.format(actor="Oracle")  # DELEGATION_STUB
+        """Delegate to server.py — routes to Oracle via MCP-to-MCP."""
+        from thebrain_mcp.server import network_advisory
+
+        return await network_advisory()
