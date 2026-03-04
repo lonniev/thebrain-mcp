@@ -301,34 +301,15 @@ def _get_effective_user_id() -> str:
 async def _ensure_dpyc_session() -> str:
     """Return the npub for the current user, auto-restoring on cold start.
 
-    Fast path: in-memory session exists → return npub immediately.
-    Cold-start path: look up persisted session binding in vault, call
-    ``courier.restore_session()`` to re-establish identity via the
-    vault-first credential path (no relay I/O).
+    Delegates to ``SecureCourierService.ensure_identity()`` which manages
+    the in-memory session cache and vault-based cold-start restoration.
+    Every operator MCP server gets this for free from the library.
 
     Raises ValueError if restoration fails (first-time user or forgotten creds).
     """
     horizon_id = _require_user_id()
-    npub = _dpyc_sessions.get(horizon_id)
-    if npub and get_session(horizon_id):
-        return npub  # Fast path: everything in memory
-
-    # Cold-start path: try vault-based restoration
-    try:
-        courier = _get_courier_service()
-        restored = await courier.restore_session(horizon_id, service="thebrain")
-        if restored:
-            return restored
-    except Exception:
-        pass
-
-    raise ValueError(
-        "No DPYC identity active. Credit operations require an npub. "
-        "Follow the Secure Courier onboarding flow: call "
-        "request_credential_channel(recipient_npub=<npub>), reply via Nostr DM, "
-        "then call receive_credentials(sender_npub=<npub>). "
-        "Get your npub from the dpyc-oracle's how_to_join() tool."
-    )
+    courier = _get_courier_service()
+    return await courier.ensure_identity(horizon_id, service="thebrain")
 
 
 def _get_operator_api() -> TheBrainAPI:
