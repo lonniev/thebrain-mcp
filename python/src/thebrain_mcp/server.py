@@ -281,6 +281,9 @@ def _get_effective_user_id() -> str:
     Raises ValueError if no DPYC session is active (npub not set).
     Horizon OAuth remains the transport auth layer, but the npub is the
     sole identity for all credit/commerce operations.
+
+    NOTE: Prefer ``_ensure_dpyc_session()`` in async contexts — it
+    auto-restores the session from vault on cold start.
     """
     horizon_id = _require_user_id()
     npub = _dpyc_sessions.get(horizon_id)
@@ -293,6 +296,20 @@ def _get_effective_user_id() -> str:
             "Get your npub from the dpyc-oracle's how_to_join() tool."
         )
     return npub
+
+
+async def _ensure_dpyc_session() -> str:
+    """Return the npub for the current user, auto-restoring on cold start.
+
+    Delegates to ``SecureCourierService.ensure_identity()`` which manages
+    the in-memory session cache and vault-based cold-start restoration.
+    Every operator MCP server gets this for free from the library.
+
+    Raises ValueError if restoration fails (first-time user or forgotten creds).
+    """
+    horizon_id = _require_user_id()
+    courier = _get_courier_service()
+    return await courier.ensure_identity(horizon_id, service="thebrain")
 
 
 def _get_operator_api() -> TheBrainAPI:
@@ -1619,7 +1636,9 @@ async def receive_credentials(
                 "success": False,
                 "error": "Either sender_npub or credential_card is required.",
             }
-        return await courier.receive(sender_npub, service=service)
+        return await courier.receive(
+            sender_npub, service=service, caller_id=_get_current_user_id(),
+        )
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -1640,7 +1659,9 @@ async def forget_credentials(sender_npub: str, service: str = "thebrain") -> dic
     except (ValueError, RuntimeError) as e:
         return {"success": False, "error": str(e)}
 
-    return await courier.forget(sender_npub, service=service)
+    return await courier.forget(
+        sender_npub, service=service, caller_id=_get_current_user_id(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1921,7 +1942,7 @@ async def _with_warning(result: dict[str, Any]) -> dict[str, Any]:
     Uses the effective DPYC user ID (npub) for ledger lookup.
     """
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         cache = _get_ledger_cache()
         ledger = await cache.get(user_id)
         settings = get_settings()
@@ -1953,7 +1974,7 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
         return None
 
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
     except ValueError as e:
         return {"success": False, "error": str(e)}
 
@@ -1983,7 +2004,7 @@ async def _rollback_debit(tool_name: str) -> None:
         return
 
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
     except ValueError:
         return
 
@@ -2031,7 +2052,7 @@ async def purchase_credits(
     Next step: Pay the invoice, then call check_payment(invoice_id).
     """
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -2088,7 +2109,7 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
     Next step: Call check_balance to confirm, then continue using tools.
     """
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -2125,7 +2146,7 @@ async def check_balance() -> dict[str, Any]:
     Next step: If balance is low, call purchase_credits to top up.
     """
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         cache = _get_ledger_cache()
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
@@ -2185,7 +2206,7 @@ async def account_statement(days: int = 30) -> dict[str, Any]:
         daily_usage: Per-day usage breakdown for the requested period.
     """
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         cache = _get_ledger_cache()
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
@@ -2220,7 +2241,7 @@ async def account_statement_infographic(days: int = 30) -> dict[str, Any]:
         return gate
 
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         cache = _get_ledger_cache()
     except (ValueError, VaultNotConfiguredError) as e:
         await _rollback_debit("account_statement_infographic")
@@ -2264,7 +2285,7 @@ async def restore_credits(invoice_id: str) -> dict[str, Any]:
         balance_api_sats: Updated balance after restoration.
     """
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -2359,7 +2380,7 @@ async def _test_low_balance_warning_impl(simulated_balance_api_sats: int = 50) -
     from tollbooth.ledger import Tranche
 
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         cache = _get_ledger_cache()
         ledger = await cache.get(user_id)
     except (ValueError, VaultNotConfiguredError) as e:
@@ -2475,7 +2496,7 @@ async def get_anchor_proof(anchor_id: str) -> dict[str, Any]:
         return gate
 
     try:
-        user_id = _get_effective_user_id()
+        user_id = await _ensure_dpyc_session()
         vault = _get_neon_vault()
     except (ValueError, VaultNotConfiguredError) as e:
         await _rollback_debit("get_anchor_proof")
