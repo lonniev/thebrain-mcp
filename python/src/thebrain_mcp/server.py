@@ -137,6 +137,7 @@ def _get_current_user_id() -> str | None:
 _cached_operator_npub: str | None = None
 _cached_authority_npub: str | None = None
 _cached_authority_service_url: str | None = None
+_cached_oracle_service_url: str | None = None
 
 
 def _get_operator_npub() -> str:
@@ -230,6 +231,41 @@ async def _resolve_authority_service_url() -> str:
         "Resolved authority service URL from registry: %s", svc["url"],
     )
     return _cached_authority_service_url
+
+
+async def _resolve_oracle_service_url() -> str:
+    """Resolve the Oracle's MCP service URL from the DPYC community registry.
+
+    Walks the authority chain to the Prime Authority and finds the
+    dpyc-oracle service. Cached for process lifetime. Raises RuntimeError on failure.
+    """
+    global _cached_oracle_service_url
+    if _cached_oracle_service_url is not None:
+        return _cached_oracle_service_url
+
+    from tollbooth.registry import DPYCRegistry, RegistryError
+
+    operator_npub = _get_operator_npub()
+    settings = get_settings()
+
+    registry = DPYCRegistry(
+        url=settings.dpyc_registry_url,
+        cache_ttl_seconds=settings.dpyc_registry_cache_ttl_seconds,
+    )
+    try:
+        svc = await registry.resolve_oracle_service(operator_npub)
+    except RegistryError as e:
+        raise RuntimeError(
+            f"Failed to resolve Oracle service for operator {operator_npub}: {e}"
+        ) from e
+    finally:
+        await registry.close()
+
+    _cached_oracle_service_url = svc["url"]
+    logger.info(
+        "Resolved Oracle service URL from registry: %s", svc["url"],
+    )
+    return _cached_oracle_service_url
 
 
 # ---------------------------------------------------------------------------
@@ -2475,6 +2511,83 @@ async def list_anchors(
 
     from tollbooth.tools.anchors import list_anchors_tool
     return await list_anchors_tool(vault, limit=limit, status=status)
+
+
+# ---------------------------------------------------------------------------
+# Oracle delegation tools (free, unauthenticated community tools)
+# ---------------------------------------------------------------------------
+
+
+async def _call_oracle(tool_name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Resolve Oracle URL and delegate a tool call via OracleClient."""
+    from tollbooth.oracle_client import OracleClient, OracleClientError
+
+    try:
+        oracle_url = await _resolve_oracle_service_url()
+    except RuntimeError as e:
+        return {"success": False, "error": str(e)}
+
+    try:
+        return await OracleClient(oracle_url).call_tool(tool_name, arguments)
+    except OracleClientError as e:
+        return {"success": False, "error": f"Oracle delegation failed: {e}"}
+
+
+@tool
+async def how_to_join() -> dict[str, Any]:
+    """Get DPYC onboarding instructions from the community Oracle.
+
+    Free — no authentication or credits required. Returns step-by-step
+    instructions for joining the DPYC Honor Chain, generating a Nostr
+    keypair, and connecting to an Operator.
+    """
+    return await _call_oracle("how_to_join")
+
+
+@tool
+async def get_tax_rate() -> dict[str, Any]:
+    """Get the current DPYC certification tax rate from the Oracle.
+
+    Free — no authentication or credits required. Returns the rate
+    percent and minimum sats charged by Authorities when certifying
+    Operator credit purchases.
+    """
+    return await _call_oracle("get_tax_rate")
+
+
+@tool
+async def lookup_member(npub: str) -> dict[str, Any]:
+    """Look up a DPYC community member by their Nostr npub.
+
+    Free — no authentication or credits required. Returns the member's
+    role, status, services, and upstream authority information.
+
+    Args:
+        npub: The Nostr public key (bech32 npub format) to look up.
+    """
+    return await _call_oracle("lookup_member", {"npub": npub})
+
+
+@tool
+async def dpyc_about() -> dict[str, Any]:
+    """Describe the DPYC ecosystem via the community Oracle.
+
+    Free — no authentication or credits required. Returns a description
+    of the DPYC philosophy, the Honor Chain, and how Tollbooth
+    monetization works.
+    """
+    return await _call_oracle("about")
+
+
+@tool
+async def network_advisory() -> dict[str, Any]:
+    """Get active network advisories from the DPYC Oracle.
+
+    Free — no authentication or credits required. Returns any current
+    advisories about network status, maintenance windows, or
+    ecosystem-wide announcements.
+    """
+    return await _call_oracle("network_advisory")
 
 
 def main() -> None:
