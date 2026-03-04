@@ -4,7 +4,7 @@ A FastMCP server that gives AI agents read-write access to [TheBrain](https://ww
 
 ## Features
 
-- **49 MCP Tools**: Full CRUD on thoughts, links, attachments, notes, plus compound operations, billing, and auditing
+- **54 MCP Tools**: Full CRUD on thoughts, links, attachments, notes, plus compound operations, billing, community Oracle, and auditing
 - **BrainQuery (BQL)**: A Cypher-subset query language for pattern-based graph operations --- `MATCH`, `CREATE`, `SET`, `MERGE`, `DELETE` in one tool call
 - **Tollbooth Monetization**: Pre-funded Lightning micropayments via BTCPay Server; zero payment friction during conversations
 - **Multi-Tenant Credential Vault**: Per-user encrypted credential storage; passphrase-activated sessions
@@ -127,7 +127,7 @@ Alternatively, if you installed the package:
 }
 ```
 
-## Available Tools (49)
+## Available Tools (54)
 
 ### Session & Auth (free)
 
@@ -222,6 +222,16 @@ Alternatively, if you installed the package:
 | `anchor_ledger` | free | Anchor all ledger balances to Bitcoin via OpenTimestamps (operator-only) |
 | `get_anchor_proof` | 1 sat | Get a Merkle inclusion proof for your balance in a Bitcoin anchor |
 | `list_anchors` | free | List recent Bitcoin anchor records with status and patron counts |
+
+### DPYC Community (free --- Oracle delegation)
+
+| Tool | Cost | Description |
+|------|------|-------------|
+| `how_to_join` | free | Get DPYC onboarding instructions from the community Oracle |
+| `get_tax_rate` | free | Get the current certification tax rate from the Oracle |
+| `lookup_member` | free | Look up a DPYC community member by their Nostr npub |
+| `dpyc_about` | free | Describe the DPYC ecosystem via the community Oracle |
+| `network_advisory` | free | Get active network advisories from the Oracle |
 
 ## BrainQuery (BQL)
 

@@ -110,10 +110,11 @@ The actor exposes:
 | Path | Tools | Status |
 |------|-------|--------|
 | Hot (local ledger) | `check_balance`, `account_statement`, `account_statement_infographic`, `restore_credits`, `service_status` | Implemented — delegates to server.py |
-| Delegation (Authority) | `purchase_credits`, `check_payment`, `certify_credits`, `register_operator`, `operator_status` | Stub — connect to the Authority MCP directly |
-| Delegation (Oracle) | `lookup_member`, `how_to_join`, `get_tax_rate`, `about`, `network_advisory` | Stub — connect to the Oracle MCP directly |
+| Delegation (Authority) | `purchase_credits`, `check_payment` | Implemented — auto-certifies via MCP-to-MCP |
+| Delegation (Authority) | `certify_credits`, `register_operator`, `operator_status` | Stub — connect to the Authority MCP directly |
+| Delegation (Oracle) | `lookup_member`, `how_to_join`, `get_tax_rate`, `about`, `network_advisory` | Implemented — MCP-to-MCP via OracleClient |
 
-Payment processing (`purchase_credits`, `check_payment`) is delegated to the Tollbooth Authority rather than handled locally. Delegation stubs are marked with `# DELEGATION_STUB` for easy grep when the MCP-to-MCP wiring task lands.
+Payment processing auto-certifies via the Authority (server-to-server OAuth). Oracle community tools route directly to the DPYC Oracle — free and unauthenticated.
 
 ## Architecture
 
@@ -123,6 +124,7 @@ The Tollbooth ecosystem is a three-party protocol spanning three repositories:
 |------|------|
 | [tollbooth-authority](https://github.com/lonniev/tollbooth-authority) | The institution — tax collection, EdDSA signing, purchase order certification |
 | [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc) | The booth — operator-side credit ledger, BTCPay client, tool gating |
+| [dpyc-oracle](https://github.com/lonniev/dpyc-oracle) | The concierge — community onboarding, tax rates, membership lookup |
 | **thebrain-mcp** (this repo) | The first city — reference MCP server powered by Tollbooth |
 
 See the [Three-Party Protocol diagram](https://github.com/lonniev/tollbooth-authority/blob/main/docs/diagrams/tollbooth-three-party-protocol.svg) for the full architecture. The [operator-side flow](docs/diagrams/tollbooth-protocol-flow.svg) is also available.
