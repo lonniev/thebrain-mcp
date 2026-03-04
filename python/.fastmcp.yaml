@@ -26,4 +26,4 @@ environment:
 # Python version
 runtime:
   python: "3.12"
-# redeploy: 2026-03-04 tollbooth-dpyc 0.1.70 (auto-restore DPYC session on cold start)
+# redeploy: 2026-03-04 tollbooth-dpyc 0.1.71 (fix Oracle text response serialization)
