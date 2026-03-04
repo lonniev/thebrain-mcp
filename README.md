@@ -22,7 +22,7 @@ Every turnpike needs its first city. Before the booths can collect fares and the
 
 thebrain-mcp is that city — a [FastMCP](https://github.com/jlowin/fastmcp) service deployed on Horizon that bridges AI agents to [TheBrain](https://www.thebrain.com/), a personal knowledge graph of 9,000+ interconnected thoughts built over a decade. Every thought, link, attachment, and note operation maps directly to TheBrain's cloud API at [api.bra.in](https://api.bra.in).
 
-It's also the proving ground for [Tollbooth](https://github.com/lonniev/tollbooth-dpyc) — the first MCP server where every tool call is metered via Bitcoin Lightning micropayments. Pre-fund, use, top up. No subscriptions, no API keys tied to billing accounts, no fiat payment processors. The novel contribution: an MCP server architecture where the operator monetizes AI agent access through Lightning micropayments without ever pestering the client mid-conversation.
+It's also the proving ground for [Tollbooth DPYC™](https://github.com/lonniev/tollbooth-dpyc) — the first MCP server where every tool call is metered via Bitcoin Lightning micropayments. Pre-fund, use, top up. No subscriptions, no API keys tied to billing accounts, no fiat payment processors. The novel contribution: an MCP server architecture where the operator monetizes AI agent access through Lightning micropayments without ever pestering the client mid-conversation.
 
 ## Tollbooth Credits
 
@@ -171,6 +171,10 @@ The author reserves all rights to seek patent protection for the novel methods a
 ## Further Reading
 
 [The Phantom Tollbooth on the Lightning Turnpike](https://stablecoin.myshopify.com/blogs/our-value/the-phantom-tollbooth-on-the-lightning-turnpike) — the full story of how we're monetizing the monetization of AI APIs, and then fading to the background.
+
+## Trademarks
+
+DPYC, Tollbooth DPYC, and Don't Pester Your Customer are trademarks of Lonnie VanZandt. See the [TRADEMARKS.md](https://github.com/lonniev/dpyc-community/blob/main/TRADEMARKS.md) in the dpyc-community repository for usage guidelines.
 
 ## License
 
