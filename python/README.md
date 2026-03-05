@@ -4,19 +4,19 @@ A FastMCP server that gives AI agents read-write access to [TheBrain](https://ww
 
 ## Features
 
-- **54 MCP Tools**: Full CRUD on thoughts, links, attachments, notes, plus compound operations, billing, community Oracle, and auditing
+- **53 MCP Tools**: Full CRUD on thoughts, links, attachments, notes, plus compound operations, billing, community Oracle, and auditing
 - **BrainQuery (BQL)**: A Cypher-subset query language for pattern-based graph operations --- `MATCH`, `CREATE`, `SET`, `MERGE`, `DELETE` in one tool call
 - **Tollbooth Monetization**: Pre-funded Lightning micropayments via BTCPay Server; zero payment friction during conversations
-- **Multi-Tenant Credential Vault**: Per-user encrypted credential storage; passphrase-activated sessions
+- **Multi-Tenant Credential Vault**: Per-user encrypted credential storage via Secure Courier (Nostr DMs)
 - **OpenTimestamps Bitcoin Anchoring**: Cryptographic proof-of-balance anchored to the Bitcoin blockchain
 - **Rich Visual Properties**: Colors, styling, and graphical customization for thoughts and links
 - **File Management**: Upload and manage images, documents, and web links as attachments
 
 ## Tollbooth --- API Monetization
 
-> the Don't Pester Your Client (DPYC) API Monetization service for Entrepreneurial Bitcoin Advocates
+> Don't Pester Your Customer™ (DPYC™) — API monetization for Entrepreneurial Bitcoin Advocates
 
-thebrain-mcp is the first Tollbooth-powered MCP server. Tollbooth is the built-in monetization layer that lets operators charge for API usage without interrupting the client's workflow.
+thebrain-mcp is the first Tollbooth DPYC™-powered MCP server. Tollbooth is the built-in monetization layer that lets operators charge for API usage without interrupting the customer's workflow.
 
 **How it works:**
 - Clients pre-fund an `api_sats` balance via Lightning Network (BTCPay Server)
@@ -25,12 +25,12 @@ thebrain-mcp is the first Tollbooth-powered MCP server. Tollbooth is the built-i
 - If the balance runs low, a single `purchase_credits` call tops it up
 
 **Key principles:**
-- **DPYC (Don't Pester Your Client)** --- pre-funded balance means zero payment friction during conversations
+- **DPYC™ (Don't Pester Your Customer™)** --- pre-funded balance means zero payment friction during conversations
 - **Lightning-native** --- BTCPay Server + Lightning Network; no fiat rails, no bank details
 - **Identity-first** --- layers on Horizon OAuth; never replaces auth with payment
 - **Serverless-aware** --- ledger persists across ephemeral FastMCP Cloud deployments
 
-See the [Tollbooth protocol flow diagram](../docs/diagrams/tollbooth-protocol-flow.svg) for the full architecture.
+See the [Tollbooth DPYC™ protocol flow diagram](../docs/diagrams/tollbooth-protocol-flow.svg) for the full architecture.
 
 ## Installation
 
@@ -67,33 +67,57 @@ cp .env.example .env
 
 ### Environment Variables
 
+#### TheBrain
+
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `THEBRAIN_API_KEY` | Yes | Operator's TheBrain API key (for vault access) |
 | `THEBRAIN_DEFAULT_BRAIN_ID` | No | Default brain ID for STDIO mode |
 | `THEBRAIN_API_URL` | No | TheBrain API base URL (default: `https://api.bra.in`) |
-| `THEBRAIN_VAULT_BRAIN_ID` | No | Brain ID for the encrypted credential vault |
+| `ATTACHMENT_SAFE_DIRECTORY` | No | Filesystem path for attachment storage (default: `/tmp/thebrain-attachments`) |
+
+> **Note:** `THEBRAIN_API_KEY` is no longer an environment variable — users deliver their API key via Secure Courier (encrypted Nostr DM). The operator's own TheBrain API key for vault access is also delivered via Secure Courier at first deployment.
+
+#### BTCPay Server
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
 | `BTCPAY_HOST` | No | BTCPay Server URL for credit purchases |
 | `BTCPAY_STORE_ID` | No | BTCPay store ID |
 | `BTCPAY_API_KEY` | No | BTCPay API key with invoice + payout permissions |
 | `BTCPAY_TIER_CONFIG` | No | JSON string mapping tier names to credit multipliers |
 | `BTCPAY_USER_TIERS` | No | JSON string mapping user IDs to tier names |
+
+#### Tollbooth DPYC™ Commerce
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
 | `SEED_BALANCE_SATS` | No | Free starter balance for new users (0 = disabled) |
-| `NEON_DATABASE_URL` | No | NeonVault Postgres URL for commerce ledger persistence |
-| `TOLLBOOTH_OTS_ENABLED` | No | Set to `"true"` to enable OpenTimestamps Bitcoin anchoring |
-| `TOLLBOOTH_OTS_CALENDARS` | No | Comma-separated OTS calendar server URLs |
+| `CREDIT_TTL_SECONDS` | No | Credit expiration in seconds (default: `604800` = 7 days) |
+| `NEON_DATABASE_URL` | No | Neon Postgres URL for commerce ledger persistence |
 | `TOLLBOOTH_ROYALTY_ADDRESS` | No | Lightning Address for royalty payouts |
 | `TOLLBOOTH_ROYALTY_PERCENT` | No | Royalty percentage (default: `0.02`) |
 | `TOLLBOOTH_ROYALTY_MIN_SATS` | No | Minimum royalty payout in sats (default: `10`) |
-| `CREDIT_TTL_SECONDS` | No | Credit expiration in seconds (default: `604800` = 7 days) |
-| `DPYC_OPERATOR_NPUB` | No | Operator's Nostr public key for DPYC identity |
-| `DPYC_AUTHORITY_NPUB` | No | Authority's Nostr public key |
-| `TOLLBOOTH_NOSTR_AUDIT_ENABLED` | No | Enable Nostr audit trail |
-| `TOLLBOOTH_NOSTR_OPERATOR_NSEC` | No | Operator's Nostr secret key for audit signing |
-| `TOLLBOOTH_NOSTR_RELAYS` | No | Comma-separated Nostr relay URLs |
-| `ATTACHMENT_SAFE_DIRECTORY` | No | Filesystem path for attachment storage (default: `/tmp/thebrain-attachments`) |
 
-### For Claude Desktop
+#### DPYC™ Identity & Secure Courier
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `TOLLBOOTH_NOSTR_OPERATOR_NSEC` | Yes | Operator's Nostr secret key for Secure Courier DMs and audit signing |
+| `TOLLBOOTH_NOSTR_RELAYS` | No | Comma-separated Nostr relay URLs |
+| `TOLLBOOTH_NOSTR_AUDIT_ENABLED` | No | Enable Nostr audit trail |
+| `DPYC_REGISTRY_URL` | No | DPYC™ community registry URL (auto-resolved from GitHub) |
+| `DPYC_REGISTRY_CACHE_TTL_SECONDS` | No | Registry cache TTL (default: 300) |
+
+> **Note:** `DPYC_OPERATOR_NPUB` and `DPYC_AUTHORITY_NPUB` are no longer needed — identities are resolved automatically from the [DPYC™ community registry](https://github.com/lonniev/dpyc-community).
+
+#### OpenTimestamps
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `TOLLBOOTH_OTS_ENABLED` | No | Set to `"true"` to enable Bitcoin anchoring |
+| `TOLLBOOTH_OTS_CALENDARS` | No | Comma-separated OTS calendar server URLs |
+
+### For Claude Desktop (STDIO mode)
 
 Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
@@ -105,40 +129,27 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
       "args": ["-m", "thebrain_mcp.server"],
       "cwd": "/absolute/path/to/thebrain-mcp/python",
       "env": {
-        "THEBRAIN_API_KEY": "your_api_key_here"
+        "THEBRAIN_DEFAULT_BRAIN_ID": "your_brain_id_here",
+        "TOLLBOOTH_NOSTR_OPERATOR_NSEC": "nsec1..."
       }
     }
   }
 }
 ```
 
-Alternatively, if you installed the package:
+> **Note:** In STDIO mode, the TheBrain API key is still delivered via Secure Courier at first session. Set `THEBRAIN_DEFAULT_BRAIN_ID` to skip the brain selection step.
 
-```json
-{
-  "mcpServers": {
-    "thebrain": {
-      "command": "thebrain-mcp",
-      "env": {
-        "THEBRAIN_API_KEY": "your_api_key_here"
-      }
-    }
-  }
-}
-```
-
-## Available Tools (54)
+## Available Tools (53)
 
 ### Session & Auth (free)
 
 | Tool | Description |
 |------|-------------|
 | `whoami` | Return the authenticated user's identity and OAuth claims |
-| `register_credentials` | Encrypt and store TheBrain credentials in the operator's vault |
-| `activate_session` | Decrypt credentials with your passphrase to start a session |
-| `session_status` | Check current session state (active brain, vault, DPYC identity) |
-| `upgrade_credentials` | Re-encrypt credentials with updated API key, brain ID, or npub |
-| `activate_dpyc` | *(Deprecated)* Bind a Nostr npub to the current session |
+| `session_status` | Check current session state (active brain, vault, DPYC™ identity) |
+| `request_credential_channel` | Open a Secure Courier channel — sends a welcome DM to your Nostr client |
+| `receive_credentials` | Pick up credentials from the Secure Courier (vault-first, then relay) |
+| `forget_credentials` | Delete vaulted credentials for key rotation or re-delivery |
 
 ### Brain Management (1 sat)
 
@@ -223,7 +234,7 @@ Alternatively, if you installed the package:
 | `get_anchor_proof` | 1 sat | Get a Merkle inclusion proof for your balance in a Bitcoin anchor |
 | `list_anchors` | free | List recent Bitcoin anchor records with status and patron counts |
 
-### DPYC Community (free --- Oracle delegation)
+### DPYC™ Community (free --- Oracle delegation)
 
 | Tool | Cost | Description |
 |------|------|-------------|
@@ -264,25 +275,32 @@ BQL supports `MATCH`, `CREATE`, `SET`, `MERGE`, `DELETE`, `WHERE` (with `AND`/`O
 
 Full grammar, resolution strategy, and examples: **[BRAINQUERY.md](BRAINQUERY.md)**
 
-## DPYC Identity (Nostr npub)
+## DPYC™ Identity & Secure Courier
 
-As a Tollbooth Operator, thebrain-mcp needs a Nostr keypair for its identity on the DPYC Honor Chain. Generate one using the script in [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc):
+As a Tollbooth DPYC™ Operator, thebrain-mcp needs a Nostr keypair for its identity on the DPYC™ Honor Chain. Generate one using any Nostr key generator:
 
 ```bash
 pip install nostr-sdk
-python -c "from nostr_sdk import Keys; k = Keys.generate(); print(f'DPYC_OPERATOR_NPUB={k.public_key().to_bech32()}'); print(f'nsec (back up!): {k.secret_key().to_bech32()}')"
+python -c "from nostr_sdk import Keys; k = Keys.generate(); print(f'nsec={k.secret_key().to_bech32()}'); print(f'npub={k.public_key().to_bech32()}')"
 ```
-
-Or clone tollbooth-dpyc and run `scripts/generate_nostr_keypair.py` for full output.
 
 Add to your `.env`:
 
 ```
-DPYC_OPERATOR_NPUB=npub1...
-DPYC_AUTHORITY_NPUB=npub1...   # the Authority this Operator is registered with
+TOLLBOOTH_NOSTR_OPERATOR_NSEC=nsec1...   # Operator's Nostr secret key for Secure Courier DMs
 ```
 
-Users provide their own npub at registration time via `register_credentials()`.
+> **Note:** `DPYC_OPERATOR_NPUB` and `DPYC_AUTHORITY_NPUB` are no longer needed — Operator and Authority identities are resolved automatically from the [DPYC™ community registry](https://github.com/lonniev/dpyc-community).
+
+### User Onboarding (Secure Courier)
+
+Users deliver their TheBrain API credentials via encrypted Nostr DMs — credentials never appear in the chat window:
+
+1. Call `request_credential_channel(recipient_npub=<npub>)` to send a welcome DM
+2. User replies via their Nostr client with credentials in the JSON format shown
+3. Call `receive_credentials(sender_npub=<npub>)` to vault and activate
+
+Returning users just call `receive_credentials` — vault-first lookup activates instantly, no relay I/O needed. The Secure Courier is provided by [Tollbooth DPYC™](https://github.com/lonniev/tollbooth-dpyc) — thebrain-mcp doesn't manage auth internally.
 
 ## Development
 
@@ -336,6 +354,10 @@ Visit the technologist's virtual cafe for Bitcoin advocates and coffee aficionad
 The author reserves all rights to seek patent protection for the novel methods and systems described herein. Public disclosure of this work establishes a priority date of February 16, 2026. Under the America Invents Act, the author retains a one-year grace period from the date of first public disclosure to file patent applications.
 
 **Note to potential filers:** This public repository and its full Git history serve as evidence of prior art. Any patent application covering substantially similar methods filed after the publication date of this repository may be subject to invalidation under 35 U.S.C. 102(a).
+
+## Trademarks
+
+DPYC, Tollbooth DPYC, and Don't Pester Your Customer are trademarks of Lonnie VanZandt. See the [TRADEMARKS.md](https://github.com/lonniev/dpyc-community/blob/main/TRADEMARKS.md) in the dpyc-community repository for usage guidelines.
 
 ## License
 
