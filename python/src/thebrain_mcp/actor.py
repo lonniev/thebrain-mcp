@@ -19,6 +19,7 @@ import sys
 from typing import Any
 
 from tollbooth.actor_types import ToolPathInfo
+from tollbooth.constants import ECOSYSTEM_LINKS
 from tollbooth.operator_protocol import OPERATOR_BASE_CATALOG, OperatorProtocol
 
 _DELEGATION_MSG = (
@@ -75,6 +76,7 @@ class BrainOperator:
             "success": True,
             "thebrain_mcp_version": thebrain_mcp.__version__,
             "python_version": sys.version,
+            "ecosystem_links": ECOSYSTEM_LINKS,
         }
 
     # ── Hot-path (Secure Courier) ────────────────────────────────
