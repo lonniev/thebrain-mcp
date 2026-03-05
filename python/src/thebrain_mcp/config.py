@@ -50,6 +50,18 @@ class Settings(BaseSettings):
     tollbooth_ots_enabled: str | None = None  # "true" to enable
     tollbooth_ots_calendars: str | None = None  # Comma-separated URLs
 
+    # Constraint Engine (opt-in)
+    constraints_enabled: bool = False
+    constraints_config: str | None = None  # JSON string
+
+    def to_tollbooth_config(self) -> "TollboothConfig":
+        """Build a TollboothConfig for passing to tollbooth library tools."""
+        from tollbooth.config import TollboothConfig
+        return TollboothConfig(
+            constraints_enabled=self.constraints_enabled,
+            constraints_config=self.constraints_config,
+        )
+
 
 def get_settings() -> Settings:
     """Get application settings."""

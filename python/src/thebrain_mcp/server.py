@@ -1762,6 +1762,28 @@ def _get_commerce_vault() -> Any:
     return _commerce_vault
 
 
+# ---------------------------------------------------------------------------
+# Constraint gate singleton
+# ---------------------------------------------------------------------------
+
+_gate: Any = None
+_gate_initialized: bool = False
+
+
+def _get_gate():
+    """Return the ConstraintGate singleton, or None if constraints are off."""
+    global _gate, _gate_initialized
+    if _gate_initialized:
+        return _gate
+    from tollbooth.constraints.gate import ConstraintGate
+    settings = get_settings()
+    config = settings.to_tollbooth_config()
+    if config.constraints_enabled:
+        _gate = ConstraintGate(config)
+    _gate_initialized = True
+    return _gate
+
+
 def _get_btcpay() -> BTCPayClient:
     """Get or create the BTCPay client singleton.
 
@@ -1957,6 +1979,36 @@ async def _with_warning(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _demand_window_key() -> str:
+    """Hourly demand window key (e.g. '2026-03-05T14:00')."""
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00")
+
+
+async def _get_global_demand(tool_name: str) -> dict[str, int]:
+    """Read global demand from NeonVault. Returns {} on error (base pricing)."""
+    try:
+        vault = _get_commerce_vault()
+        count = await vault.get_demand(tool_name, _demand_window_key())
+        return {tool_name: count}
+    except Exception:
+        return {}
+
+
+def _fire_and_forget_demand_increment(tool_name: str) -> None:
+    """Increment demand counter — async, non-blocking."""
+    import asyncio
+
+    async def _inc():
+        try:
+            vault = _get_commerce_vault()
+            await vault.increment_demand(tool_name, _demand_window_key())
+        except Exception:
+            pass
+
+    asyncio.create_task(_inc())
+
+
 async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
     """Check balance and debit credits for a paid tool call.
 
@@ -1985,6 +2037,25 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
         # Vault not configured — skip gating
         return None
 
+    # ConstraintGate may modify cost or deny the call
+    gate = _get_gate()
+    if gate and gate.enabled:
+        demand = await _get_global_demand(tool_name)
+        denial, effective_cost = gate.check(
+            tool_name=tool_name,
+            base_cost=cost,
+            ledger=ledger,
+            npub=user_id,
+            global_demand=demand,
+        )
+        if denial is not None:
+            return denial
+        cost = effective_cost
+
+    # Constraint may have reduced cost to zero (free trial)
+    if cost == 0:
+        return None
+
     if not ledger.debit(tool_name, cost):
         return {
             "success": False,
@@ -1994,6 +2065,10 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
         }
 
     cache.mark_dirty(user_id)
+
+    # Successful debit — increment demand (fire-and-forget)
+    _fire_and_forget_demand_increment(tool_name)
+
     return None
 
 
