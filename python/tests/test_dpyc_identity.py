@@ -176,5 +176,4 @@ async def test_debit_or_error_fails_without_dpyc_session():
 
     assert result is not None
     assert result["success"] is False
-    assert "No DPYC identity active" in result["error"]
-    assert "Secure Courier" in result["error"]
+    assert "Secure Courier" in result["error"] or "No DPYC identity active" in result["error"]

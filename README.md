@@ -87,9 +87,6 @@ To run your own instance, set these environment variables:
 | `BTCPAY_TIER_CONFIG` | JSON string mapping tier names to credit multipliers | `{"default": {"credit_multiplier": 1}}` |
 | `BTCPAY_USER_TIERS` | JSON string mapping user IDs to tier names | `{"user_01KGZY...": "vip"}` |
 | `SEED_BALANCE_SATS` | Free starter balance for new users (0 to disable) | `500` |
-| `TOLLBOOTH_ROYALTY_ADDRESS` | Lightning Address for 2% royalty payout | `tollbooth@btcpay.example.com` |
-| `TOLLBOOTH_ROYALTY_PERCENT` | Royalty percentage | `0.02` (default) |
-| `TOLLBOOTH_ROYALTY_MIN_SATS` | Minimum royalty payout in sats | `10` (default) |
 
 ## Actor Protocol
 

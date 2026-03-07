@@ -25,10 +25,6 @@ class Settings(BaseSettings):
 
     seed_balance_sats: int = 0  # 0 = disabled (current behavior)
 
-    tollbooth_royalty_address: str | None = None
-    tollbooth_royalty_percent: float = 0.02
-    tollbooth_royalty_min_sats: int = 10
-
     credit_ttl_seconds: int | None = 604800  # 7 days; None = no expiration
 
     # NeonVault (replaces TheBrainVault for commerce ledger persistence)
