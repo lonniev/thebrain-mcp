@@ -1801,15 +1801,7 @@ def _get_btcpay() -> BTCPayClient:
     _btcpay_client = BTCPayClient(
         settings.btcpay_host, settings.btcpay_api_key, settings.btcpay_store_id
     )
-    if settings.tollbooth_royalty_address:
-        logger.info(
-            "BTCPay initialized — royalty payouts enabled: %s (%.1f%%, min %d sats)",
-            settings.tollbooth_royalty_address,
-            settings.tollbooth_royalty_percent * 100,
-            settings.tollbooth_royalty_min_sats,
-        )
-    else:
-        logger.info("BTCPay initialized — royalty payouts disabled (no address configured)")
+    logger.info("BTCPay initialized.")
     return _btcpay_client
 
 
@@ -1826,30 +1818,25 @@ _REQUIRED_BTCPAY_PERMISSIONS = [
 async def _ensure_btcpay_preflight(btcpay: BTCPayClient) -> None:
     """Verify BTCPay API key has required permissions.  Runs once.
 
-    When royalty is configured (address is set), the payout permission
-    is mandatory.  Raises TollboothConfigError on failure — the server
-    refuses to serve credit tools until the operator fixes the API key.
+    Raises TollboothConfigError on failure — the server refuses to serve
+    credit tools until the operator fixes the API key.
     """
     global _btcpay_preflight_done
     if _btcpay_preflight_done:
         return
 
     settings = get_settings()
-    royalty_configured = bool(settings.tollbooth_royalty_address)
 
     required = [
         "btcpay.store.cancreateinvoice",
         "btcpay.store.canviewinvoices",
     ]
-    if royalty_configured:
-        required.append("btcpay.store.cancreatenonapprovedpullpayments")
 
     try:
         key_info = await btcpay.get_api_key_info()
     except BTCPayError as e:
         raise TollboothConfigError(
-            f"Cannot verify BTCPay API key permissions: {e}. "
-            f"Tollbooth requires a permission check when royalty is configured."
+            f"Cannot verify BTCPay API key permissions: {e}."
         ) from e
 
     granted = set(key_info.get("permissions", []))
@@ -2115,8 +2102,8 @@ async def purchase_credits(
 
     Args:
         amount_sats: Number of satoshis to purchase (minimum 1, maximum 1,000,000).
-            The Authority's certification fee is deducted automatically; the
-            invoice will be for the net amount (purchase minus tax).
+            The Authority's certification fee is absorbed by the operator as a
+            cost of doing business. The invoice is for the full amount you requested.
 
     Returns:
         invoice_id: BTCPay invoice ID (pass to check_payment after paying).
@@ -2168,7 +2155,6 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
 
     Call this after paying the invoice from purchase_credits. Safe to call
     multiple times — credits are only granted once per invoice (idempotent).
-    Also fires a 2% royalty payout to the Tollbooth originator on settlement.
 
     Invoice lifecycle: New → Processing → Settled (credits granted) or
     Expired/Invalid (invoice removed from pending list).
@@ -2196,9 +2182,6 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
         btcpay, cache, user_id, invoice_id,
         tier_config_json=settings.btcpay_tier_config,
         user_tiers_json=settings.btcpay_user_tiers,
-        royalty_address=settings.tollbooth_royalty_address,
-        royalty_percent=settings.tollbooth_royalty_percent,
-        royalty_min_sats=settings.tollbooth_royalty_min_sats,
         default_credit_ttl_seconds=settings.credit_ttl_seconds,
     )
 
@@ -2381,9 +2364,9 @@ async def btcpay_status() -> dict[str, Any]:
     """Check BTCPay Server configuration, connectivity, and permissions.
 
     Operator diagnostic tool. Reports which env vars are configured (never
-    exposes the API key itself), tier config validity, royalty settings, cache
-    health, and — if fully configured — whether the server is reachable, the
-    store is accessible, and the API key has required permissions.
+    exposes the API key itself), tier config validity, cache health, and —
+    if fully configured — whether the server is reachable, the store is
+    accessible, and the API key has required permissions.
 
     Call this during initial setup to verify BTCPay configuration, or when
     payments aren't working to diagnose connectivity or permission issues.
@@ -2394,7 +2377,6 @@ async def btcpay_status() -> dict[str, Any]:
         server_reachable: True/False/None (None if not configured).
         store_name: Store name or error status.
         api_key_permissions: Required vs present permissions, with missing list.
-        royalty_config: Address, percent, min_sats, enabled flag.
         cache_health: Ledger cache metrics (if initialized).
     """
     _ensure_settings_loaded()
@@ -2418,9 +2400,6 @@ async def btcpay_status() -> dict[str, Any]:
         btcpay_tier_config=settings.btcpay_tier_config,
         btcpay_user_tiers=settings.btcpay_user_tiers,
         seed_balance_sats=settings.seed_balance_sats,
-        tollbooth_royalty_address=settings.tollbooth_royalty_address,
-        tollbooth_royalty_percent=settings.tollbooth_royalty_percent,
-        tollbooth_royalty_min_sats=settings.tollbooth_royalty_min_sats,
         authority_npub=authority_npub,
         credit_ttl_seconds=settings.credit_ttl_seconds,
     )

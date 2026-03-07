@@ -94,9 +94,6 @@ cp .env.example .env
 | `SEED_BALANCE_SATS` | No | Free starter balance for new users (0 = disabled) |
 | `CREDIT_TTL_SECONDS` | No | Credit expiration in seconds (default: `604800` = 7 days) |
 | `NEON_DATABASE_URL` | No | Neon Postgres URL for commerce ledger persistence |
-| `TOLLBOOTH_ROYALTY_ADDRESS` | No | Lightning Address for royalty payouts |
-| `TOLLBOOTH_ROYALTY_PERCENT` | No | Royalty percentage (default: `0.02`) |
-| `TOLLBOOTH_ROYALTY_MIN_SATS` | No | Minimum royalty payout in sats (default: `10`) |
 
 #### DPYC™ Identity & Secure Courier
 

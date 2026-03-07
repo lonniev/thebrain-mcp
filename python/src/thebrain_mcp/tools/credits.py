@@ -2,8 +2,6 @@
 
 from tollbooth.tools.credits import *  # noqa: F401, F403
 from tollbooth.tools.credits import (  # explicit for type checkers + private names
-    ROYALTY_PAYOUT_MAX_SATS,
-    _attempt_royalty_payout,
     _get_multiplier,
     _get_tier_info,
     purchase_credits_tool,
