@@ -195,8 +195,8 @@ def render_account_infographic(data: dict[str, Any]) -> str:
                        size=10, fill=TEXT_GRAY, weight="bold",
                        family="sans-serif"))
 
-    cols_t = [CARD_X + 16, CARD_X + 160, CARD_X + 310, CARD_X + 440]
-    headers_t = ["SOURCE", "GRANTED", "ORIGINAL", "REMAINING"]
+    cols_t = [CARD_X + 16, CARD_X + 120, CARD_X + 220, CARD_X + 320, CARD_X + 430]
+    headers_t = ["SOURCE", "GRANTED", "ORIGINAL", "REMAINING", "EXPIRES"]
     for x, h in zip(cols_t, headers_t):
         parts.append(_text(x, cy + 44, h, size=8, fill=TEXT_DIM, weight="bold"))
     parts.append(
@@ -216,11 +216,14 @@ def render_account_infographic(data: dict[str, Any]) -> str:
             granted = str(t.get("granted_at", ""))[:10]
             original = f'{t.get("original_sats", 0):,}'
             remaining = f'{t.get("remaining_sats", 0):,}'
+            expires = str(t.get("expires_at", ""))[:10] if t.get("expires_at") else "\u2014"
             parts.append(_text(cols_t[0], ry, source, size=10, fill=ACCENT_BLUE))
             parts.append(_text(cols_t[1], ry, granted, size=10))
             parts.append(_text(cols_t[2], ry, original, size=10))
             parts.append(_text(cols_t[3], ry, remaining, size=10,
                                fill=ACCENT_GREEN, weight="bold"))
+            expires_fill = ACCENT_GOLD if t.get("expires_at") else TEXT_DIM
+            parts.append(_text(cols_t[4], ry, expires, size=10, fill=expires_fill))
     else:
         parts.append(_text(cols_t[0], cy + 68, "No active tranches",
                            size=10, fill=TEXT_DIM))
