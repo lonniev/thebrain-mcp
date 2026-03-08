@@ -171,7 +171,14 @@ async def test_debit_or_error_fails_without_dpyc_session():
     """Paid tools return helpful error when no DPYC session is active."""
     from thebrain_mcp.server import _debit_or_error
 
-    with patch("thebrain_mcp.server._get_current_user_id", return_value="horizon-1"):
+    async def _fake_ensure():
+        raise ValueError(
+            "No DPYC identity active. Credit operations require an npub. "
+            "Follow the Secure Courier onboarding flow."
+        )
+
+    with patch("thebrain_mcp.server._get_current_user_id", return_value="horizon-1"), \
+         patch("thebrain_mcp.server._ensure_dpyc_session", side_effect=_fake_ensure):
         result = await _debit_or_error("search_thoughts")
 
     assert result is not None

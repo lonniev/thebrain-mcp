@@ -76,6 +76,16 @@ def _patch_dpyc_session_missing():
     return patch("thebrain_mcp.server._ensure_dpyc_session", side_effect=_fake_ensure)
 
 
+@pytest.fixture(autouse=True)
+def _reset_gate_singleton():
+    """Reset ConstraintGate singleton so get_settings() isn't called in CI."""
+    import thebrain_mcp.server as srv
+    old_gate, old_init = srv._gate, srv._gate_initialized
+    srv._gate, srv._gate_initialized = None, True  # pretend initialized (no gate)
+    yield
+    srv._gate, srv._gate_initialized = old_gate, old_init
+
+
 # ---------------------------------------------------------------------------
 # _debit_or_error
 # ---------------------------------------------------------------------------
