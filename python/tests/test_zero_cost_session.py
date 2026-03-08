@@ -62,6 +62,23 @@ def _activate_dpyc(horizon_id: str, npub: str = SAMPLE_NPUB):
     srv._dpyc_sessions[horizon_id] = npub
 
 
+def _patch_dpyc_session(npub: str = SAMPLE_NPUB):
+    """Patch _ensure_dpyc_session to return the given npub without needing Courier."""
+    async def _fake_ensure():
+        return npub
+    return patch("thebrain_mcp.server._ensure_dpyc_session", side_effect=_fake_ensure)
+
+
+@pytest.fixture(autouse=True)
+def _reset_gate_singleton():
+    """Reset ConstraintGate singleton so get_settings() isn't called in CI."""
+    import thebrain_mcp.server as srv
+    old_gate, old_init = srv._gate, srv._gate_initialized
+    srv._gate, srv._gate_initialized = None, True  # pretend initialized (no gate)
+    yield
+    srv._gate, srv._gate_initialized = old_gate, old_init
+
+
 # ---------------------------------------------------------------------------
 # Auth/identity tools must be FREE in TOOL_COSTS
 # ---------------------------------------------------------------------------
@@ -129,7 +146,7 @@ class TestZeroBalanceGating:
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
-        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache), _patch_dpyc_session():
             result = await _debit_or_error("search_thoughts")
 
         assert result is not None
@@ -195,7 +212,7 @@ class TestBootstrapPath:
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
-        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache), _patch_dpyc_session():
             # Bootstrap tools all pass
             for tool_name in BOOTSTRAP_TOOLS:
                 assert await _debit_or_error(tool_name) is None

@@ -56,6 +56,36 @@ def _activate_dpyc(horizon_id: str, npub: str = SAMPLE_NPUB):
     srv._dpyc_sessions[horizon_id] = npub
 
 
+def _patch_dpyc_session(npub: str = SAMPLE_NPUB):
+    """Patch _ensure_dpyc_session to return the given npub without needing Courier."""
+    async def _fake_ensure():
+        return npub
+    return patch("thebrain_mcp.server._ensure_dpyc_session", side_effect=_fake_ensure)
+
+
+def _patch_dpyc_session_missing():
+    """Patch _ensure_dpyc_session to raise ValueError (no active session)."""
+    async def _fake_ensure():
+        raise ValueError(
+            "No DPYC identity active. Credit operations require an npub. "
+            "Follow the Secure Courier onboarding flow: call "
+            "request_credential_channel(recipient_npub=<npub>), reply via Nostr DM, "
+            "then call receive_credentials(sender_npub=<npub>). "
+            "Get your npub from the dpyc-oracle's how_to_join() tool."
+        )
+    return patch("thebrain_mcp.server._ensure_dpyc_session", side_effect=_fake_ensure)
+
+
+@pytest.fixture(autouse=True)
+def _reset_gate_singleton():
+    """Reset ConstraintGate singleton so get_settings() isn't called in CI."""
+    import thebrain_mcp.server as srv
+    old_gate, old_init = srv._gate, srv._gate_initialized
+    srv._gate, srv._gate_initialized = None, True  # pretend initialized (no gate)
+    yield
+    srv._gate, srv._gate_initialized = old_gate, old_init
+
+
 # ---------------------------------------------------------------------------
 # _debit_or_error
 # ---------------------------------------------------------------------------
@@ -80,7 +110,7 @@ class TestDebitOrError:
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
-        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache), _patch_dpyc_session():
             result = await _debit_or_error("search_thoughts")
 
         assert result is None
@@ -96,7 +126,7 @@ class TestDebitOrError:
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
-        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache), _patch_dpyc_session():
             result = await _debit_or_error("create_thought")
 
         assert result is None
@@ -111,7 +141,7 @@ class TestDebitOrError:
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
-        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache), _patch_dpyc_session():
             result = await _debit_or_error("brain_query")
 
         assert result is None
@@ -126,7 +156,7 @@ class TestDebitOrError:
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
-        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache), _patch_dpyc_session():
             result = await _debit_or_error("search_thoughts")
 
         assert result is not None
@@ -142,7 +172,7 @@ class TestDebitOrError:
         """Paid tool without DPYC session returns helpful error."""
         from thebrain_mcp.server import _debit_or_error
 
-        with _patch_cloud_user("user-1"):
+        with _patch_cloud_user("user-1"), _patch_dpyc_session_missing():
             result = await _debit_or_error("search_thoughts")
 
         assert result is not None
@@ -184,7 +214,7 @@ class TestRollbackDebit:
         cache = _mock_cache(ledger)
         _activate_dpyc("user-1")
 
-        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache):
+        with _patch_cloud_user("user-1"), _patch_ledger_cache(cache), _patch_dpyc_session():
             # Debit first
             await _debit_or_error("search_thoughts")
             assert ledger.balance_api_sats == 99
@@ -317,6 +347,7 @@ class TestWithWarning:
 
         with _patch_cloud_user("user-1"), \
              _patch_ledger_cache(cache), \
+             _patch_dpyc_session(), \
              patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
             result = await _with_warning({"success": True})
 
@@ -364,6 +395,7 @@ class TestWithWarning:
         original = {"success": True}
         with _patch_cloud_user("user-1"), \
              _patch_ledger_cache(cache), \
+             _patch_dpyc_session(), \
              patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
             result = await _with_warning(original)
 
@@ -392,6 +424,7 @@ class TestTestLowBalanceWarning:
         _activate_dpyc("user-1")
         with _patch_cloud_user("user-1"), \
              _patch_ledger_cache(cache), \
+             _patch_dpyc_session(), \
              patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
             result = await _test_low_balance_warning_impl(simulated_balance_api_sats=10)
 
@@ -415,6 +448,7 @@ class TestTestLowBalanceWarning:
         _activate_dpyc("user-1")
         with _patch_cloud_user("user-1"), \
              _patch_ledger_cache(cache), \
+             _patch_dpyc_session(), \
              patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
             result = await _test_low_balance_warning_impl(simulated_balance_api_sats=5000)
 
@@ -433,12 +467,14 @@ class TestTestLowBalanceWarning:
 
         ledger = _ledger_with_balance(500, credited_invoices=["seed_balance_v1"])
         cache = _mock_cache(ledger)
+        _activate_dpyc("user-1")
 
         mock_settings = MagicMock()
         mock_settings.seed_balance_sats = 1000
 
         with _patch_cloud_user("user-1"), \
              _patch_ledger_cache(cache), \
+             _patch_dpyc_session(), \
              patch("thebrain_mcp.server.get_settings", return_value=mock_settings):
             await _test_low_balance_warning_impl(simulated_balance_api_sats=5)
 
