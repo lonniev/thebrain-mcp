@@ -106,7 +106,9 @@ class TestLedgerCacheEviction:
         ledger1.credit_deposit(42, "test")
         cache.mark_dirty("user1")
         await cache.get("user2")
-        await cache.get("user3")  # evicts user1
+        await cache.get("user3")  # evicts user1 (fire-and-forget flush)
+        # Yield to event loop so the background flush task completes
+        await asyncio.sleep(0)
         vault.store_ledger.assert_called_once()
         args = vault.store_ledger.call_args[0]
         assert args[0] == "user1"

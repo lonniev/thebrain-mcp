@@ -239,8 +239,10 @@ class TestOpportunisticFlush:
         ledger.balance_sats = 500
         cache.mark_dirty("user-1")
 
-        # Next get() should trigger opportunistic flush (staleness exceeded)
+        # Next get() should trigger opportunistic flush (fire-and-forget)
         await cache.get("user-1")
+        # Yield to event loop so the background flush task completes
+        await asyncio.sleep(0)
         cache._vault.store_ledger.assert_called_once()
         assert cache._total_flushes == 1
 

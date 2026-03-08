@@ -48,11 +48,12 @@ mcp = FastMCP(
         "## Getting Started\n\n"
         "1. Call `session_status` to check your current session.\n"
         "2. If no active session, follow the Secure Courier onboarding flow:\n"
-        "   - Get your Nostr npub from the dpyc-oracle's how_to_join() tool\n"
-        "   - Call `request_credential_channel(recipient_npub=<npub>)` to receive a welcome DM\n"
+        "   - Get your **patron npub** from the dpyc-oracle's how_to_join() tool — "
+        "this is the npub you registered as a DPYC Citizen, your identity for credit operations\n"
+        "   - Call `request_credential_channel(recipient_npub=<patron_npub>)` to receive a welcome DM\n"
         "   - Reply via your Nostr client with your TheBrain API key and brain ID in JSON\n"
-        "   - Call `receive_credentials(sender_npub=<npub>)` to vault your credentials\n"
-        "3. Returning users: call `receive_credentials(sender_npub=<npub>)` — vault-first "
+        "   - Call `receive_credentials(sender_npub=<patron_npub>)` to vault your credentials\n"
+        "3. Returning users: call `receive_credentials(sender_npub=<patron_npub>)` — vault-first "
         "lookup activates instantly, no relay I/O needed.\n\n"
         "## Starter Credits\n\n"
         "First-time users receive a seed balance on registration — enough to "
@@ -1333,7 +1334,7 @@ async def event_for_person(
 
 _ONBOARDING_NEXT_STEPS = {
     "action": "secure_courier_onboarding",
-    "step_1": "Ask the user for their Nostr npub. They can get one from the dpyc-oracle's how_to_join() tool.",
+    "step_1": "Ask the user for their **patron npub** (the npub they registered as a DPYC Citizen). They can get one from the dpyc-oracle's how_to_join() tool.",
     "step_2": "Call request_credential_channel(recipient_npub=<npub>) to send a welcome DM.",
     "step_3": "Tell the user to open their Nostr client and reply with their TheBrain API key and brain ID in JSON format. Credentials must NEVER appear in this chat.",
     "step_4": "Once the user confirms they replied, call receive_credentials(sender_npub=<npub>) to vault the credentials.",
@@ -1573,8 +1574,9 @@ async def request_credential_channel(
 
     Args:
         service: Which credential template to use (default "thebrain").
-        recipient_npub: Your Nostr public key (npub1...). If provided, you'll
-            receive a welcome DM to reply to instead of composing from scratch.
+        recipient_npub: Your **patron** Nostr public key (npub1...) — the one
+            registered as a DPYC Citizen. If provided, you'll receive a welcome
+            DM to reply to instead of composing from scratch.
     """
     try:
         courier = _get_courier_service()
@@ -1617,8 +1619,9 @@ async def receive_credentials(
     service name are returned.
 
     Args:
-        sender_npub: Your Nostr public key (npub1...) — the one you
-            sent the DM from.  Required unless credential_card is provided.
+        sender_npub: Your **patron** Nostr public key (npub1...) — the one
+            you registered as a DPYC Citizen and sent the DM from.
+            Required unless credential_card is provided.
         service: Which credential template to match (default "thebrain").
         credential_card: Optional ncred1... credential card string.
             If provided, redeems the card directly (no relay DM needed).
