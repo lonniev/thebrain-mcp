@@ -35,8 +35,7 @@ class Settings(BaseSettings):
     tollbooth_nostr_operator_nsec: str | None = None
     tollbooth_nostr_relays: str | None = None
 
-    # DPYC registry resolution (replaces dpyc_operator_npub / dpyc_authority_npub env vars)
-    dpyc_registry_url: str = "https://raw.githubusercontent.com/lonniev/dpyc-community/main/members.json"
+    # DPYC registry cache TTL (URL comes from tollbooth-dpyc DEFAULT_REGISTRY_URL)
     dpyc_registry_cache_ttl_seconds: int = 300
 
     # Attachment security
