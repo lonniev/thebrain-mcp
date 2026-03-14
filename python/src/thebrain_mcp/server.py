@@ -1775,7 +1775,9 @@ _pricing_store: Any = None
 def _get_pricing_store() -> Any:
     """Singleton PricingModelStore for operator pricing CRUD.
 
-    Reuses the commerce NeonVault. Calls ensure_schema on first access.
+    Creates a direct NeonVault (not the commerce vault) because
+    PricingModelStore calls NeonVault._execute() directly, which is
+    not proxied by AuditedVault.
     Raises VaultNotConfiguredError if NEON_DATABASE_URL is not set.
     """
     global _pricing_store
@@ -1783,8 +1785,14 @@ def _get_pricing_store() -> Any:
         return _pricing_store
 
     from tollbooth.pricing_store import PricingModelStore
+    from tollbooth.vaults import NeonVault
 
-    vault = _get_commerce_vault()
+    settings = get_settings()
+    if not settings.neon_database_url:
+        raise VaultNotConfiguredError(
+            "Pricing store requires NEON_DATABASE_URL."
+        )
+    vault = NeonVault(database_url=settings.neon_database_url)
     _pricing_store = PricingModelStore(neon_vault=vault)
 
     import asyncio
