@@ -1766,6 +1766,37 @@ def _get_commerce_vault() -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Pricing store singleton
+# ---------------------------------------------------------------------------
+
+_pricing_store: Any = None
+
+
+def _get_pricing_store() -> Any:
+    """Singleton PricingModelStore for operator pricing CRUD.
+
+    Reuses the commerce NeonVault. Calls ensure_schema on first access.
+    Raises VaultNotConfiguredError if NEON_DATABASE_URL is not set.
+    """
+    global _pricing_store
+    if _pricing_store is not None:
+        return _pricing_store
+
+    from tollbooth.pricing_store import PricingModelStore
+
+    vault = _get_commerce_vault()
+    _pricing_store = PricingModelStore(neon_vault=vault)
+
+    import asyncio
+    try:
+        asyncio.ensure_future(_pricing_store.ensure_schema())
+    except RuntimeError:
+        pass
+
+    return _pricing_store
+
+
+# ---------------------------------------------------------------------------
 # Constraint gate singleton
 # ---------------------------------------------------------------------------
 
@@ -2678,6 +2709,57 @@ async def network_advisory() -> dict[str, Any]:
     ecosystem-wide announcements.
     """
     return await _call_oracle("network_advisory")
+
+
+# ---------------------------------------------------------------------------
+# Pricing model tools (operator self-service, free)
+# ---------------------------------------------------------------------------
+
+
+@tool
+async def get_pricing_model() -> dict[str, Any]:
+    """Get the active pricing model for this operator.
+
+    Returns the operator's current tool pricing configuration including
+    per-tool prices and any constraint pipeline steps. Returns null fields
+    if no pricing model has been stored yet.
+
+    Free — operator self-service tool.
+    """
+    try:
+        store = _get_pricing_store()
+        operator = _get_operator_npub()
+    except (VaultNotConfiguredError, RuntimeError) as e:
+        return {"status": "error", "error": str(e)}
+
+    from tollbooth.tools.pricing import get_pricing_model_tool
+    return await get_pricing_model_tool(store, operator)
+
+
+@tool
+async def set_pricing_model(model_json: str) -> dict[str, Any]:
+    """Set or update the active pricing model for this operator.
+
+    Creates a new pricing model or updates an existing one. The model_json
+    should contain tool prices and optional pipeline steps. Include a
+    "model_id" field to update an existing model; omit it to create new.
+
+    Free — operator self-service tool.
+
+    Args:
+        model_json: JSON string with pricing model data. Must include "name",
+            "tools" (array of {tool_name, price_sats, category, intent}),
+            and optionally "pipeline" (array of constraint steps).
+            Include "model_id" to update an existing model.
+    """
+    try:
+        store = _get_pricing_store()
+        operator = _get_operator_npub()
+    except (VaultNotConfiguredError, RuntimeError) as e:
+        return {"status": "error", "error": str(e)}
+
+    from tollbooth.tools.pricing import set_pricing_model_tool
+    return await set_pricing_model_tool(store, operator, model_json)
 
 
 def main() -> None:

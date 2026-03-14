@@ -168,6 +168,8 @@ TOOL_COSTS: dict[str, int] = {
     "anchor_ledger": ToolTier.FREE,       # Operator-only
     "get_anchor_proof": ToolTier.READ,    # Patron-facing, 1 sat
     "list_anchors": ToolTier.FREE,        # Informational
+    "get_pricing_model": ToolTier.FREE,   # Operator self-service
+    "set_pricing_model": ToolTier.FREE,   # Operator self-service
     # Read (1 sat)
     "get_brain": ToolTier.READ,
     "get_brain_stats": ToolTier.READ,
