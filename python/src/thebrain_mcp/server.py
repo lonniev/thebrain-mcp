@@ -2036,8 +2036,31 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
     Returns None if the tool is free or STDIO mode (proceed with execution).
     Returns an error dict if the user has insufficient balance or no DPYC session.
     Uses the npub (effective DPYC ID) for all ledger operations.
+
+    RESTRICTED tools (cost == ToolTier.RESTRICTED) are operator-only:
+    allowed at cost 0 if the caller's npub matches the operator npub,
+    rejected otherwise.  STDIO mode bypasses the restriction.
     """
+    from tollbooth.constants import ToolTier
+
     cost = TOOL_COSTS.get(tool_name, 0)
+
+    # RESTRICTED tier: operator-only access gate
+    if cost == ToolTier.RESTRICTED:
+        horizon_id = _get_current_user_id()
+        if not horizon_id:
+            return None  # STDIO mode — allow
+        try:
+            caller_npub = await _ensure_dpyc_session()
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        if caller_npub != _get_operator_npub():
+            return {
+                "success": False,
+                "error": "This tool is restricted to the operator.",
+            }
+        return None  # operator — allow at cost 0
+
     if cost == 0:
         return None
 
@@ -2096,7 +2119,7 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
 async def _rollback_debit(tool_name: str) -> None:
     """Undo a debit when the downstream API call fails."""
     cost = TOOL_COSTS.get(tool_name, 0)
-    if cost == 0:
+    if cost <= 0:
         return
 
     try:
@@ -2744,7 +2767,7 @@ async def set_pricing_model(model_json: str) -> dict[str, Any]:
     should contain tool prices and optional pipeline steps. Include a
     "model_id" field to update an existing model; omit it to create new.
 
-    Free — operator self-service tool.
+    Restricted — operator only.
 
     Args:
         model_json: JSON string with pricing model data. Must include "name",
@@ -2752,14 +2775,41 @@ async def set_pricing_model(model_json: str) -> dict[str, Any]:
             and optionally "pipeline" (array of constraint steps).
             Include "model_id" to update an existing model.
     """
+    err = await _debit_or_error("set_pricing_model")
+    if err:
+        return err
     try:
         store = _get_pricing_store()
         operator = _get_operator_npub()
     except (VaultNotConfiguredError, RuntimeError) as e:
         return {"status": "error", "error": str(e)}
 
+    # Verify caller is the operator (skip in STDIO mode)
+    user_id = _get_current_user_id()
+    if user_id is not None:
+        try:
+            caller_npub = _get_effective_user_id()
+        except ValueError as e:
+            return {"status": "error", "error": str(e)}
+        if caller_npub != operator:
+            return {"status": "error", "error": "Only the operator can modify pricing"}
+
     from tollbooth.tools.pricing import set_pricing_model_tool
     return await set_pricing_model_tool(store, operator, model_json)
+
+
+@tool
+async def list_constraint_types() -> dict[str, Any]:
+    """List all available constraint types and their parameter schemas.
+
+    Returns the type, category, description, and parameter specs for
+    every constraint that can be used in a pricing pipeline.
+
+    Free — no credits required.
+    """
+    from tollbooth.tools.pricing import list_constraint_types as _list
+
+    return {"status": "ok", "constraint_types": _list()}
 
 
 def main() -> None:
