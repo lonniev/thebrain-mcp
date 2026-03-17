@@ -2030,7 +2030,7 @@ def _fire_and_forget_demand_increment(tool_name: str) -> None:
     asyncio.create_task(_inc())
 
 
-async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
+async def _debit_or_error(tool_name: str, **kwargs: Any) -> dict[str, Any] | None:
     """Check balance and debit credits for a paid tool call.
 
     Returns None if the tool is free or STDIO mode (proceed with execution).
@@ -2055,6 +2055,13 @@ async def _debit_or_error(tool_name: str) -> dict[str, Any] | None:
         except ValueError as e:
             return {"success": False, "error": str(e)}
         if caller_npub != _get_operator_npub():
+            # Allow if caller provides a valid operator proof
+            proof = kwargs.get("operator_proof")
+            if proof:
+                from tollbooth.operator_proof import verify_operator_proof
+
+                if verify_operator_proof(proof, _get_operator_npub(), tool_name):
+                    return None  # proof verified — allow
             return {
                 "success": False,
                 "error": "This tool is restricted to the operator.",
@@ -2767,15 +2774,29 @@ async def set_pricing_model(model_json: str) -> dict[str, Any]:
     should contain tool prices and optional pipeline steps. Include a
     "model_id" field to update an existing model; omit it to create new.
 
-    Restricted — operator only.
+    Free — operator self-service tool.
 
     Args:
         model_json: JSON string with pricing model data. Must include "name",
             "tools" (array of {tool_name, price_sats, category, intent}),
             and optionally "pipeline" (array of constraint steps).
             Include "model_id" to update an existing model.
+            May include "operator_proof" — a signed Nostr kind-27235 event
+            JSON string proving operator identity when the caller's session
+            npub differs from the operator npub.
     """
-    err = await _debit_or_error("set_pricing_model")
+    # Extract operator_proof from inside model_json if present
+    import json as _json
+    operator_proof = ""
+    try:
+        parsed = _json.loads(model_json)
+        if isinstance(parsed, dict) and "operator_proof" in parsed:
+            operator_proof = parsed.pop("operator_proof", "")
+            model_json = _json.dumps(parsed)
+    except (ValueError, TypeError):
+        pass
+
+    err = await _debit_or_error("set_pricing_model", operator_proof=operator_proof)
     if err:
         return err
     try:
@@ -2792,7 +2813,13 @@ async def set_pricing_model(model_json: str) -> dict[str, Any]:
         except ValueError as e:
             return {"status": "error", "error": str(e)}
         if caller_npub != operator:
-            return {"status": "error", "error": "Only the operator can modify pricing"}
+            # Allow if a valid operator proof was provided
+            if not operator_proof:
+                return {"status": "error", "error": "Only the operator can modify pricing"}
+            from tollbooth.operator_proof import verify_operator_proof
+
+            if not verify_operator_proof(operator_proof, operator, "set_pricing_model"):
+                return {"status": "error", "error": "Only the operator can modify pricing"}
 
     from tollbooth.tools.pricing import set_pricing_model_tool
     return await set_pricing_model_tool(store, operator, model_json)
