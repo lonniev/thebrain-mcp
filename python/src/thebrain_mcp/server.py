@@ -2199,7 +2199,7 @@ async def purchase_credits(
 
     certifier = AuthorityCertifier(authority_url, operator_npub)
     try:
-        cert_result = await certifier.certify(amount_sats)
+        cert_result = await certifier.certify_credits(amount_sats)
     except AuthorityCertifyError as e:
         return {"success": False, "error": f"Authority certification failed: {e}"}
 
