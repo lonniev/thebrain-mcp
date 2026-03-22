@@ -873,7 +873,7 @@ class TestBTCPayPreflight:
             return "https://authority.example.com/mcp"
 
         mock_certifier = AsyncMock()
-        mock_certifier.certify = AsyncMock(return_value={
+        mock_certifier.certify_credits = AsyncMock(return_value={
             "certificate": "jwt.auto.cert",
             "jti": "jti-auto",
             "amount_sats": 1000,
@@ -898,7 +898,7 @@ class TestBTCPayPreflight:
 
         assert result["success"] is True
         assert result["certificate_jti"] == "jti-abc"
-        mock_certifier.certify.assert_awaited_once_with(1000)
+        mock_certifier.certify_credits.assert_awaited_once_with(1000)
         mock_purchase.assert_called_once()
         call_kwargs = mock_purchase.call_args
         assert call_kwargs.kwargs["certificate"] == "jwt.auto.cert"
@@ -923,7 +923,7 @@ class TestBTCPayPreflight:
         srv._btcpay_preflight_done = True
 
         mock_certifier = AsyncMock()
-        mock_certifier.certify = AsyncMock(
+        mock_certifier.certify_credits = AsyncMock(
             side_effect=AuthorityCertifyError("Insufficient credit balance")
         )
 
