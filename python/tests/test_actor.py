@@ -22,9 +22,9 @@ def test_slug():
 
 
 def test_tool_catalog_completeness():
-    """Catalog has exactly 19 entries matching Protocol method names."""
+    """Catalog has exactly 21 entries matching Protocol method names."""
     catalog = BrainOperator.tool_catalog()
-    assert len(catalog) == 19
+    assert len(catalog) == 21
 
     for entry in catalog:
         assert isinstance(entry, ToolPathInfo)
@@ -35,6 +35,9 @@ def test_tool_catalog_completeness():
         "account_statement_infographic",
         "restore_credits",
         "service_status",
+        "notarize_ledger",
+        "get_notarization_proof",
+        "list_notarizations",
         "session_status",
         "request_credential_channel",
         "receive_credentials",
@@ -46,7 +49,6 @@ def test_tool_catalog_completeness():
         "operator_status",
         "lookup_member",
         "how_to_join",
-        "get_tax_rate",
         "about",
         "network_advisory",
     }
