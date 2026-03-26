@@ -273,63 +273,14 @@ async def _resolve_oracle_service_url() -> str:
 # DPYC identity (npub-primary: Horizon ID is transport auth, npub is DPYC ID)
 # ---------------------------------------------------------------------------
 
-# Optimization cache only — npub is the sole DPYC identity.
-# Explicit npub (from tool call parameter) always wins over this cache.
-# OAuth / Horizon ID determines transport auth, not DPYC identity.
-_dpyc_sessions: dict[str, str] = {}  # Horizon user_id → npub (cache)
-
-
-def _get_effective_user_id(npub: str | None = None) -> str:
-    """Return the npub for the current user. Requires an active DPYC session.
-
-    Args:
-        npub: Explicit npub from the tool call. If provided and valid,
-              used directly (and cached for subsequent calls).
-
-    Raises ValueError if no DPYC session is active (npub not set).
-    Horizon OAuth remains the transport auth layer, but the npub is the
-    sole identity for all credit/commerce operations.
-
-    NOTE: Prefer ``_ensure_dpyc_session()`` in async contexts — it
-    auto-restores the session from vault on cold start.
-    """
-    if npub and npub.startswith("npub1") and len(npub) >= 60:
-        user_id = _get_current_user_id()
-        if user_id:
-            _dpyc_sessions[user_id] = npub
-        return npub
-
-    horizon_id = _require_user_id()
-    cached = _dpyc_sessions.get(horizon_id)
-    if not cached:
+def _resolve_npub(npub: str) -> str:
+    """Validate and return the npub. No fallback, no session cache."""
+    if not npub or not npub.startswith("npub1") or len(npub) < 60:
         raise ValueError(
-            "No DPYC identity active. Credit operations require an npub. "
-            "Follow the Secure Courier onboarding flow: call "
-            "request_credential_channel(recipient_npub=<npub>), reply via Nostr DM, "
-            "then call receive_credentials(sender_npub=<npub>). "
-            "Get your npub from the dpyc-oracle's how_to_join() tool."
+            "npub is required. Pass your Nostr public key (npub1...) "
+            "to identify yourself."
         )
-    return cached
-
-
-async def _ensure_dpyc_session(npub: str | None = None) -> str:
-    """Return the patron's npub for credit operations.
-
-    Args:
-        npub: Explicit npub from the tool call. If provided and valid,
-              used directly (and cached for subsequent calls).
-
-    Falls back to courier restore, then session cache, then raises.
-    """
-    if npub and npub.startswith("npub1") and len(npub) >= 60:
-        user_id = _get_current_user_id()
-        if user_id:
-            _dpyc_sessions[user_id] = npub
-        return npub
-
-    horizon_id = _require_user_id()
-    courier = _get_courier_service()
-    return await courier.ensure_identity(horizon_id, service="thebrain")
+    return npub
 
 
 def _get_operator_api() -> TheBrainAPI:
@@ -401,8 +352,7 @@ async def whoami() -> dict[str, Any]:
     } or None
     user_id = _get_current_user_id()
     if user_id:
-        npub = _dpyc_sessions.get(user_id)
-        result["dpyc_session"] = {"active": npub is not None, "npub": npub}
+        result["dpyc_session"] = {"active": False, "npub": None, "note": "Pass npub explicitly to credit tools."}
     return result
 
 
@@ -416,37 +366,37 @@ async def list_brains() -> dict[str, Any]:
 
 
 @tool
-async def get_brain(brain_id: str) -> dict[str, Any]:
+async def get_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
     """Get details about a specific brain.
 
     Args:
         brain_id: The ID of the brain
     """
-    gate = await _debit_or_error("get_brain")
+    gate = await _debit_or_error("get_brain", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await brains.get_brain_tool(get_api(), brain_id))
     except Exception:
-        await _rollback_debit("get_brain")
+        await _rollback_debit("get_brain", npub=npub)
         raise
 
 
 @tool
-async def set_active_brain(brain_id: str) -> dict[str, Any]:
+async def set_active_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
     """Set the active brain for subsequent operations.
 
     Args:
         brain_id: The ID of the brain to set as active
     """
-    gate = await _debit_or_error("set_active_brain")
+    gate = await _debit_or_error("set_active_brain", npub=npub)
     if gate:
         return gate
     global active_brain_id
     try:
         result = await brains.set_active_brain_tool(get_api(), brain_id)
     except Exception:
-        await _rollback_debit("set_active_brain")
+        await _rollback_debit("set_active_brain", npub=npub)
         raise
     if result.get("success"):
         user_id = _get_current_user_id()
@@ -454,25 +404,25 @@ async def set_active_brain(brain_id: str) -> dict[str, Any]:
             session = get_session(user_id)
             if session:
                 session.active_brain_id = brain_id
-                return await _with_warning(result)
+                return await _with_warning(result, npub=npub)
         active_brain_id = brain_id
-    return await _with_warning(result)
+    return await _with_warning(result, npub=npub)
 
 
 @tool
-async def get_brain_stats(brain_id: str | None = None) -> dict[str, Any]:
+async def get_brain_stats(brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """Get statistics about a brain.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("get_brain_stats")
+    gate = await _debit_or_error("get_brain_stats", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await brains.get_brain_stats_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
-        await _rollback_debit("get_brain_stats")
+        await _rollback_debit("get_brain_stats", npub=npub)
         raise
 
 
@@ -491,6 +441,7 @@ async def create_thought(
     source_thought_id: str | None = None,
     relation: int | None = None,
     ac_type: int = 0,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Create a new thought with optional type, color, label, and parent link.
 
@@ -511,7 +462,7 @@ async def create_thought(
         relation: Relation type if linking (1=Child, 2=Parent, 3=Jump, 4=Sibling)
         ac_type: Access type (0=Public, 1=Private)
     """
-    gate = await _debit_or_error("create_thought")
+    gate = await _debit_or_error("create_thought", npub=npub)
     if gate:
         return gate
     try:
@@ -529,31 +480,32 @@ async def create_thought(
             ac_type,
         ))
     except Exception:
-        await _rollback_debit("create_thought")
+        await _rollback_debit("create_thought", npub=npub)
         raise
 
 
 @tool
-async def get_thought(thought_id: str, brain_id: str | None = None) -> dict[str, Any]:
+async def get_thought(thought_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """Get details about a specific thought.
 
     Args:
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("get_thought")
+    gate = await _debit_or_error("get_thought", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await thoughts.get_thought_tool(get_api(), get_brain_id(brain_id), thought_id))
     except Exception:
-        await _rollback_debit("get_thought")
+        await _rollback_debit("get_thought", npub=npub)
         raise
 
 
 @tool
 async def get_thought_by_name(
-    name_exact: str, brain_id: str | None = None
+    name_exact: str, brain_id: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Exact name lookup — returns the first thought matching the name exactly (case-sensitive).
 
@@ -569,7 +521,7 @@ async def get_thought_by_name(
         name_exact: The exact name to match (case-sensitive)
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("get_thought_by_name")
+    gate = await _debit_or_error("get_thought_by_name", npub=npub)
     if gate:
         return gate
     try:
@@ -577,7 +529,7 @@ async def get_thought_by_name(
             get_api(), get_brain_id(brain_id), name_exact
         ))
     except Exception:
-        await _rollback_debit("get_thought_by_name")
+        await _rollback_debit("get_thought_by_name", npub=npub)
         raise
 
 
@@ -592,6 +544,7 @@ async def update_thought(
     kind: int | None = None,
     ac_type: int | None = None,
     type_id: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Update a thought's properties: name, label, colors, kind, type assignment.
 
@@ -609,7 +562,7 @@ async def update_thought(
         ac_type: New access type
         type_id: New type ID to assign
     """
-    gate = await _debit_or_error("update_thought")
+    gate = await _debit_or_error("update_thought", npub=npub)
     if gate:
         return gate
     try:
@@ -626,12 +579,12 @@ async def update_thought(
             type_id,
         ))
     except Exception:
-        await _rollback_debit("update_thought")
+        await _rollback_debit("update_thought", npub=npub)
         raise
 
 
 @tool
-async def delete_thought(thought_id: str, brain_id: str | None = None) -> dict[str, Any]:
+async def delete_thought(thought_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """Permanently delete a thought by ID. Cannot be undone.
 
     Once BQL supports DELETE, prefer brain_query for match-then-delete with
@@ -642,13 +595,13 @@ async def delete_thought(thought_id: str, brain_id: str | None = None) -> dict[s
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("delete_thought")
+    gate = await _debit_or_error("delete_thought", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await thoughts.delete_thought_tool(get_api(), get_brain_id(brain_id), thought_id))
     except Exception:
-        await _rollback_debit("delete_thought")
+        await _rollback_debit("delete_thought", npub=npub)
         raise
 
 
@@ -658,6 +611,7 @@ async def search_thoughts(
     brain_id: str | None = None,
     max_results: int = 30,
     only_search_thought_names: bool = False,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Full-text search across thought names and content. Returns matching thoughts with IDs.
 
@@ -674,7 +628,7 @@ async def search_thoughts(
         max_results: Maximum number of results
         only_search_thought_names: Only search in thought names (not content)
     """
-    gate = await _debit_or_error("search_thoughts")
+    gate = await _debit_or_error("search_thoughts", npub=npub)
     if gate:
         return gate
     try:
@@ -682,13 +636,14 @@ async def search_thoughts(
             get_api(), get_brain_id(brain_id), query_text, max_results, only_search_thought_names
         ))
     except Exception:
-        await _rollback_debit("search_thoughts")
+        await _rollback_debit("search_thoughts", npub=npub)
         raise
 
 
 @tool
 async def get_thought_graph(
-    thought_id: str, brain_id: str | None = None, include_siblings: bool = False
+    thought_id: str, brain_id: str | None = None, include_siblings: bool = False,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Get a thought's full connection graph: parents, children, jumps, siblings,
     links, tags, type info, and attachments. Always works given a valid thought
@@ -706,7 +661,7 @@ async def get_thought_graph(
         brain_id: The ID of the brain (uses active brain if not specified)
         include_siblings: Include sibling thoughts in the graph
     """
-    gate = await _debit_or_error("get_thought_graph")
+    gate = await _debit_or_error("get_thought_graph", npub=npub)
     if gate:
         return gate
     try:
@@ -714,7 +669,7 @@ async def get_thought_graph(
             get_api(), get_brain_id(brain_id), thought_id, include_siblings
         ))
     except Exception:
-        await _rollback_debit("get_thought_graph")
+        await _rollback_debit("get_thought_graph", npub=npub)
         raise
 
 
@@ -726,6 +681,7 @@ async def get_thought_graph_paginated(
     direction: str = "older",
     relation_filter: str | None = None,
     brain_id: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Cursor-based paginated traversal of a thought's connections. Returns a page
     of results sorted by modification date, with a cursor for fetching the next page.
@@ -750,7 +706,7 @@ async def get_thought_graph_paginated(
         relation_filter: Filter by relation: "child", "parent", "jump", "sibling", or omit for all
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("get_thought_graph_paginated")
+    gate = await _debit_or_error("get_thought_graph_paginated", npub=npub)
     if gate:
         return gate
     try:
@@ -759,12 +715,12 @@ async def get_thought_graph_paginated(
             page_size, cursor, direction, relation_filter,
         ))
     except Exception:
-        await _rollback_debit("get_thought_graph_paginated")
+        await _rollback_debit("get_thought_graph_paginated", npub=npub)
         raise
 
 
 @tool
-async def get_types(brain_id: str | None = None) -> dict[str, Any]:
+async def get_types(brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """List all thought types defined in the brain (e.g., Person, Geographical, Organization).
 
     Use for discovering available types before writing typed BQL queries,
@@ -774,30 +730,30 @@ async def get_types(brain_id: str | None = None) -> dict[str, Any]:
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("get_types")
+    gate = await _debit_or_error("get_types", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await thoughts.get_types_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
-        await _rollback_debit("get_types")
+        await _rollback_debit("get_types", npub=npub)
         raise
 
 
 @tool
-async def get_tags(brain_id: str | None = None) -> dict[str, Any]:
+async def get_tags(brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """Get all tags in a brain.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("get_tags")
+    gate = await _debit_or_error("get_tags", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await thoughts.get_tags_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
-        await _rollback_debit("get_tags")
+        await _rollback_debit("get_tags", npub=npub)
         raise
 
 
@@ -815,6 +771,7 @@ async def create_link(
     thickness: int | None = None,
     direction: int | None = None,
     type_id: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Create a relationship between two thoughts by ID.
 
@@ -836,7 +793,7 @@ async def create_link(
         direction: Direction flags (0=Undirected, 1=Directed, etc.)
         type_id: ID of link type
     """
-    gate = await _debit_or_error("create_link")
+    gate = await _debit_or_error("create_link", npub=npub)
     if gate:
         return gate
     try:
@@ -853,7 +810,7 @@ async def create_link(
             type_id,
         ))
     except Exception:
-        await _rollback_debit("create_link")
+        await _rollback_debit("create_link", npub=npub)
         raise
 
 
@@ -866,6 +823,7 @@ async def update_link(
     thickness: int | None = None,
     direction: int | None = None,
     relation: int | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Update link properties including visual formatting.
 
@@ -878,7 +836,7 @@ async def update_link(
         direction: New direction flags
         relation: New relation type
     """
-    gate = await _debit_or_error("update_link")
+    gate = await _debit_or_error("update_link", npub=npub)
     if gate:
         return gate
     try:
@@ -886,30 +844,30 @@ async def update_link(
             get_api(), get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
         ))
     except Exception:
-        await _rollback_debit("update_link")
+        await _rollback_debit("update_link", npub=npub)
         raise
 
 
 @tool
-async def get_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
+async def get_link(link_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """Get details about a specific link.
 
     Args:
         link_id: The ID of the link
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("get_link")
+    gate = await _debit_or_error("get_link", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await links.get_link_tool(get_api(), get_brain_id(brain_id), link_id))
     except Exception:
-        await _rollback_debit("get_link")
+        await _rollback_debit("get_link", npub=npub)
         raise
 
 
 @tool
-async def delete_link(link_id: str, brain_id: str | None = None) -> dict[str, Any]:
+async def delete_link(link_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """Permanently delete a link by ID. Cannot be undone.
 
     Once BQL supports DELETE, prefer brain_query for match-then-delete with
@@ -919,13 +877,13 @@ async def delete_link(link_id: str, brain_id: str | None = None) -> dict[str, An
         link_id: The ID of the link
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("delete_link")
+    gate = await _debit_or_error("delete_link", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await links.delete_link_tool(get_api(), get_brain_id(brain_id), link_id))
     except Exception:
-        await _rollback_debit("delete_link")
+        await _rollback_debit("delete_link", npub=npub)
         raise
 
 
@@ -938,6 +896,7 @@ async def add_file_attachment(
     file_path: str,
     brain_id: str | None = None,
     file_name: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Add a file attachment (including images) to a thought.
 
@@ -947,7 +906,7 @@ async def add_file_attachment(
         brain_id: The ID of the brain (uses active brain if not specified)
         file_name: Name for the attachment (optional, uses filename if not provided)
     """
-    gate = await _debit_or_error("add_file_attachment")
+    gate = await _debit_or_error("add_file_attachment", npub=npub)
     if gate:
         return gate
     try:
@@ -956,13 +915,14 @@ async def add_file_attachment(
             safe_directory=get_settings().attachment_safe_directory,
         ))
     except Exception:
-        await _rollback_debit("add_file_attachment")
+        await _rollback_debit("add_file_attachment", npub=npub)
         raise
 
 
 @tool
 async def add_url_attachment(
-    thought_id: str, url: str, brain_id: str | None = None, name: str | None = None
+    thought_id: str, url: str, brain_id: str | None = None, name: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Add a URL attachment to a thought.
 
@@ -972,7 +932,7 @@ async def add_url_attachment(
         brain_id: The ID of the brain (uses active brain if not specified)
         name: Name for the URL attachment (auto-fetched from page title if not provided)
     """
-    gate = await _debit_or_error("add_url_attachment")
+    gate = await _debit_or_error("add_url_attachment", npub=npub)
     if gate:
         return gate
     try:
@@ -980,31 +940,32 @@ async def add_url_attachment(
             get_api(), get_brain_id(brain_id), thought_id, url, name
         ))
     except Exception:
-        await _rollback_debit("add_url_attachment")
+        await _rollback_debit("add_url_attachment", npub=npub)
         raise
 
 
 @tool
-async def get_attachment(attachment_id: str, brain_id: str | None = None) -> dict[str, Any]:
+async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """Get metadata about an attachment.
 
     Args:
         attachment_id: The ID of the attachment
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("get_attachment")
+    gate = await _debit_or_error("get_attachment", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await attachments.get_attachment_tool(get_api(), get_brain_id(brain_id), attachment_id))
     except Exception:
-        await _rollback_debit("get_attachment")
+        await _rollback_debit("get_attachment", npub=npub)
         raise
 
 
 @tool
 async def get_attachment_content(
-    attachment_id: str, brain_id: str | None = None, save_to_path: str | None = None
+    attachment_id: str, brain_id: str | None = None, save_to_path: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Get the binary content of an attachment (e.g., download an image).
 
@@ -1013,7 +974,7 @@ async def get_attachment_content(
         brain_id: The ID of the brain (uses active brain if not specified)
         save_to_path: Optional path to save the file locally
     """
-    gate = await _debit_or_error("get_attachment_content")
+    gate = await _debit_or_error("get_attachment_content", npub=npub)
     if gate:
         return gate
     try:
@@ -1022,19 +983,19 @@ async def get_attachment_content(
             safe_directory=get_settings().attachment_safe_directory,
         ))
     except Exception:
-        await _rollback_debit("get_attachment_content")
+        await _rollback_debit("get_attachment_content", npub=npub)
         raise
 
 
 @tool
-async def delete_attachment(attachment_id: str, brain_id: str | None = None) -> dict[str, Any]:
+async def delete_attachment(attachment_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """Delete an attachment.
 
     Args:
         attachment_id: The ID of the attachment
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("delete_attachment")
+    gate = await _debit_or_error("delete_attachment", npub=npub)
     if gate:
         return gate
     try:
@@ -1042,19 +1003,19 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None) -> 
             get_api(), get_brain_id(brain_id), attachment_id
         ))
     except Exception:
-        await _rollback_debit("delete_attachment")
+        await _rollback_debit("delete_attachment", npub=npub)
         raise
 
 
 @tool
-async def list_attachments(thought_id: str, brain_id: str | None = None) -> dict[str, Any]:
+async def list_attachments(thought_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
     """List all attachments for a thought.
 
     Args:
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("list_attachments")
+    gate = await _debit_or_error("list_attachments", npub=npub)
     if gate:
         return gate
     try:
@@ -1062,7 +1023,7 @@ async def list_attachments(thought_id: str, brain_id: str | None = None) -> dict
             get_api(), get_brain_id(brain_id), thought_id
         ))
     except Exception:
-        await _rollback_debit("list_attachments")
+        await _rollback_debit("list_attachments", npub=npub)
         raise
 
 
@@ -1071,7 +1032,8 @@ async def list_attachments(thought_id: str, brain_id: str | None = None) -> dict
 
 @tool
 async def get_note(
-    thought_id: str, brain_id: str | None = None, format: str = "markdown"
+    thought_id: str, brain_id: str | None = None, format: str = "markdown",
+    npub: str = "",
 ) -> dict[str, Any]:
     """Get the note content for a thought.
 
@@ -1080,19 +1042,20 @@ async def get_note(
         brain_id: The ID of the brain (uses active brain if not specified)
         format: Output format (markdown, html, or text)
     """
-    gate = await _debit_or_error("get_note")
+    gate = await _debit_or_error("get_note", npub=npub)
     if gate:
         return gate
     try:
         return await _with_warning(await notes.get_note_tool(get_api(), get_brain_id(brain_id), thought_id, format))
     except Exception:
-        await _rollback_debit("get_note")
+        await _rollback_debit("get_note", npub=npub)
         raise
 
 
 @tool
 async def create_or_update_note(
-    thought_id: str, markdown: str, brain_id: str | None = None
+    thought_id: str, markdown: str, brain_id: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Create or update a note with markdown content.
 
@@ -1101,7 +1064,7 @@ async def create_or_update_note(
         markdown: Markdown content for the note
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("create_or_update_note")
+    gate = await _debit_or_error("create_or_update_note", npub=npub)
     if gate:
         return gate
     try:
@@ -1109,13 +1072,14 @@ async def create_or_update_note(
             get_api(), get_brain_id(brain_id), thought_id, markdown
         ))
     except Exception:
-        await _rollback_debit("create_or_update_note")
+        await _rollback_debit("create_or_update_note", npub=npub)
         raise
 
 
 @tool
 async def append_to_note(
-    thought_id: str, markdown: str, brain_id: str | None = None
+    thought_id: str, markdown: str, brain_id: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Append content to an existing note.
 
@@ -1124,7 +1088,7 @@ async def append_to_note(
         markdown: Markdown content to append
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("append_to_note")
+    gate = await _debit_or_error("append_to_note", npub=npub)
     if gate:
         return gate
     try:
@@ -1132,7 +1096,7 @@ async def append_to_note(
             get_api(), get_brain_id(brain_id), thought_id, markdown
         ))
     except Exception:
-        await _rollback_debit("append_to_note")
+        await _rollback_debit("append_to_note", npub=npub)
         raise
 
 
@@ -1145,6 +1109,7 @@ async def get_modifications(
     max_logs: int = 100,
     start_time: str | None = None,
     end_time: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Get modification history for a brain.
 
@@ -1154,7 +1119,7 @@ async def get_modifications(
         start_time: Start time for logs (ISO format)
         end_time: End time for logs (ISO format)
     """
-    gate = await _debit_or_error("get_modifications")
+    gate = await _debit_or_error("get_modifications", npub=npub)
     if gate:
         return gate
     try:
@@ -1162,7 +1127,7 @@ async def get_modifications(
             get_api(), get_brain_id(brain_id), max_logs, start_time, end_time
         ))
     except Exception:
-        await _rollback_debit("get_modifications")
+        await _rollback_debit("get_modifications", npub=npub)
         raise
 
 
@@ -1221,7 +1186,7 @@ async def brain_query(
         confirm: Set to true to confirm and execute a DELETE operation.
                  Without this, DELETE returns a preview of what would be deleted.
     """
-    gate = await _debit_or_error("brain_query")
+    gate = await _debit_or_error("brain_query", npub=npub)
     if gate:
         return gate
 
@@ -1230,7 +1195,7 @@ async def brain_query(
     try:
         parsed = parse(query)
     except BrainQuerySyntaxError as e:
-        await _rollback_debit("brain_query")
+        await _rollback_debit("brain_query", npub=npub)
         return {"success": False, "error": str(e)}
 
     if parsed.action == "match_delete":
@@ -1243,7 +1208,7 @@ async def brain_query(
         result = await execute(api, bid, parsed)
         return await _with_warning(result.to_dict())
     except Exception:
-        await _rollback_debit("brain_query")
+        await _rollback_debit("brain_query", npub=npub)
         raise
 
 
@@ -1256,6 +1221,7 @@ async def morph_thought(
     brain_id: str | None = None,
     new_parent_id: str | None = None,
     new_type_id: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Atomically reparent and/or retype a thought in one operation.
 
@@ -1269,7 +1235,7 @@ async def morph_thought(
         new_parent_id: ID of the new parent thought (replaces all current parents)
         new_type_id: ID of the new type to assign
     """
-    gate = await _debit_or_error("morph_thought")
+    gate = await _debit_or_error("morph_thought", npub=npub)
     if gate:
         return gate
     try:
@@ -1277,7 +1243,7 @@ async def morph_thought(
             get_api(), get_brain_id(brain_id), thought_id, new_parent_id, new_type_id
         ))
     except Exception:
-        await _rollback_debit("morph_thought")
+        await _rollback_debit("morph_thought", npub=npub)
         raise
 
 
@@ -1290,6 +1256,7 @@ async def scan_orphans(
     dry_run: bool = True,
     batch_size: int = 50,
     orphanage_name: str = "Orphanage",
+    npub: str = "",
 ) -> dict[str, Any]:
     """Scan for orphaned thoughts with zero connections and optionally rescue them.
 
@@ -1298,7 +1265,7 @@ async def scan_orphans(
     those with none. Set dry_run=False to parent orphans under an
     Orphanage collection thought.
     """
-    gate = await _debit_or_error("scan_orphans")
+    gate = await _debit_or_error("scan_orphans", npub=npub)
     if gate:
         return gate
     try:
@@ -1306,7 +1273,7 @@ async def scan_orphans(
             get_api(), get_brain_id(brain_id), dry_run, batch_size, orphanage_name
         ))
     except Exception:
-        await _rollback_debit("scan_orphans")
+        await _rollback_debit("scan_orphans", npub=npub)
         raise
 
 
@@ -1320,6 +1287,7 @@ async def event_for_person(
     event_name: str | None = None,
     notes: str | None = None,
     brain_id: str | None = None,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Create an Event+Person+Day in one action.
 
@@ -1335,7 +1303,7 @@ async def event_for_person(
         notes: Optional markdown note for the Event
         brain_id: The ID of the brain (uses active brain if not specified)
     """
-    gate = await _debit_or_error("event_for_person")
+    gate = await _debit_or_error("event_for_person", npub=npub)
     if gate:
         return gate
     try:
@@ -1343,7 +1311,7 @@ async def event_for_person(
             get_api(), get_brain_id(brain_id), date, person, event_name, notes
         ))
     except Exception:
-        await _rollback_debit("event_for_person")
+        await _rollback_debit("event_for_person", npub=npub)
         raise
 
 
@@ -1402,17 +1370,12 @@ async def session_status() -> dict[str, Any]:
             )
             result["next_steps"] = _ONBOARDING_NEXT_STEPS
 
-        # DPYC identity
-        dpyc_npub = _dpyc_sessions.get(user_id)
-        if dpyc_npub:
-            result["dpyc_npub"] = dpyc_npub
-            result["effective_credit_id"] = dpyc_npub
-        else:
-            result["effective_credit_id"] = None
-            result["dpyc_warning"] = (
-                "No DPYC identity active. Credit operations require an npub. "
-                "Follow the Secure Courier onboarding flow (see next_steps)."
-            )
+        # DPYC identity — npub must be passed explicitly to credit tools
+        result["effective_credit_id"] = None
+        result["dpyc_note"] = (
+            "Pass your npub explicitly to all credit tools. "
+            "No session cache — npub is required on every call."
+        )
 
     return result
 
@@ -1454,7 +1417,6 @@ async def _on_thebrain_credentials_received(
         await test_api.close()
 
     set_session(user_id, api_key, brain_id)
-    _dpyc_sessions[user_id] = sender_npub
     result["session_activated"] = True
     result["dpyc_npub"] = sender_npub
 
@@ -1997,14 +1959,14 @@ def _register_shutdown_handlers() -> None:
 # Tool Gating Middleware
 
 
-async def _with_warning(result: dict[str, Any]) -> dict[str, Any]:
+async def _with_warning(result: dict[str, Any], npub: str = "") -> dict[str, Any]:
     """Attach a low-balance warning to a paid tool result if balance is low.
 
     Decorative only — exceptions never block the tool response.
     Uses the effective DPYC user ID (npub) for ledger lookup.
     """
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         cache = _get_ledger_cache()
         ledger = await cache.get(user_id)
         settings = get_settings()
@@ -2049,7 +2011,7 @@ def _fire_and_forget_demand_increment(tool_name: str) -> None:
     asyncio.create_task(_inc())
 
 
-async def _debit_or_error(tool_name: str, **kwargs: Any) -> dict[str, Any] | None:
+async def _debit_or_error(tool_name: str, npub: str = "", **kwargs: Any) -> dict[str, Any] | None:
     """Check balance and debit credits for a paid tool call.
 
     Returns None if the tool is free or STDIO mode (proceed with execution).
@@ -2070,7 +2032,7 @@ async def _debit_or_error(tool_name: str, **kwargs: Any) -> dict[str, Any] | Non
         if not horizon_id:
             return None  # STDIO mode — allow
         try:
-            caller_npub = await _ensure_dpyc_session()
+            caller_npub = _resolve_npub(npub)
         except ValueError as e:
             return {"success": False, "error": str(e)}
         if caller_npub != _get_operator_npub():
@@ -2096,7 +2058,7 @@ async def _debit_or_error(tool_name: str, **kwargs: Any) -> dict[str, Any] | Non
         return None
 
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
     except ValueError as e:
         return {"success": False, "error": str(e)}
 
@@ -2142,14 +2104,14 @@ async def _debit_or_error(tool_name: str, **kwargs: Any) -> dict[str, Any] | Non
     return None
 
 
-async def _rollback_debit(tool_name: str) -> None:
+async def _rollback_debit(tool_name: str, npub: str = "") -> None:
     """Undo a debit when the downstream API call fails."""
     cost = TOOL_COSTS.get(tool_name, 0)
     if cost <= 0:
         return
 
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
     except ValueError:
         return
 
@@ -2169,6 +2131,7 @@ async def _rollback_debit(tool_name: str) -> None:
 @tool
 async def purchase_credits(
     amount_sats: int,
+    npub: str = "",
 ) -> dict[str, Any]:
     """Create a BTCPay Lightning invoice to purchase credits for tool calls.
 
@@ -2197,7 +2160,7 @@ async def purchase_credits(
     Next step: Pay the invoice, then call check_payment(invoice_id).
     """
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -2245,7 +2208,7 @@ async def purchase_credits(
 
 
 @tool
-async def check_payment(invoice_id: str) -> dict[str, Any]:
+async def check_payment(invoice_id: str, npub: str = "") -> dict[str, Any]:
     """Verify that a Lightning invoice has settled and credit the payment to your balance.
 
     Call this after paying the invoice from purchase_credits. Safe to call
@@ -2265,7 +2228,7 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
     Next step: Call check_balance to confirm, then continue using tools.
     """
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -2282,7 +2245,7 @@ async def check_payment(invoice_id: str) -> dict[str, Any]:
 
 
 @tool
-async def check_balance() -> dict[str, Any]:
+async def check_balance(npub: str = "") -> dict[str, Any]:
     """Check your current credit balance, tier info, usage summary, and cache health.
 
     Read-only — no side effects. Call anytime to check your funding level,
@@ -2299,7 +2262,7 @@ async def check_balance() -> dict[str, Any]:
     Next step: If balance is low, call purchase_credits to top up.
     """
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         cache = _get_ledger_cache()
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
@@ -2337,7 +2300,7 @@ async def check_balance() -> dict[str, Any]:
 
 
 @tool
-async def account_statement(days: int = 30) -> dict[str, Any]:
+async def account_statement(days: int = 30, npub: str = "") -> dict[str, Any]:
     """Generate a customer-facing account statement with purchase history and usage.
 
     Returns a detailed statement including: account summary (balance, deposited,
@@ -2359,7 +2322,7 @@ async def account_statement(days: int = 30) -> dict[str, Any]:
         daily_usage: Per-day usage breakdown for the requested period.
     """
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         cache = _get_ledger_cache()
     except (ValueError, VaultNotConfiguredError) as e:
         return {"success": False, "error": str(e)}
@@ -2373,7 +2336,7 @@ async def account_statement(days: int = 30) -> dict[str, Any]:
 
 
 @tool
-async def account_statement_infographic(days: int = 30) -> dict[str, Any]:
+async def account_statement_infographic(days: int = 30, npub: str = "") -> dict[str, Any]:
     """Generate a visual SVG infographic of your account statement.
 
     Returns the same data as account_statement, rendered as a dark-themed
@@ -2389,15 +2352,15 @@ async def account_statement_infographic(days: int = 30) -> dict[str, Any]:
         svg: The SVG markup string.
         generated_at: ISO timestamp of generation.
     """
-    gate = await _debit_or_error("account_statement_infographic")
+    gate = await _debit_or_error("account_statement_infographic", npub=npub)
     if gate:
         return gate
 
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         cache = _get_ledger_cache()
     except (ValueError, VaultNotConfiguredError) as e:
-        await _rollback_debit("account_statement_infographic")
+        await _rollback_debit("account_statement_infographic", npub=npub)
         return {"success": False, "error": str(e)}
 
     try:
@@ -2405,7 +2368,7 @@ async def account_statement_infographic(days: int = 30) -> dict[str, Any]:
 
         data = await credits.account_statement_tool(cache, user_id, days=days)
         if not data.get("success"):
-            await _rollback_debit("account_statement_infographic")
+            await _rollback_debit("account_statement_infographic", npub=npub)
             return data
 
         svg = render_account_infographic(data)
@@ -2414,14 +2377,14 @@ async def account_statement_infographic(days: int = 30) -> dict[str, Any]:
             "svg": svg,
             "generated_at": data.get("generated_at", ""),
         }
-        return await _with_warning(result)
+        return await _with_warning(result, npub=npub)
     except Exception:
-        await _rollback_debit("account_statement_infographic")
+        await _rollback_debit("account_statement_infographic", npub=npub)
         raise
 
 
 @tool
-async def restore_credits(invoice_id: str) -> dict[str, Any]:
+async def restore_credits(invoice_id: str, npub: str = "") -> dict[str, Any]:
     """Restore credits from a paid invoice that was lost due to cache or vault issues.
 
     Emergency recovery tool. Call when you paid an invoice but your balance
@@ -2438,7 +2401,7 @@ async def restore_credits(invoice_id: str) -> dict[str, Any]:
         balance_api_sats: Updated balance after restoration.
     """
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         btcpay = _get_btcpay()
         await _ensure_btcpay_preflight(btcpay)
         cache = _get_ledger_cache()
@@ -2529,7 +2492,7 @@ async def _test_low_balance_warning_impl(simulated_balance_api_sats: int = 50) -
     from tollbooth.ledger import Tranche
 
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         cache = _get_ledger_cache()
         ledger = await cache.get(user_id)
     except (ValueError, VaultNotConfiguredError) as e:
@@ -2630,7 +2593,7 @@ async def anchor_ledger() -> dict[str, Any]:
 
 
 @tool
-async def get_anchor_proof(anchor_id: str) -> dict[str, Any]:
+async def get_anchor_proof(anchor_id: str, npub: str = "") -> dict[str, Any]:
     """Get a Merkle inclusion proof for your balance in a Bitcoin anchor.
 
     Proves that your balance (identified by npub) was included in a
@@ -2640,23 +2603,23 @@ async def get_anchor_proof(anchor_id: str) -> dict[str, Any]:
     Args:
         anchor_id: The anchor record ID (from list_anchors or anchor_ledger).
     """
-    gate = await _debit_or_error("get_anchor_proof")
+    gate = await _debit_or_error("get_anchor_proof", npub=npub)
     if gate:
         return gate
 
     try:
-        user_id = await _ensure_dpyc_session()
+        user_id = _resolve_npub(npub)
         vault = _get_neon_vault()
     except (ValueError, VaultNotConfiguredError) as e:
-        await _rollback_debit("get_anchor_proof")
+        await _rollback_debit("get_anchor_proof", npub=npub)
         return {"success": False, "error": str(e)}
 
     from tollbooth.tools.anchors import get_anchor_proof_tool
     try:
         result = await get_anchor_proof_tool(vault, anchor_id, user_id)
-        return await _with_warning(result)
+        return await _with_warning(result, npub=npub)
     except Exception:
-        await _rollback_debit("get_anchor_proof")
+        await _rollback_debit("get_anchor_proof", npub=npub)
         raise
 
 
@@ -2815,7 +2778,7 @@ async def set_pricing_model(model_json: str) -> dict[str, Any]:
     except (ValueError, TypeError):
         pass
 
-    err = await _debit_or_error("set_pricing_model", operator_proof=operator_proof)
+    err = await _debit_or_error("set_pricing_model", npub="", operator_proof=operator_proof)
     if err:
         return err
     try:
@@ -2828,7 +2791,7 @@ async def set_pricing_model(model_json: str) -> dict[str, Any]:
     user_id = _get_current_user_id()
     if user_id is not None:
         try:
-            caller_npub = _get_effective_user_id()
+            caller_npub = _resolve_npub(npub)
         except ValueError as e:
             return {"status": "error", "error": str(e)}
         if caller_npub != operator:
