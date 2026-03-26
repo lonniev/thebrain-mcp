@@ -273,11 +273,18 @@ async def _resolve_oracle_service_url() -> str:
 # DPYC identity (npub-primary: Horizon ID is transport auth, npub is DPYC ID)
 # ---------------------------------------------------------------------------
 
-_dpyc_sessions: dict[str, str] = {}  # Horizon user_id → npub
+# Optimization cache only — npub is the sole DPYC identity.
+# Explicit npub (from tool call parameter) always wins over this cache.
+# OAuth / Horizon ID determines transport auth, not DPYC identity.
+_dpyc_sessions: dict[str, str] = {}  # Horizon user_id → npub (cache)
 
 
-def _get_effective_user_id() -> str:
+def _get_effective_user_id(npub: str | None = None) -> str:
     """Return the npub for the current user. Requires an active DPYC session.
+
+    Args:
+        npub: Explicit npub from the tool call. If provided and valid,
+              used directly (and cached for subsequent calls).
 
     Raises ValueError if no DPYC session is active (npub not set).
     Horizon OAuth remains the transport auth layer, but the npub is the
@@ -286,9 +293,15 @@ def _get_effective_user_id() -> str:
     NOTE: Prefer ``_ensure_dpyc_session()`` in async contexts — it
     auto-restores the session from vault on cold start.
     """
+    if npub and npub.startswith("npub1") and len(npub) >= 60:
+        user_id = _get_current_user_id()
+        if user_id:
+            _dpyc_sessions[user_id] = npub
+        return npub
+
     horizon_id = _require_user_id()
-    npub = _dpyc_sessions.get(horizon_id)
-    if not npub:
+    cached = _dpyc_sessions.get(horizon_id)
+    if not cached:
         raise ValueError(
             "No DPYC identity active. Credit operations require an npub. "
             "Follow the Secure Courier onboarding flow: call "
@@ -296,18 +309,24 @@ def _get_effective_user_id() -> str:
             "then call receive_credentials(sender_npub=<npub>). "
             "Get your npub from the dpyc-oracle's how_to_join() tool."
         )
-    return npub
+    return cached
 
 
-async def _ensure_dpyc_session() -> str:
-    """Return the npub for the current user, auto-restoring on cold start.
+async def _ensure_dpyc_session(npub: str | None = None) -> str:
+    """Return the patron's npub for credit operations.
 
-    Delegates to ``SecureCourierService.ensure_identity()`` which manages
-    the in-memory session cache and vault-based cold-start restoration.
-    Every operator MCP server gets this for free from the library.
+    Args:
+        npub: Explicit npub from the tool call. If provided and valid,
+              used directly (and cached for subsequent calls).
 
-    Raises ValueError if restoration fails (first-time user or forgotten creds).
+    Falls back to courier restore, then session cache, then raises.
     """
+    if npub and npub.startswith("npub1") and len(npub) >= 60:
+        user_id = _get_current_user_id()
+        if user_id:
+            _dpyc_sessions[user_id] = npub
+        return npub
+
     horizon_id = _require_user_id()
     courier = _get_courier_service()
     return await courier.ensure_identity(horizon_id, service="thebrain")
