@@ -5,7 +5,15 @@ from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from tollbooth.tools.credits import direct_purchase_tool
+from tollbooth.tools.credits import (
+    _get_multiplier,
+    _get_tier_info,
+    btcpay_status_tool,
+    check_balance_tool,
+    check_payment_tool,
+    compute_low_balance_warning,
+    direct_purchase_tool,
+)
 
 from thebrain_mcp.btcpay_client import (
     BTCPayAuthError,
@@ -15,14 +23,6 @@ from thebrain_mcp.btcpay_client import (
 )
 from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
-from tollbooth.tools.credits import (
-    _get_multiplier,
-    _get_tier_info,
-    btcpay_status_tool,
-    check_balance_tool,
-    check_payment_tool,
-    compute_low_balance_warning,
-)
 from thebrain_mcp.utils.constants import MAX_INVOICE_SATS
 
 # ---------------------------------------------------------------------------
