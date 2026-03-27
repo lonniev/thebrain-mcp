@@ -5,6 +5,7 @@ from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tollbooth.tools.credits import direct_purchase_tool
 
 from thebrain_mcp.btcpay_client import (
     BTCPayAuthError,
@@ -22,9 +23,7 @@ from thebrain_mcp.tools.credits import (
     check_payment_tool,
     compute_low_balance_warning,
 )
-from tollbooth.tools.credits import direct_purchase_tool
 from thebrain_mcp.utils.constants import MAX_INVOICE_SATS
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -344,7 +343,7 @@ class TestCheckBalance:
         cache = _mock_cache(ledger)
         result = await check_balance_tool(cache, "user1")
         assert "today_usage" in result
-        today = date.today().isoformat()
+        _today = date.today().isoformat()
         assert result["today_usage"]["search"]["calls"] == 1
 
     @pytest.mark.asyncio

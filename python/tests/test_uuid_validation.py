@@ -4,7 +4,6 @@ import pytest
 
 from thebrain_mcp.api.client import TheBrainAPI, _validate_uuid
 
-
 VALID_UUID = "9e115e02-fedb-4254-a1ae-39cce16c63e6"
 VALID_UUID_UPPER = "9E115E02-FEDB-4254-A1AE-39CCE16C63E6"
 

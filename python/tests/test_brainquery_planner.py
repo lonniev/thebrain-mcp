@@ -1,13 +1,12 @@
 """Tests for BrainQuery planner & executor."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from thebrain_mcp.api.client import TheBrainAPIError
 from thebrain_mcp.api.models import SearchResult, Thought, ThoughtGraph
 from thebrain_mcp.brainquery import execute, parse
-
 
 # ---------------------------------------------------------------------------
 # Mock helpers

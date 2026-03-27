@@ -146,8 +146,11 @@ class NoteFormat(str):
 
 
 # Re-exported from tollbooth (backward compat)
-from tollbooth.constants import MAX_INVOICE_SATS, LOW_BALANCE_FLOOR_API_SATS, ToolTier  # noqa: E402, F401
-
+from tollbooth.constants import (  # noqa: E402, F401
+    LOW_BALANCE_FLOOR_API_SATS,
+    MAX_INVOICE_SATS,
+    ToolTier,
+)
 
 TOOL_COSTS: dict[str, int] = {
     # Free (0 sats) — never gated

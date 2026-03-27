@@ -1,6 +1,13 @@
 """Configuration management for TheBrain MCP server."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from tollbooth.config import TollboothConfig
 
 
 class Settings(BaseSettings):
@@ -49,7 +56,7 @@ class Settings(BaseSettings):
     constraints_enabled: bool = False
     constraints_config: str | None = None  # JSON string
 
-    def to_tollbooth_config(self) -> "TollboothConfig":
+    def to_tollbooth_config(self) -> TollboothConfig:
         """Build a TollboothConfig for passing to tollbooth library tools."""
         from tollbooth.config import TollboothConfig
         return TollboothConfig(

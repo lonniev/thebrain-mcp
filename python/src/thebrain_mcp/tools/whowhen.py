@@ -8,7 +8,6 @@ from dateutil import parser as dateutil_parser
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.utils.constants import RelationType, ThoughtKind
 
-
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
 )

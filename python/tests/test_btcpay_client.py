@@ -1,6 +1,6 @@
 """Tests for BTCPay Greenfield API client."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -16,7 +16,6 @@ from thebrain_mcp.btcpay_client import (
     BTCPayValidationError,
     sats_to_btc_string,
 )
-
 
 # ---------------------------------------------------------------------------
 # sats_to_btc_string

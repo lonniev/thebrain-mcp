@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Union
+from typing import Literal
 
 
 @dataclass
@@ -136,9 +136,7 @@ class DeleteClause:
     detach: bool = False  # True for DETACH DELETE
 
 
-WhereExpression = Union[
-    WhereClause, WhereNot, WhereAnd, WhereXor, WhereOr, ExistenceCondition
-]
+WhereExpression = WhereClause | WhereNot | WhereAnd | WhereXor | WhereOr | ExistenceCondition
 
 
 def collect_variables(expr: WhereExpression) -> set[str]:

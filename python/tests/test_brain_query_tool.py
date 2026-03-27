@@ -11,7 +11,6 @@ import pytest
 from thebrain_mcp.api.models import SearchResult, Thought, ThoughtGraph
 from thebrain_mcp.brainquery import BrainQuerySyntaxError, execute, parse
 
-
 # ---------------------------------------------------------------------------
 # Mock helpers
 # ---------------------------------------------------------------------------

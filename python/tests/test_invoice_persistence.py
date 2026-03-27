@@ -1,12 +1,12 @@
 """Tests for invoice persistence: InvoiceRecord, ledger methods, credit tool integration."""
 
 import json
-from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from tollbooth.tools.credits import direct_purchase_tool
 
-from thebrain_mcp.btcpay_client import BTCPayClient, BTCPayError
+from thebrain_mcp.btcpay_client import BTCPayClient
 from thebrain_mcp.ledger import InvoiceRecord, UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
 from thebrain_mcp.tools.credits import (
@@ -14,8 +14,6 @@ from thebrain_mcp.tools.credits import (
     check_payment_tool,
     restore_credits_tool,
 )
-from tollbooth.tools.credits import direct_purchase_tool
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -249,7 +247,7 @@ class TestPurchaseCreditsInvoiceRecord:
         btcpay = _mock_btcpay({"id": "inv-meta", "checkoutLink": "https://pay"})
         cache = _mock_cache(ledger)
 
-        result = await direct_purchase_tool(
+        await direct_purchase_tool(
             btcpay, cache, "user-vip", 2000,
             tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
         )

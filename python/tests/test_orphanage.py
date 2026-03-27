@@ -1,6 +1,5 @@
 """Tests for the orphanage tool (scan and rescue orphaned thoughts)."""
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,7 +7,6 @@ import pytest
 from thebrain_mcp.api.client import TheBrainAPIError
 from thebrain_mcp.api.models import Brain, Link, Modification, Thought, ThoughtGraph
 from thebrain_mcp.tools.orphanage import (
-    MAX_BATCH_SIZE,
     MAX_CONCURRENCY,
     _build_census,
     _is_orphan,

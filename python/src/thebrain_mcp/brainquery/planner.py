@@ -17,7 +17,6 @@ from thebrain_mcp.brainquery.ir import (
     MAX_SET_BATCH,
     SETTABLE_PROPERTIES,
     BrainQuery,
-    DeleteClause,
     ExistenceCondition,
     NodePattern,
     PropertyAssignment,
@@ -316,7 +315,7 @@ def _where_for_variables(
 
 def _get_property(thought: Thought, prop: str) -> Any:
     """Get a property value from a Thought by canonical property name."""
-    _ACCESSORS: dict[str, Any] = {
+    accessors: dict[str, Any] = {
         "name": lambda t: t.name,
         "id": lambda t: t.id,
         "label": lambda t: t.label,
@@ -325,7 +324,7 @@ def _get_property(thought: Thought, prop: str) -> Any:
         "backgroundColor": lambda t: t.background_color,
         "kind": lambda t: t.kind,
     }
-    accessor = _ACCESSORS.get(prop)
+    accessor = accessors.get(prop)
     return accessor(thought) if accessor else None
 
 

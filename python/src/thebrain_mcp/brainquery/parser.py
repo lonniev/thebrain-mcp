@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from lark import Lark, Transformer, v_args, exceptions as lark_exceptions
-
 import re
+
+from lark import Lark, Transformer, v_args
+from lark import exceptions as lark_exceptions
 
 from thebrain_mcp.brainquery.ir import (
     MAX_HOP_DEPTH,
@@ -179,20 +180,20 @@ class BrainQuerySyntaxError(Exception):
 class _BrainQueryTransformer(Transformer):
     """Transform the Lark parse tree into BrainQuery IR dataclasses."""
 
-    def STRING(self, token):
+    def STRING(self, token):  # noqa: N802
         # Strip surrounding quotes
         return str(token)[1:-1]
 
-    def VARIABLE(self, token):
+    def VARIABLE(self, token):  # noqa: N802
         return str(token)
 
-    def TYPE_LABEL(self, token):
+    def TYPE_LABEL(self, token):  # noqa: N802
         return str(token).strip()
 
-    def REL_TYPE(self, token):
+    def REL_TYPE(self, token):  # noqa: N802
         return str(token).upper()
 
-    def FIELD_NAME(self, token):
+    def FIELD_NAME(self, token):  # noqa: N802
         return str(token).lower()
 
     def property(self, value):

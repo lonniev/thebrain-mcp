@@ -7,7 +7,6 @@ from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.utils.formatters import (
     get_access_type_name,
     get_kind_name,
-    get_relation_name,
     get_search_result_type_name,
 )
 

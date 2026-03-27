@@ -20,7 +20,7 @@ from typing import Any
 
 from tollbooth.actor_types import ToolPathInfo
 from tollbooth.constants import ECOSYSTEM_LINKS
-from tollbooth.operator_protocol import OPERATOR_BASE_CATALOG, OperatorProtocol
+from tollbooth.operator_protocol import OPERATOR_BASE_CATALOG
 
 _DELEGATION_MSG = (
     "Cold-path delegation not yet implemented. "

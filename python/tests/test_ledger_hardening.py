@@ -6,9 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -181,7 +179,7 @@ class TestOpportunisticFlush:
     async def test_no_flush_before_interval(self) -> None:
         """get() does NOT flush when interval has not elapsed."""
         cache = _make_cache(flush_interval_secs=9999)
-        ledger = await cache.get("user-1")
+        await cache.get("user-1")
         cache.mark_dirty("user-1")
 
         await cache.get("user-1")

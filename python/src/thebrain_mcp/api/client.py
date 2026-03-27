@@ -21,7 +21,6 @@ from thebrain_mcp.api.models import (
 )
 from thebrain_mcp.utils.constants import MIME_TYPES
 
-
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,

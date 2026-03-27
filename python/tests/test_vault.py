@@ -2,17 +2,14 @@
 
 import time
 
-import pytest
-
 from thebrain_mcp.vault import (
+    SESSION_TTL_SECONDS,
     UserSession,
+    _sessions,
     clear_session,
     get_session,
     set_session,
-    _sessions,
-    SESSION_TTL_SECONDS,
 )
-
 
 # ---------------------------------------------------------------------------
 # Session store

@@ -4,12 +4,9 @@ import pytest
 
 from thebrain_mcp.brainquery import (
     BrainQuery,
-    DeleteClause,
     ExistenceCondition,
     NodePattern,
     PropertyAssignment,
-    RelPattern,
-    SetClause,
     TypeAssignment,
     WhereAnd,
     WhereClause,
@@ -20,7 +17,6 @@ from thebrain_mcp.brainquery import (
 )
 from thebrain_mcp.brainquery.ir import ReturnField
 from thebrain_mcp.brainquery.parser import BrainQuerySyntaxError
-
 
 # ---------------------------------------------------------------------------
 # Simple node MATCH patterns

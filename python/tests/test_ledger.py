@@ -3,10 +3,7 @@
 import json
 from datetime import date
 
-import pytest
-
 from thebrain_mcp.ledger import ToolUsage, UserLedger
-
 
 # ---------------------------------------------------------------------------
 # Helpers

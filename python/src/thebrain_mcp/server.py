@@ -9,27 +9,32 @@ import logging
 import sys
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
-
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
 from tollbooth.runtime import OperatorRuntime, register_standard_tools, resolve_npub
 from tollbooth.slug_tools import make_slug_tool
 
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
-from thebrain_mcp.tools import attachments, brains, credits, links, morpher, notes, orphanage, stats, thoughts, whowhen
+from thebrain_mcp.tools import (
+    attachments,
+    brains,
+    credits,
+    links,
+    morpher,
+    notes,
+    orphanage,
+    stats,
+    thoughts,
+    whowhen,
+)
 from thebrain_mcp.utils.constants import TOOL_COSTS
-
 from thebrain_mcp.vault import (
-    CredentialValidationError,
-    VaultNotConfiguredError,
     get_session,
-    set_session,
 )
 
+logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server (don't load settings yet - wait until runtime)
 mcp = FastMCP(

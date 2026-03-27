@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from thebrain_mcp.infographic import render_account_infographic
-
 
 # ---------------------------------------------------------------------------
 # Helpers

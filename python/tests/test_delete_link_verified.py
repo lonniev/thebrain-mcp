@@ -1,6 +1,6 @@
 """Tests for TheBrainAPI.delete_link_verified() — verify-after-failure pattern."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 

@@ -2,15 +2,12 @@
 
 from datetime import datetime, timezone
 
-import pytest
-
 from thebrain_mcp.tools.thoughts import (
     _collect_related_thoughts,
     _count_relations,
     _parse_cursor,
     paginate_graph,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers to build mock graph objects
@@ -175,7 +172,6 @@ class TestPaginateGraph:
         assert third["next_cursor"] is None
 
     def test_full_traversal_no_duplicates_no_skips(self) -> None:
-        items = _make_items()
         all_ids: list[str] = []
         cursor = None
         for _ in range(20):  # safety limit
@@ -189,7 +185,6 @@ class TestPaginateGraph:
         assert len(set(all_ids)) == 12  # no duplicates
 
     def test_page_size_one(self) -> None:
-        items = _make_items()
         all_ids: list[str] = []
         cursor = None
         for _ in range(20):
