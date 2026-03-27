@@ -39,8 +39,6 @@ def _mock_cache(ledger: UserLedger | None = None):
     return cache
 
 
-TIER_CONFIG = json.dumps({"default": {"credit_multiplier": 1}, "vip": {"credit_multiplier": 100}})
-USER_TIERS = json.dumps({"user-vip": "vip"})
 
 
 # ---------------------------------------------------------------------------
@@ -249,11 +247,10 @@ class TestPurchaseCreditsInvoiceRecord:
 
         await direct_purchase_tool(
             btcpay, cache, "user-vip", 2000,
-            tier_config_json=TIER_CONFIG, user_tiers_json=USER_TIERS,
         )
         rec = ledger.invoices["inv-meta"]
         assert rec.amount_sats == 2000
-        assert rec.multiplier == 100
+        assert rec.multiplier == 1
         assert rec.created_at != ""  # ISO timestamp populated
         assert rec.btcpay_status == "New"
 

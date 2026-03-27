@@ -341,26 +341,6 @@ class TestRestoreCredits:
         assert "Processing" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_restore_with_tier_multiplier(self) -> None:
-        """restore_credits applies tier multiplier."""
-        from thebrain_mcp.tools.credits import restore_credits_tool
-
-        cache = _make_cache()
-        btcpay = _mock_btcpay({"id": "inv-1", "status": "Settled", "amount": "100"})
-
-        tier_config = json.dumps({"premium": {"credit_multiplier": 3}})
-        user_tiers = json.dumps({"user-1": "premium"})
-
-        result = await restore_credits_tool(
-            btcpay, cache, "user-1", "inv-1",
-            tier_config_json=tier_config, user_tiers_json=user_tiers,
-        )
-
-        assert result["success"] is True
-        assert result["credits_granted"] == 300
-        assert result["multiplier"] == 3
-
-    @pytest.mark.asyncio
     async def test_restore_survives_cache_rebuild(self) -> None:
         """Restored credits survive cache loss via vault flush."""
         from thebrain_mcp.tools.credits import restore_credits_tool

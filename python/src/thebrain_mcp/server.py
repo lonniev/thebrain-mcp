@@ -90,15 +90,13 @@ _settings_loaded = False
 
 def _ensure_settings_loaded() -> None:
     """Ensure settings are loaded (called at runtime, not import time)."""
-    global active_brain_id, _settings_loaded
+    global _settings_loaded
     if not _settings_loaded:
         try:
-            settings = get_settings()
-            active_brain_id = settings.thebrain_default_brain_id
+            get_settings()
             _settings_loaded = True
         except Exception as e:
             print(f"Error: Failed to load settings: {e}", file=sys.stderr)
-            print("Please ensure THEBRAIN_API_KEY is set in environment or .env file", file=sys.stderr)
             sys.exit(1)
 
 
@@ -118,17 +116,35 @@ def _get_current_user_id() -> str | None:
 runtime = OperatorRuntime(
     service_name="Personal Brain",
     tool_costs=TOOL_COSTS,
-    credential_service="thebrain",
-    credential_template=CredentialTemplate(
+    operator_credential_template=CredentialTemplate(
+        service="thebrain-operator",
+        version=1,
+        fields={
+            "btcpay_host": FieldSpec(
+                required=True, sensitive=True,
+                description="The URL of your BTCPay Server instance.",
+            ),
+            "btcpay_api_key": FieldSpec(
+                required=True, sensitive=True,
+                description="Your BTCPay Server API key.",
+            ),
+            "btcpay_store_id": FieldSpec(
+                required=True, sensitive=True,
+                description="Your BTCPay Store ID.",
+            ),
+        },
+        description="BTCPay Lightning payment credentials",
+    ),
+    patron_credential_template=CredentialTemplate(
         service="thebrain",
-        version=2,
+        version=3,
         fields={
             "api_key": FieldSpec(
                 required=True,
                 sensitive=True,
                 description=(
-                    "Your TheBrain API key. Found in TheBrain desktop app "
-                    "under Preferences > API."
+                    "Your TheBrain API key. Found at https://bra.in/keys "
+                    "or in the TheBrain desktop app under Preferences > API."
                 ),
             ),
             "brain_id": FieldSpec(
@@ -140,9 +156,14 @@ runtime = OperatorRuntime(
                 ),
             ),
         },
-        description="TheBrain API key and brain ID for personal knowledge graph access",
+        description="TheBrain API access credentials",
     ),
-    credential_greeting=(
+    operator_credential_greeting=(
+        "Hi \u2014 I\u2019m Personal Brain MCP, a Tollbooth service for AI agent access "
+        "to your TheBrain knowledge graph. You (the operator) need to provide "
+        "BTCPay credentials."
+    ),
+    patron_credential_greeting=(
         "Hi \u2014 I\u2019m Personal Brain MCP, a Tollbooth service for AI agent access "
         "to your TheBrain knowledge graph. You (or your AI agent) requested a "
         "credential channel."
@@ -157,7 +178,6 @@ register_standard_tools(
     mcp,
     "brain",
     runtime,
-    settings_fn=get_settings,
     service_name="thebrain-mcp",
     service_version="",
 )
@@ -169,12 +189,17 @@ register_standard_tools(
 
 
 def _get_operator_api() -> TheBrainAPI:
-    """Get or create the operator's API client (singleton)."""
+    """Get or create the operator's API client (singleton).
+
+    The API key comes from the operator's own patron credential vault
+    (the operator is also a patron of their own TheBrain instance).
+    """
     global _operator_api_client
     _ensure_settings_loaded()
     if _operator_api_client is None:
         settings = get_settings()
-        _operator_api_client = TheBrainAPI(settings.thebrain_api_key, settings.thebrain_api_url)
+        # Operator uses their own TheBrain API key — will be loaded at first use
+        _operator_api_client = TheBrainAPI(api_key="", api_url=settings.thebrain_api_url)
     return _operator_api_client
 
 
