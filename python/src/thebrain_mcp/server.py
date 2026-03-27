@@ -116,14 +116,29 @@ def _get_current_user_id() -> str | None:
 # ---------------------------------------------------------------------------
 
 runtime = OperatorRuntime(
+    service_name="Personal Brain",
     tool_costs=TOOL_COSTS,
     credential_service="thebrain",
     credential_template=CredentialTemplate(
         service="thebrain",
         version=2,
         fields={
-            "api_key": FieldSpec(required=True, sensitive=True),
-            "brain_id": FieldSpec(required=True, sensitive=False),
+            "api_key": FieldSpec(
+                required=True,
+                sensitive=True,
+                description=(
+                    "Your TheBrain API key. Found in TheBrain desktop app "
+                    "under Preferences > API."
+                ),
+            ),
+            "brain_id": FieldSpec(
+                required=True,
+                sensitive=False,
+                description=(
+                    "The ID of the brain to connect to. Found in TheBrain "
+                    "under Brain > Properties."
+                ),
+            ),
         },
         description="TheBrain API key and brain ID for personal knowledge graph access",
     ),
