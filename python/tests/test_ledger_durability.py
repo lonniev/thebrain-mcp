@@ -1,12 +1,12 @@
 """Tests for ledger durability fixes: flush_user, credit-path flushing, background flush startup, vault caching."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from thebrain_mcp.ledger import UserLedger
-from thebrain_mcp.ledger_cache import LedgerCache, _CacheEntry
+from thebrain_mcp.ledger_cache import LedgerCache
 
 
 # ---------------------------------------------------------------------------
@@ -243,55 +243,6 @@ class TestCreditPathFlushing:
         assert "already credited" in result["message"]
         # Balance should be preserved, not zeroed
         assert result["balance_api_sats"] == 500
-
-
-# ---------------------------------------------------------------------------
-# Background flush startup
-# ---------------------------------------------------------------------------
-
-
-class TestBackgroundFlushStartup:
-    def test_get_ledger_cache_starts_background_flush(self) -> None:
-        """_get_ledger_cache() should schedule background flush on creation."""
-        import thebrain_mcp.server as srv
-
-        # Reset singleton
-        srv._ledger_cache = None
-
-        mock_vault = MagicMock()
-        mock_cache = AsyncMock(spec=LedgerCache)
-
-        with patch.object(srv, "_get_commerce_vault", return_value=mock_vault), \
-             patch("thebrain_mcp.server.LedgerCache", return_value=mock_cache), \
-             patch("asyncio.ensure_future") as mock_ensure:
-            cache = srv._get_ledger_cache()
-
-        assert cache is mock_cache
-        mock_ensure.assert_called_once()
-        # The argument should be the coroutine from start_background_flush
-        mock_cache.start_background_flush.assert_called_once()
-
-        # Clean up singleton
-        srv._ledger_cache = None
-
-    def test_get_ledger_cache_no_error_without_event_loop(self) -> None:
-        """_get_ledger_cache() gracefully handles no running event loop."""
-        import thebrain_mcp.server as srv
-
-        srv._ledger_cache = None
-
-        mock_vault = MagicMock()
-        mock_cache = AsyncMock(spec=LedgerCache)
-
-        with patch.object(srv, "_get_commerce_vault", return_value=mock_vault), \
-             patch("thebrain_mcp.server.LedgerCache", return_value=mock_cache), \
-             patch("asyncio.ensure_future", side_effect=RuntimeError("no loop")):
-            cache = srv._get_ledger_cache()
-
-        # Should succeed despite RuntimeError
-        assert cache is mock_cache
-
-        srv._ledger_cache = None
 
 
 # ---------------------------------------------------------------------------

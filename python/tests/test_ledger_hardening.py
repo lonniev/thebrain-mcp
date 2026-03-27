@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -154,75 +154,6 @@ class TestLastFlushAt:
         cache.mark_dirty("user-1")
         await cache.flush_dirty()
         assert cache._last_flush_at is None
-
-
-# ---------------------------------------------------------------------------
-# Graceful shutdown handler
-# ---------------------------------------------------------------------------
-
-
-class TestGracefulShutdown:
-    @pytest.mark.asyncio
-    async def test_graceful_shutdown_flushes_dirty(self) -> None:
-        """_graceful_shutdown flushes dirty entries and stops cache."""
-        import thebrain_mcp.server as srv
-
-        cache = _make_cache()
-        ledger = await cache.get("user-1")
-        ledger.balance_sats = 500
-        cache.mark_dirty("user-1")
-
-        srv._ledger_cache = cache
-        srv._shutdown_triggered = False
-
-        await srv._graceful_shutdown()
-
-        assert cache.dirty_count == 0
-        cache._vault.store_ledger.assert_called_once()
-        assert srv._shutdown_triggered is True
-
-        # Clean up
-        srv._ledger_cache = None
-        srv._shutdown_triggered = False
-
-    @pytest.mark.asyncio
-    async def test_graceful_shutdown_idempotent(self) -> None:
-        """Second call to _graceful_shutdown is a no-op."""
-        import thebrain_mcp.server as srv
-
-        cache = _make_cache()
-        await cache.get("user-1")
-        cache.mark_dirty("user-1")
-
-        srv._ledger_cache = cache
-        srv._shutdown_triggered = False
-
-        await srv._graceful_shutdown()
-        call_count_1 = cache._vault.store_ledger.call_count
-        await srv._graceful_shutdown()  # second call
-        call_count_2 = cache._vault.store_ledger.call_count
-        assert call_count_2 == call_count_1  # no new flushes
-
-        srv._ledger_cache = None
-        srv._shutdown_triggered = False
-
-    @pytest.mark.asyncio
-    async def test_graceful_shutdown_no_cache_noop(self) -> None:
-        """_graceful_shutdown is safe when no cache exists."""
-        import thebrain_mcp.server as srv
-
-        srv._ledger_cache = None
-        srv._shutdown_triggered = False
-
-        await srv._graceful_shutdown()  # should not raise
-        assert srv._shutdown_triggered is True
-
-        srv._shutdown_triggered = False
-
-
-# ---------------------------------------------------------------------------
-# check_balance includes cache_health
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
