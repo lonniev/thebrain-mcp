@@ -122,6 +122,11 @@ runtime = OperatorRuntime(
         },
         description="TheBrain API key and brain ID for personal knowledge graph access",
     ),
+    credential_greeting=(
+        "Hi \u2014 I\u2019m Personal Brain MCP, a Tollbooth service for AI agent access "
+        "to your TheBrain knowledge graph. You (or your AI agent) requested a "
+        "credential channel."
+    ),
 )
 
 # ---------------------------------------------------------------------------
