@@ -15,7 +15,7 @@ from thebrain_mcp.btcpay_client import (
 )
 from thebrain_mcp.ledger import UserLedger
 from thebrain_mcp.ledger_cache import LedgerCache
-from thebrain_mcp.tools.credits import (
+from tollbooth.tools.credits import (
     _get_multiplier,
     _get_tier_info,
     btcpay_status_tool,
