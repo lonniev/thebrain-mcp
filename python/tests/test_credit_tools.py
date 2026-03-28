@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pynostr.event import Event  # type: ignore[import-untyped]
 from pynostr.key import PrivateKey  # type: ignore[import-untyped]
-
 from tollbooth.btcpay_client import (
     BTCPayAuthError,
     BTCPayClient,
@@ -17,9 +16,10 @@ from tollbooth.btcpay_client import (
 )
 from tollbooth.certificate import reset_jti_store
 from tollbooth.config import TollboothConfig
+from tollbooth.constants import MAX_INVOICE_SATS
 from tollbooth.ledger import ToolUsage, Tranche, UserLedger
 from tollbooth.ledger_cache import LedgerCache
-from tollbooth.nostr_certificate import NOSTR_CERT_KIND, NOSTR_CERT_TAG, NOSTR_CERT_LABEL
+from tollbooth.nostr_certificate import NOSTR_CERT_KIND, NOSTR_CERT_LABEL, NOSTR_CERT_TAG
 from tollbooth.tools.credits import (
     account_statement_tool,
     btcpay_status_tool,
@@ -29,8 +29,6 @@ from tollbooth.tools.credits import (
     purchase_credits_tool,
     reconcile_pending_invoices,
 )
-from tollbooth.constants import MAX_INVOICE_SATS
-
 
 # ---------------------------------------------------------------------------
 # Module-level Nostr test keypair for certificate signing
