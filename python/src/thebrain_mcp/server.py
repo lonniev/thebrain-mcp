@@ -12,7 +12,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
-from tollbooth.runtime import OperatorRuntime, register_standard_tools, resolve_npub
+from tollbooth.runtime import OperatorRuntime, register_standard_tools
 from tollbooth.slug_tools import make_slug_tool
 
 from thebrain_mcp.api.client import TheBrainAPI
@@ -20,7 +20,6 @@ from thebrain_mcp.config import get_settings
 from thebrain_mcp.tools import (
     attachments,
     brains,
-    credits,
     links,
     morpher,
     notes,
@@ -98,15 +97,6 @@ def _ensure_settings_loaded() -> None:
         except Exception as e:
             print(f"Error: Failed to load settings: {e}", file=sys.stderr)
             sys.exit(1)
-
-
-def _get_current_user_id() -> str | None:
-    """Extract FastMCP Cloud user ID from request headers."""
-    try:
-        headers = get_http_headers(include_all=True)
-        return headers.get("fastmcp-cloud-user")
-    except Exception:
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +197,7 @@ def get_api() -> TheBrainAPI:
     """Get API client — per-user if session active, operator's for STDIO mode."""
     _ensure_settings_loaded()
 
-    user_id = _get_current_user_id()
+    user_id = runtime.get_current_user_id()
     if user_id:
         session = get_session(user_id)
         if session:
@@ -221,13 +211,28 @@ def get_api() -> TheBrainAPI:
     return _get_operator_api()
 
 
+async def _ensure_session(npub: str) -> None:
+    """Restore patron session from vault if not in memory."""
+    user_id = runtime.get_current_user_id()
+    if not user_id:
+        return  # STDIO mode — no session needed
+    if get_session(user_id) is not None:
+        return  # Already in memory
+
+    creds = await runtime.load_patron_session(npub)
+    if creds and "api_key" in creds:
+        from thebrain_mcp.vault import set_session as _set_session
+        _set_session(user_id, creds["api_key"], creds.get("brain_id", ""))
+        logger.info("Restored session for %s from vault.", npub[:20])
+
+
 def get_brain_id(brain_id: str | None = None) -> str:
     """Get brain ID: explicit arg > per-user session > operator default (STDIO only)."""
     _ensure_settings_loaded()
     if brain_id:
         return brain_id
 
-    user_id = _get_current_user_id()
+    user_id = runtime.get_current_user_id()
     if user_id:
         session = get_session(user_id)
         if session and session.active_brain_id:
@@ -245,19 +250,10 @@ def get_brain_id(brain_id: str | None = None) -> str:
 
 async def _with_warning(result: dict[str, Any], npub: str = "") -> dict[str, Any]:
     """Attach a low-balance warning to a paid tool result if balance is low."""
-    try:
-        user_id = resolve_npub(npub)
-        cache = await runtime.ledger_cache()
-        ledger = await cache.get(user_id)
-        settings = get_settings()
-        warning = credits.compute_low_balance_warning(
-            ledger, settings.seed_balance_sats,
-        )
-        if warning:
-            result = dict(result)
-            result["low_balance_warning"] = warning
-    except Exception:
-        pass
+    settings = get_settings()
+    return await runtime.inject_low_balance_warning(
+        result, npub, settings.seed_balance_sats,
+    )
     return result
 
 
@@ -277,7 +273,7 @@ async def whoami() -> dict[str, Any]:
     result["fastmcp_cloud"] = {
         k: v for k, v in headers.items() if k.startswith("fastmcp-")
     } or None
-    user_id = _get_current_user_id()
+    user_id = runtime.get_current_user_id()
     if user_id:
         result["dpyc_session"] = {"active": False, "npub": None, "note": "Pass npub explicitly to credit tools."}
     return result
@@ -303,6 +299,7 @@ async def get_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
     err = await runtime.debit_or_error("get_brain", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await brains.get_brain_tool(get_api(), brain_id))
     except Exception:
@@ -328,7 +325,7 @@ async def set_active_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
         await runtime.rollback_debit("set_active_brain", npub)
         raise
     if result.get("success"):
-        user_id = _get_current_user_id()
+        user_id = runtime.get_current_user_id()
         if user_id:
             session = get_session(user_id)
             if session:
@@ -349,6 +346,7 @@ async def get_brain_stats(brain_id: str | None = None, npub: str = "") -> dict[s
     err = await runtime.debit_or_error("get_brain_stats", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await brains.get_brain_stats_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
@@ -391,6 +389,7 @@ async def create_thought(
     err = await runtime.debit_or_error("create_thought", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.create_thought_tool(
             get_api(), get_brain_id(brain_id), name, kind, label,
@@ -414,6 +413,7 @@ async def get_thought(thought_id: str, brain_id: str | None = None, npub: str = 
     err = await runtime.debit_or_error("get_thought", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_thought_tool(get_api(), get_brain_id(brain_id), thought_id))
     except Exception:
@@ -435,6 +435,7 @@ async def get_thought_by_name(
     err = await runtime.debit_or_error("get_thought_by_name", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_thought_by_name_tool(
             get_api(), get_brain_id(brain_id), name_exact
@@ -468,6 +469,7 @@ async def update_thought(
     err = await runtime.debit_or_error("update_thought", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.update_thought_tool(
             get_api(), get_brain_id(brain_id), thought_id, name, label,
@@ -490,6 +492,7 @@ async def delete_thought(thought_id: str, brain_id: str | None = None, npub: str
     err = await runtime.debit_or_error("delete_thought", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.delete_thought_tool(get_api(), get_brain_id(brain_id), thought_id))
     except Exception:
@@ -514,6 +517,7 @@ async def search_thoughts(
     err = await runtime.debit_or_error("search_thoughts", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.search_thoughts_tool(
             get_api(), get_brain_id(brain_id), query_text, max_results, only_search_thought_names
@@ -538,6 +542,7 @@ async def get_thought_graph(
     err = await runtime.debit_or_error("get_thought_graph", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_thought_graph_tool(
             get_api(), get_brain_id(brain_id), thought_id, include_siblings
@@ -567,6 +572,7 @@ async def get_thought_graph_paginated(
     err = await runtime.debit_or_error("get_thought_graph_paginated", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_thought_graph_paginated_tool(
             get_api(), get_brain_id(brain_id), thought_id,
@@ -588,6 +594,7 @@ async def get_types(brain_id: str | None = None, npub: str = "") -> dict[str, An
     err = await runtime.debit_or_error("get_types", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_types_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
@@ -606,6 +613,7 @@ async def get_tags(brain_id: str | None = None, npub: str = "") -> dict[str, Any
     err = await runtime.debit_or_error("get_tags", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_tags_tool(get_api(), get_brain_id(brain_id)))
     except Exception:
@@ -640,6 +648,7 @@ async def create_link(
     err = await runtime.debit_or_error("create_link", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await links.create_link_tool(
             get_api(), get_brain_id(brain_id), thought_id_a, thought_id_b,
@@ -671,6 +680,7 @@ async def update_link(
     err = await runtime.debit_or_error("update_link", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await links.update_link_tool(
             get_api(), get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
@@ -692,6 +702,7 @@ async def get_link(link_id: str, brain_id: str | None = None, npub: str = "") ->
     err = await runtime.debit_or_error("get_link", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await links.get_link_tool(get_api(), get_brain_id(brain_id), link_id))
     except Exception:
@@ -711,6 +722,7 @@ async def delete_link(link_id: str, brain_id: str | None = None, npub: str = "")
     err = await runtime.debit_or_error("delete_link", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await links.delete_link_tool(get_api(), get_brain_id(brain_id), link_id))
     except Exception:
@@ -738,6 +750,7 @@ async def add_file_attachment(
     err = await runtime.debit_or_error("add_file_attachment", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.add_file_attachment_tool(
             get_api(), get_brain_id(brain_id), thought_id, file_path, file_name,
@@ -764,6 +777,7 @@ async def add_url_attachment(
     err = await runtime.debit_or_error("add_url_attachment", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.add_url_attachment_tool(
             get_api(), get_brain_id(brain_id), thought_id, url, name
@@ -785,6 +799,7 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: 
     err = await runtime.debit_or_error("get_attachment", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.get_attachment_tool(get_api(), get_brain_id(brain_id), attachment_id))
     except Exception:
@@ -807,6 +822,7 @@ async def get_attachment_content(
     err = await runtime.debit_or_error("get_attachment_content", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.get_attachment_content_tool(
             get_api(), get_brain_id(brain_id), attachment_id, save_to_path,
@@ -829,6 +845,7 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None, npu
     err = await runtime.debit_or_error("delete_attachment", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.delete_attachment_tool(
             get_api(), get_brain_id(brain_id), attachment_id
@@ -850,6 +867,7 @@ async def list_attachments(thought_id: str, brain_id: str | None = None, npub: s
     err = await runtime.debit_or_error("list_attachments", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.list_attachments_tool(
             get_api(), get_brain_id(brain_id), thought_id
@@ -877,6 +895,7 @@ async def get_note(
     err = await runtime.debit_or_error("get_note", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await notes.get_note_tool(get_api(), get_brain_id(brain_id), thought_id, format))
     except Exception:
@@ -899,6 +918,7 @@ async def create_or_update_note(
     err = await runtime.debit_or_error("create_or_update_note", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await notes.create_or_update_note_tool(
             get_api(), get_brain_id(brain_id), thought_id, markdown
@@ -923,6 +943,7 @@ async def append_to_note(
     err = await runtime.debit_or_error("append_to_note", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await notes.append_to_note_tool(
             get_api(), get_brain_id(brain_id), thought_id, markdown
@@ -952,6 +973,7 @@ async def get_modifications(
     err = await runtime.debit_or_error("get_modifications", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await stats.get_modifications_tool(
             get_api(), get_brain_id(brain_id), max_logs, start_time, end_time
@@ -1025,6 +1047,7 @@ async def morph_thought(
     err = await runtime.debit_or_error("morph_thought", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await morpher.morpher_tool(
             get_api(), get_brain_id(brain_id), thought_id, new_parent_id, new_type_id
@@ -1054,6 +1077,7 @@ async def scan_orphans(
     err = await runtime.debit_or_error("scan_orphans", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await orphanage.scan_orphans_tool(
             get_api(), get_brain_id(brain_id), dry_run, batch_size, orphanage_name
@@ -1084,6 +1108,7 @@ async def event_for_person(
     err = await runtime.debit_or_error("event_for_person", npub)
     if err:
         return err
+    await _ensure_session(npub)
     try:
         return await _with_warning(await whowhen.event_for_person_tool(
             get_api(), get_brain_id(brain_id), date, person, event_name, notes
