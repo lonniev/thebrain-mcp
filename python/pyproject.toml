@@ -4,7 +4,7 @@ version = "1.9.17"
 description = "FastMCP server for TheBrain API - enables AI assistants to interact with TheBrain knowledge management system"
 authors = [{name = "TheBrain MCP Contributors"}]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 keywords = ["mcp", "thebrain", "knowledge-management", "ai", "claude", "fastmcp"]
 
