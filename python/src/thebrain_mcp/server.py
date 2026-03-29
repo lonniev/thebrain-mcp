@@ -158,7 +158,20 @@ runtime = OperatorRuntime(
         "to your TheBrain knowledge graph. You (or your AI agent) requested a "
         "credential channel."
     ),
+    on_forget=lambda service, npub: _on_credentials_forgotten(service, npub),
 )
+
+
+def _on_credentials_forgotten(service: str, npub: str) -> None:
+    """Called by the wheel when forget_credentials succeeds.
+
+    Clears the in-memory session so the patron gate re-checks the vault.
+    """
+    from thebrain_mcp.vault import clear_session
+    user_id = npub  # session keyed by npub when no Horizon user_id
+    clear_session(user_id)
+    _revoked_npubs.add(npub)
+    logger.info("Session cleared for %s (service=%s)", npub[:20], service)
 
 # ---------------------------------------------------------------------------
 # Register all standard DPYC tools from the wheel
@@ -322,39 +335,6 @@ async def whoami() -> dict[str, Any]:
 
 
 _INTERNAL_BRAIN_PATTERNS = {"credential vault", "mcp vault", "operator vault"}
-
-
-@tool
-async def revoke_patron_session(npub: str = "", service: str = "") -> dict[str, Any]:
-    """Revoke a patron's session and vault credentials.
-
-    Clears both the in-memory session AND the Neon vault entry.
-    The patron will need to re-deliver credentials via Secure Courier.
-
-    Args:
-        npub: Required. The patron npub to revoke.
-        service: Credential service (default: patron service).
-    Free.
-    """
-    if not npub:
-        return {"success": False, "error": "npub is required."}
-    svc = service or runtime.patron_credential_service
-    # Clear in-memory
-    user_id = runtime.get_current_user_id() or npub
-    from thebrain_mcp.vault import clear_session
-    clear_session(user_id)
-    _revoked_npubs.add(npub)
-    # Clear vault
-    try:
-        courier = await runtime.courier()
-        if courier:
-            await courier.forget(npub, service=svc)
-    except Exception:
-        pass
-    return {
-        "success": True,
-        "message": f"Session revoked for {npub[:20]}... Service: {svc}",
-    }
 
 
 @tool
