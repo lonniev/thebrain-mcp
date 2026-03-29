@@ -159,7 +159,7 @@ TOOL_COSTS: dict[str, int] = {
     "request_credential_channel": ToolTier.FREE,
     "receive_credentials": ToolTier.FREE,
     "forget_credentials": ToolTier.FREE,
-    "list_brains": ToolTier.FREE,
+    "list_brains": ToolTier.READ,
     "purchase_credits": ToolTier.FREE,
     "check_payment": ToolTier.FREE,
     "check_balance": ToolTier.FREE,

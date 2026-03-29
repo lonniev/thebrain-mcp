@@ -296,10 +296,39 @@ async def whoami() -> dict[str, Any]:
 # Brain Management Tools
 
 
+_INTERNAL_BRAIN_PATTERNS = {"credential vault", "mcp vault", "operator vault"}
+
+
 @tool
-async def list_brains() -> dict[str, Any]:
-    """List all available brains for the user."""
-    return await brains.list_brains_tool(get_api())
+async def list_brains(npub: str = "") -> dict[str, Any]:
+    """List available brains.
+
+    Args:
+        npub: Required. Your Nostr public key (npub1...).
+    """
+    err = await runtime.debit_or_error("list_brains", npub)
+    if err:
+        return err
+    await _ensure_session(npub)
+    result = await brains.list_brains_tool(get_api())
+    # Filter out internal/operator brains
+    if isinstance(result, dict) and "brains" in result:
+        result["brains"] = [
+            b for b in result["brains"]
+            if not any(
+                p in (b.get("name", "") or "").lower()
+                for p in _INTERNAL_BRAIN_PATTERNS
+            )
+        ]
+    elif isinstance(result, list):
+        result = [
+            b for b in result
+            if not any(
+                p in (b.get("name", "") or "").lower()
+                for p in _INTERNAL_BRAIN_PATTERNS
+            )
+        ]
+    return result
 
 
 @tool
