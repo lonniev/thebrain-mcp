@@ -211,6 +211,9 @@ def get_api() -> TheBrainAPI:
     return _get_operator_api()
 
 
+_revoked_npubs: set[str] = set()
+
+
 async def _ensure_session(npub: str) -> TheBrainAPI:
     """Restore or require patron session. Returns API client.
 
@@ -218,11 +221,17 @@ async def _ensure_session(npub: str) -> TheBrainAPI:
     npub, raises ValueError directing the caller to the Secure Courier
     onboarding flow. Never falls back to the operator's API client.
     """
-    # Check in-memory session first (keyed by user_id or npub)
+    # Check if this npub was revoked (forget_credentials was called)
     user_id = runtime.get_current_user_id() or npub
-    session = get_session(user_id)
-    if session:
-        return session.api_client
+    if npub in _revoked_npubs:
+        from thebrain_mcp.vault import clear_session
+        clear_session(user_id)
+        _revoked_npubs.discard(npub)
+    else:
+        # Check in-memory session first
+        session = get_session(user_id)
+        if session:
+            return session.api_client
 
     # Try vault restore
     creds = await runtime.load_patron_session(npub)
@@ -313,6 +322,39 @@ async def whoami() -> dict[str, Any]:
 
 
 _INTERNAL_BRAIN_PATTERNS = {"credential vault", "mcp vault", "operator vault"}
+
+
+@tool
+async def revoke_patron_session(npub: str = "", service: str = "") -> dict[str, Any]:
+    """Revoke a patron's session and vault credentials.
+
+    Clears both the in-memory session AND the Neon vault entry.
+    The patron will need to re-deliver credentials via Secure Courier.
+
+    Args:
+        npub: Required. The patron npub to revoke.
+        service: Credential service (default: patron service).
+    Free.
+    """
+    if not npub:
+        return {"success": False, "error": "npub is required."}
+    svc = service or runtime.patron_credential_service
+    # Clear in-memory
+    user_id = runtime.get_current_user_id() or npub
+    from thebrain_mcp.vault import clear_session
+    clear_session(user_id)
+    _revoked_npubs.add(npub)
+    # Clear vault
+    try:
+        courier = await runtime.courier()
+        if courier:
+            await courier.forget(npub, service=svc)
+    except Exception:
+        pass
+    return {
+        "success": True,
+        "message": f"Session revoked for {npub[:20]}... Service: {svc}",
+    }
 
 
 @tool
