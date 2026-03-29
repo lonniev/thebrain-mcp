@@ -378,6 +378,7 @@ async def set_active_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
     if err:
         return err
     global active_brain_id
+    api = await _ensure_session(npub)
     try:
         result = await brains.set_active_brain_tool(api, brain_id)
     except Exception:
@@ -1077,6 +1078,7 @@ async def brain_query(
     if parsed.action == "match_delete":
         parsed.confirm_delete = confirm
 
+    api = await _ensure_session(npub)
     bid = get_brain_id(brain_id)
 
     try:
