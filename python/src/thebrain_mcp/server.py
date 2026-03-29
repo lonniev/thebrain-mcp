@@ -227,20 +227,33 @@ async def _ensure_session(npub: str) -> None:
 
 
 def get_brain_id(brain_id: str | None = None) -> str:
-    """Get brain ID: explicit arg > per-user session > operator default (STDIO only)."""
+    """Get brain ID: explicit arg > per-user session > STDIO global.
+
+    In multi-tenant (Horizon) mode, brain_id MUST come from the patron's
+    session — never from the global. The global is only for STDIO
+    single-user mode.
+    """
     _ensure_settings_loaded()
     if brain_id:
         return brain_id
 
     user_id = runtime.get_current_user_id()
     if user_id:
+        # Multi-tenant: per-patron session only — no global fallback
         session = get_session(user_id)
         if session and session.active_brain_id:
             return session.active_brain_id
+        raise ValueError(
+            "No brain configured for your session. Deliver your TheBrain "
+            "credentials (api_key + brain_id) via Secure Courier first."
+        )
 
+    # STDIO mode: global is acceptable (single user)
     if active_brain_id:
         return active_brain_id
-    raise ValueError("Brain ID is required. Use set_active_brain first or provide brainId.")
+    raise ValueError(
+        "Brain ID is required. Use set_active_brain or provide brain_id."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -327,11 +340,13 @@ async def set_active_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
     if result.get("success"):
         user_id = runtime.get_current_user_id()
         if user_id:
+            # Multi-tenant: set on session only
             session = get_session(user_id)
             if session:
                 session.active_brain_id = brain_id
-                return await _with_warning(result, npub=npub)
-        active_brain_id = brain_id
+        else:
+            # STDIO: global is acceptable
+            active_brain_id = brain_id
     return await _with_warning(result, npub=npub)
 
 
