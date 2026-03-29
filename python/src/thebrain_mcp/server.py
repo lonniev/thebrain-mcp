@@ -211,19 +211,35 @@ def get_api() -> TheBrainAPI:
     return _get_operator_api()
 
 
-async def _ensure_session(npub: str) -> None:
-    """Restore patron session from vault if not in memory."""
-    user_id = runtime.get_current_user_id()
-    if not user_id:
-        return  # STDIO mode — no session needed
-    if get_session(user_id) is not None:
-        return  # Already in memory
+async def _ensure_session(npub: str) -> TheBrainAPI:
+    """Restore or require patron session. Returns API client.
 
+    Hard gate: if no patron credentials exist in the vault for this
+    npub, raises ValueError directing the caller to the Secure Courier
+    onboarding flow. Never falls back to the operator's API client.
+    """
+    # Check in-memory session first (keyed by user_id or npub)
+    user_id = runtime.get_current_user_id() or npub
+    session = get_session(user_id)
+    if session:
+        return session.api_client
+
+    # Try vault restore
     creds = await runtime.load_patron_session(npub)
     if creds and "api_key" in creds:
         from thebrain_mcp.vault import set_session as _set_session
-        _set_session(user_id, creds["api_key"], creds.get("brain_id", ""))
+        session = _set_session(
+            user_id, creds["api_key"], creds.get("brain_id", ""),
+        )
         logger.info("Restored session for %s from vault.", npub[:20])
+        return session.api_client
+
+    # No credentials — patron must onboard
+    raise ValueError(
+        "Which brain would you like to work with? "
+        "Call request_patron_credentials with your npub to set up "
+        "your TheBrain API key and brain ID via Secure Courier."
+    )
 
 
 def get_brain_id(brain_id: str | None = None) -> str:
@@ -309,8 +325,8 @@ async def list_brains(npub: str = "") -> dict[str, Any]:
     err = await runtime.debit_or_error("list_brains", npub)
     if err:
         return err
-    await _ensure_session(npub)
-    result = await brains.list_brains_tool(get_api())
+    api = await _ensure_session(npub)
+    result = await brains.list_brains_tool(api)
     # Filter out internal/operator brains
     if isinstance(result, dict) and "brains" in result:
         result["brains"] = [
@@ -342,9 +358,9 @@ async def get_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
     err = await runtime.debit_or_error("get_brain", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await brains.get_brain_tool(get_api(), brain_id))
+        return await _with_warning(await brains.get_brain_tool(api, brain_id))
     except Exception:
         await runtime.rollback_debit("get_brain", npub)
         raise
@@ -363,7 +379,7 @@ async def set_active_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
         return err
     global active_brain_id
     try:
-        result = await brains.set_active_brain_tool(get_api(), brain_id)
+        result = await brains.set_active_brain_tool(api, brain_id)
     except Exception:
         await runtime.rollback_debit("set_active_brain", npub)
         raise
@@ -391,9 +407,9 @@ async def get_brain_stats(brain_id: str | None = None, npub: str = "") -> dict[s
     err = await runtime.debit_or_error("get_brain_stats", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await brains.get_brain_stats_tool(get_api(), get_brain_id(brain_id)))
+        return await _with_warning(await brains.get_brain_stats_tool(api, get_brain_id(brain_id)))
     except Exception:
         await runtime.rollback_debit("get_brain_stats", npub)
         raise
@@ -434,10 +450,10 @@ async def create_thought(
     err = await runtime.debit_or_error("create_thought", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.create_thought_tool(
-            get_api(), get_brain_id(brain_id), name, kind, label,
+            api, get_brain_id(brain_id), name, kind, label,
             foreground_color, background_color, type_id,
             source_thought_id, relation, ac_type,
         ))
@@ -458,9 +474,9 @@ async def get_thought(thought_id: str, brain_id: str | None = None, npub: str = 
     err = await runtime.debit_or_error("get_thought", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await thoughts.get_thought_tool(get_api(), get_brain_id(brain_id), thought_id))
+        return await _with_warning(await thoughts.get_thought_tool(api, get_brain_id(brain_id), thought_id))
     except Exception:
         await runtime.rollback_debit("get_thought", npub)
         raise
@@ -480,10 +496,10 @@ async def get_thought_by_name(
     err = await runtime.debit_or_error("get_thought_by_name", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_thought_by_name_tool(
-            get_api(), get_brain_id(brain_id), name_exact
+            api, get_brain_id(brain_id), name_exact
         ))
     except Exception:
         await runtime.rollback_debit("get_thought_by_name", npub)
@@ -514,10 +530,10 @@ async def update_thought(
     err = await runtime.debit_or_error("update_thought", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.update_thought_tool(
-            get_api(), get_brain_id(brain_id), thought_id, name, label,
+            api, get_brain_id(brain_id), thought_id, name, label,
             foreground_color, background_color, kind, ac_type, type_id,
         ))
     except Exception:
@@ -537,9 +553,9 @@ async def delete_thought(thought_id: str, brain_id: str | None = None, npub: str
     err = await runtime.debit_or_error("delete_thought", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await thoughts.delete_thought_tool(get_api(), get_brain_id(brain_id), thought_id))
+        return await _with_warning(await thoughts.delete_thought_tool(api, get_brain_id(brain_id), thought_id))
     except Exception:
         await runtime.rollback_debit("delete_thought", npub)
         raise
@@ -562,10 +578,10 @@ async def search_thoughts(
     err = await runtime.debit_or_error("search_thoughts", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.search_thoughts_tool(
-            get_api(), get_brain_id(brain_id), query_text, max_results, only_search_thought_names
+            api, get_brain_id(brain_id), query_text, max_results, only_search_thought_names
         ))
     except Exception:
         await runtime.rollback_debit("search_thoughts", npub)
@@ -587,10 +603,10 @@ async def get_thought_graph(
     err = await runtime.debit_or_error("get_thought_graph", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_thought_graph_tool(
-            get_api(), get_brain_id(brain_id), thought_id, include_siblings
+            api, get_brain_id(brain_id), thought_id, include_siblings
         ))
     except Exception:
         await runtime.rollback_debit("get_thought_graph", npub)
@@ -617,10 +633,10 @@ async def get_thought_graph_paginated(
     err = await runtime.debit_or_error("get_thought_graph_paginated", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await thoughts.get_thought_graph_paginated_tool(
-            get_api(), get_brain_id(brain_id), thought_id,
+            api, get_brain_id(brain_id), thought_id,
             page_size, cursor, direction, relation_filter,
         ))
     except Exception:
@@ -639,9 +655,9 @@ async def get_types(brain_id: str | None = None, npub: str = "") -> dict[str, An
     err = await runtime.debit_or_error("get_types", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await thoughts.get_types_tool(get_api(), get_brain_id(brain_id)))
+        return await _with_warning(await thoughts.get_types_tool(api, get_brain_id(brain_id)))
     except Exception:
         await runtime.rollback_debit("get_types", npub)
         raise
@@ -658,9 +674,9 @@ async def get_tags(brain_id: str | None = None, npub: str = "") -> dict[str, Any
     err = await runtime.debit_or_error("get_tags", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await thoughts.get_tags_tool(get_api(), get_brain_id(brain_id)))
+        return await _with_warning(await thoughts.get_tags_tool(api, get_brain_id(brain_id)))
     except Exception:
         await runtime.rollback_debit("get_tags", npub)
         raise
@@ -693,10 +709,10 @@ async def create_link(
     err = await runtime.debit_or_error("create_link", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await links.create_link_tool(
-            get_api(), get_brain_id(brain_id), thought_id_a, thought_id_b,
+            api, get_brain_id(brain_id), thought_id_a, thought_id_b,
             relation, name, color, thickness, direction, type_id,
         ))
     except Exception:
@@ -725,10 +741,10 @@ async def update_link(
     err = await runtime.debit_or_error("update_link", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await links.update_link_tool(
-            get_api(), get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
+            api, get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
         ))
     except Exception:
         await runtime.rollback_debit("update_link", npub)
@@ -747,9 +763,9 @@ async def get_link(link_id: str, brain_id: str | None = None, npub: str = "") ->
     err = await runtime.debit_or_error("get_link", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await links.get_link_tool(get_api(), get_brain_id(brain_id), link_id))
+        return await _with_warning(await links.get_link_tool(api, get_brain_id(brain_id), link_id))
     except Exception:
         await runtime.rollback_debit("get_link", npub)
         raise
@@ -767,9 +783,9 @@ async def delete_link(link_id: str, brain_id: str | None = None, npub: str = "")
     err = await runtime.debit_or_error("delete_link", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await links.delete_link_tool(get_api(), get_brain_id(brain_id), link_id))
+        return await _with_warning(await links.delete_link_tool(api, get_brain_id(brain_id), link_id))
     except Exception:
         await runtime.rollback_debit("delete_link", npub)
         raise
@@ -795,10 +811,10 @@ async def add_file_attachment(
     err = await runtime.debit_or_error("add_file_attachment", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.add_file_attachment_tool(
-            get_api(), get_brain_id(brain_id), thought_id, file_path, file_name,
+            api, get_brain_id(brain_id), thought_id, file_path, file_name,
             safe_directory=get_settings().attachment_safe_directory,
         ))
     except Exception:
@@ -822,10 +838,10 @@ async def add_url_attachment(
     err = await runtime.debit_or_error("add_url_attachment", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.add_url_attachment_tool(
-            get_api(), get_brain_id(brain_id), thought_id, url, name
+            api, get_brain_id(brain_id), thought_id, url, name
         ))
     except Exception:
         await runtime.rollback_debit("add_url_attachment", npub)
@@ -844,9 +860,9 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: 
     err = await runtime.debit_or_error("get_attachment", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await attachments.get_attachment_tool(get_api(), get_brain_id(brain_id), attachment_id))
+        return await _with_warning(await attachments.get_attachment_tool(api, get_brain_id(brain_id), attachment_id))
     except Exception:
         await runtime.rollback_debit("get_attachment", npub)
         raise
@@ -867,10 +883,10 @@ async def get_attachment_content(
     err = await runtime.debit_or_error("get_attachment_content", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.get_attachment_content_tool(
-            get_api(), get_brain_id(brain_id), attachment_id, save_to_path,
+            api, get_brain_id(brain_id), attachment_id, save_to_path,
             safe_directory=get_settings().attachment_safe_directory,
         ))
     except Exception:
@@ -890,10 +906,10 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None, npu
     err = await runtime.debit_or_error("delete_attachment", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.delete_attachment_tool(
-            get_api(), get_brain_id(brain_id), attachment_id
+            api, get_brain_id(brain_id), attachment_id
         ))
     except Exception:
         await runtime.rollback_debit("delete_attachment", npub)
@@ -912,10 +928,10 @@ async def list_attachments(thought_id: str, brain_id: str | None = None, npub: s
     err = await runtime.debit_or_error("list_attachments", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await attachments.list_attachments_tool(
-            get_api(), get_brain_id(brain_id), thought_id
+            api, get_brain_id(brain_id), thought_id
         ))
     except Exception:
         await runtime.rollback_debit("list_attachments", npub)
@@ -940,9 +956,9 @@ async def get_note(
     err = await runtime.debit_or_error("get_note", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
-        return await _with_warning(await notes.get_note_tool(get_api(), get_brain_id(brain_id), thought_id, format))
+        return await _with_warning(await notes.get_note_tool(api, get_brain_id(brain_id), thought_id, format))
     except Exception:
         await runtime.rollback_debit("get_note", npub)
         raise
@@ -963,10 +979,10 @@ async def create_or_update_note(
     err = await runtime.debit_or_error("create_or_update_note", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await notes.create_or_update_note_tool(
-            get_api(), get_brain_id(brain_id), thought_id, markdown
+            api, get_brain_id(brain_id), thought_id, markdown
         ))
     except Exception:
         await runtime.rollback_debit("create_or_update_note", npub)
@@ -988,10 +1004,10 @@ async def append_to_note(
     err = await runtime.debit_or_error("append_to_note", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await notes.append_to_note_tool(
-            get_api(), get_brain_id(brain_id), thought_id, markdown
+            api, get_brain_id(brain_id), thought_id, markdown
         ))
     except Exception:
         await runtime.rollback_debit("append_to_note", npub)
@@ -1018,10 +1034,10 @@ async def get_modifications(
     err = await runtime.debit_or_error("get_modifications", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await stats.get_modifications_tool(
-            get_api(), get_brain_id(brain_id), max_logs, start_time, end_time
+            api, get_brain_id(brain_id), max_logs, start_time, end_time
         ))
     except Exception:
         await runtime.rollback_debit("get_modifications", npub)
@@ -1061,7 +1077,6 @@ async def brain_query(
     if parsed.action == "match_delete":
         parsed.confirm_delete = confirm
 
-    api = get_api()
     bid = get_brain_id(brain_id)
 
     try:
@@ -1092,10 +1107,10 @@ async def morph_thought(
     err = await runtime.debit_or_error("morph_thought", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await morpher.morpher_tool(
-            get_api(), get_brain_id(brain_id), thought_id, new_parent_id, new_type_id
+            api, get_brain_id(brain_id), thought_id, new_parent_id, new_type_id
         ))
     except Exception:
         await runtime.rollback_debit("morph_thought", npub)
@@ -1122,10 +1137,10 @@ async def scan_orphans(
     err = await runtime.debit_or_error("scan_orphans", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await orphanage.scan_orphans_tool(
-            get_api(), get_brain_id(brain_id), dry_run, batch_size, orphanage_name
+            api, get_brain_id(brain_id), dry_run, batch_size, orphanage_name
         ))
     except Exception:
         await runtime.rollback_debit("scan_orphans", npub)
@@ -1153,10 +1168,10 @@ async def event_for_person(
     err = await runtime.debit_or_error("event_for_person", npub)
     if err:
         return err
-    await _ensure_session(npub)
+    api = await _ensure_session(npub)
     try:
         return await _with_warning(await whowhen.event_for_person_tool(
-            get_api(), get_brain_id(brain_id), date, person, event_name, notes
+            api, get_brain_id(brain_id), date, person, event_name, notes
         ))
     except Exception:
         await runtime.rollback_debit("event_for_person", npub)
