@@ -203,9 +203,9 @@ def get_api() -> TheBrainAPI:
         if session:
             return session.api_client
         raise ValueError(
-            "No active session. Follow the Secure Courier onboarding flow "
-            "(see session_status) or call receive_credentials(sender_npub=<npub>) "
-            "if you've already delivered credentials."
+            "Let's get you connected to your brain. Call "
+            "request_patron_credentials with your npub to deliver your "
+            "TheBrain API key and brain ID via Secure Courier."
         )
 
     return _get_operator_api()
@@ -244,8 +244,9 @@ def get_brain_id(brain_id: str | None = None) -> str:
         if session and session.active_brain_id:
             return session.active_brain_id
         raise ValueError(
-            "No brain configured for your session. Deliver your TheBrain "
-            "credentials (api_key + brain_id) via Secure Courier first."
+            "Which brain would you like to work with? "
+            "Call request_patron_credentials with your npub to set up "
+            "your TheBrain API key and brain ID via Secure Courier."
         )
 
     # STDIO mode: global is acceptable (single user)
