@@ -217,16 +217,46 @@ def get_api() -> TheBrainAPI:
         session = get_session(user_id)
         if session:
             return session.api_client
-        raise ValueError(
-            "Let's get you connected to your brain. Call "
-            "request_patron_credentials with your npub to deliver your "
-            "TheBrain API key and brain ID via Secure Courier."
-        )
+        raise ValueError(_SESSION_GUIDANCE["no_credentials"])
 
     return _get_operator_api()
 
 
 _revoked_npubs: set[str] = set()
+
+
+# Patron-facing guidance for each lifecycle state.
+_SESSION_GUIDANCE: dict[str, str] = {
+    "vault_bootstrapping": (
+        "The server is establishing its encrypted connection to the "
+        "credential vault. This happens once after a cold start and "
+        "typically completes within 10-15 seconds. "
+        "Action: repeat your request shortly — no re-authentication needed."
+    ),
+    "operator_not_configured": (
+        "The operator's TheBrain API credentials have not been delivered "
+        "yet. This is an operator setup step, not a patron action. "
+        "Action: contact the operator or try again later."
+    ),
+    "credentials_revoked": (
+        "Your TheBrain credentials were cleared by a previous "
+        "forget_credentials call. "
+        "Action: call request_patron_credentials to re-onboard your "
+        "TheBrain API key and brain ID via Secure Courier."
+    ),
+    "no_credentials": (
+        "No TheBrain credentials are stored for your identity. This is "
+        "expected on first use. "
+        "Action: call request_patron_credentials with your npub to set "
+        "up your TheBrain API key and brain ID via Secure Courier."
+    ),
+    "api_key_invalid": (
+        "Your TheBrain API key was found in the vault but could not be "
+        "used — the key may have been revoked or expired. "
+        "Action: call request_patron_credentials to deliver fresh "
+        "credentials via Secure Courier."
+    ),
+}
 
 
 async def _ensure_session(npub: str) -> TheBrainAPI:
@@ -236,34 +266,43 @@ async def _ensure_session(npub: str) -> TheBrainAPI:
     npub, raises ValueError directing the caller to the Secure Courier
     onboarding flow. Never falls back to the operator's API client.
     """
-    # Check if this npub was revoked (forget_credentials was called)
     user_id = runtime.get_current_user_id() or npub
+
+    # Check if this npub was revoked (forget_credentials was called)
     if npub in _revoked_npubs:
         from thebrain_mcp.vault import clear_session
         clear_session(user_id)
         _revoked_npubs.discard(npub)
-    else:
-        # Check in-memory session first
-        session = get_session(user_id)
-        if session:
-            return session.api_client
+        raise ValueError(_SESSION_GUIDANCE["credentials_revoked"])
 
-    # Try vault restore
-    creds = await runtime.load_patron_session(npub)
-    if creds and "api_key" in creds:
-        from thebrain_mcp.vault import set_session as _set_session
-        session = _set_session(
-            user_id, creds["api_key"], creds.get("brain_id", ""),
-        )
-        logger.info("Restored session for %s from vault.", npub[:20])
+    # Check in-memory session first
+    session = get_session(user_id)
+    if session:
         return session.api_client
 
-    # No credentials — patron must onboard
-    raise ValueError(
-        "Which brain would you like to work with? "
-        "Call request_patron_credentials with your npub to set up "
-        "your TheBrain API key and brain ID via Secure Courier."
-    )
+    # Try vault restore
+    situation = "no_credentials"
+    try:
+        creds = await runtime.load_patron_session(npub)
+    except Exception:
+        raise ValueError(_SESSION_GUIDANCE["vault_bootstrapping"])
+
+    if creds and "api_key" in creds:
+        try:
+            from thebrain_mcp.vault import set_session as _set_session
+            session = _set_session(
+                user_id, creds["api_key"], creds.get("brain_id", ""),
+            )
+            logger.info("Restored session for %s from vault.", npub[:20])
+            return session.api_client
+        except Exception:
+            situation = "api_key_invalid"
+    elif creds is not None:
+        # Vault returned something but no api_key — operator issue
+        situation = "operator_not_configured"
+
+    guidance = _SESSION_GUIDANCE.get(situation, _SESSION_GUIDANCE["no_credentials"])
+    raise ValueError(guidance)
 
 
 def get_brain_id(brain_id: str | None = None) -> str:
@@ -283,11 +322,7 @@ def get_brain_id(brain_id: str | None = None) -> str:
         session = get_session(user_id)
         if session and session.active_brain_id:
             return session.active_brain_id
-        raise ValueError(
-            "Which brain would you like to work with? "
-            "Call request_patron_credentials with your npub to set up "
-            "your TheBrain API key and brain ID via Secure Courier."
-        )
+        raise ValueError(_SESSION_GUIDANCE["no_credentials"])
 
     # STDIO mode: global is acceptable (single user)
     if active_brain_id:
