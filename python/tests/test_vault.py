@@ -18,7 +18,7 @@ from thebrain_mcp.vault import (
 
 class TestSessionStore:
     def setup_method(self) -> None:
-        _sessions.clear()
+        _sessions.clear_all()
 
     def test_set_and_get(self) -> None:
         session = set_session("user1", "key", "brain")
@@ -31,8 +31,10 @@ class TestSessionStore:
         assert get_session("nonexistent") is None
 
     def test_expired_session_returns_none(self) -> None:
-        session = set_session("user1", "key", "brain")
-        session.created_at = time.time() - SESSION_TTL_SECONDS - 1
+        set_session("user1", "key", "brain")
+        # Backdate the cache entry to force expiry
+        session, _ = _sessions._entries["user1"]
+        _sessions._entries["user1"] = (session, time.time() - SESSION_TTL_SECONDS - 1)
         assert get_session("user1") is None
         assert "user1" not in _sessions
 

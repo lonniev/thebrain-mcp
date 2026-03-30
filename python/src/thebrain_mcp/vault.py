@@ -7,8 +7,10 @@ delegated to NeonCredentialVault (via Secure Courier), not stored here.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, field
+import time
+
+from tollbooth.session_cache import SessionCache
 
 from thebrain_mcp.api.client import TheBrainAPI  # noqa: F401 — re-exported
 
@@ -73,16 +75,12 @@ class UserSession:
         return int(time.time() - self.created_at)
 
 
-_sessions: dict[str, UserSession] = {}
+_sessions: SessionCache[UserSession] = SessionCache(ttl_seconds=SESSION_TTL_SECONDS)
 
 
 def get_session(user_id: str) -> UserSession | None:
     """Get active session, returning None if expired or absent."""
-    session = _sessions.get(user_id)
-    if session and session.is_expired:
-        del _sessions[user_id]
-        return None
-    return session
+    return _sessions.get(user_id)
 
 
 def set_session(user_id: str, api_key: str, brain_id: str) -> UserSession:
@@ -94,10 +92,9 @@ def set_session(user_id: str, api_key: str, brain_id: str) -> UserSession:
         api_client=client,
         active_brain_id=brain_id,
     )
-    _sessions[user_id] = session
-    return session
+    return _sessions.set(user_id, session)
 
 
 def clear_session(user_id: str) -> None:
     """Remove a session."""
-    _sessions.pop(user_id, None)
+    _sessions.clear(user_id)

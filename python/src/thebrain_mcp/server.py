@@ -7,7 +7,9 @@ tollbooth-dpyc wheel. Only domain-specific TheBrain tools are defined here.
 
 import logging
 import sys
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
@@ -296,20 +298,6 @@ def get_brain_id(brain_id: str | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Low-balance warning helper (uses runtime)
-# ---------------------------------------------------------------------------
-
-
-async def _with_warning(result: dict[str, Any], npub: str = "") -> dict[str, Any]:
-    """Attach a low-balance warning to a paid tool result if balance is low."""
-    settings = get_settings()
-    return await runtime.inject_low_balance_warning(
-        result, npub, settings.seed_balance_sats,
-    )
-    return result
-
-
-# ---------------------------------------------------------------------------
 # Domain-specific MCP tools
 # ---------------------------------------------------------------------------
 
@@ -338,15 +326,13 @@ _INTERNAL_BRAIN_PATTERNS = {"credential vault", "mcp vault", "operator vault"}
 
 
 @tool
-async def list_brains(npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("list_brains", catch_errors=False)
+async def list_brains(npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """List available brains.
 
     Args:
         npub: Required. Your Nostr public key (npub1...).
     """
-    err = await runtime.debit_or_error("list_brains", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
     result = await brains.list_brains_tool(api)
     # Filter out internal/operator brains
@@ -370,42 +356,30 @@ async def list_brains(npub: str = "") -> dict[str, Any]:
 
 
 @tool
-async def get_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("get_brain", catch_errors=False)
+async def get_brain(brain_id: str, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get details about a specific brain. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_brain", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await brains.get_brain_tool(api, brain_id))
-    except Exception:
-        await runtime.rollback_debit("get_brain", npub)
-        raise
+    return await brains.get_brain_tool(api, brain_id)
 
 
 @tool
-async def set_active_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("set_active_brain", catch_errors=False)
+async def set_active_brain(brain_id: str, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Set the active brain for subsequent operations. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain to set as active
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("set_active_brain", npub)
-    if err:
-        return err
     global active_brain_id
     api = await _ensure_session(npub)
-    try:
-        result = await brains.set_active_brain_tool(api, brain_id)
-    except Exception:
-        await runtime.rollback_debit("set_active_brain", npub)
-        raise
+    result = await brains.set_active_brain_tool(api, brain_id)
     if result.get("success"):
         user_id = runtime.get_current_user_id()
         if user_id:
@@ -416,32 +390,27 @@ async def set_active_brain(brain_id: str, npub: str = "") -> dict[str, Any]:
         else:
             # STDIO: global is acceptable
             active_brain_id = brain_id
-    return await _with_warning(result, npub=npub)
+    return result
 
 
 @tool
-async def get_brain_stats(brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("get_brain_stats", catch_errors=False)
+async def get_brain_stats(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get statistics about a brain. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_brain_stats", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await brains.get_brain_stats_tool(api, get_brain_id(brain_id)))
-    except Exception:
-        await runtime.rollback_debit("get_brain_stats", npub)
-        raise
+    return await brains.get_brain_stats_tool(api, get_brain_id(brain_id))
 
 
 # Thought Operations
 
 
 @tool
+@runtime.paid_tool("create_thought", catch_errors=False)
 async def create_thought(
     name: str,
     brain_id: str | None = None,
@@ -453,7 +422,7 @@ async def create_thought(
     source_thought_id: str | None = None,
     relation: int | None = None,
     ac_type: int = 0,
-    npub: str = "",
+    npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Create a new thought with optional type, color, label, and parent link. Requires npub for credit billing.
 
@@ -470,23 +439,17 @@ async def create_thought(
         ac_type: Access type (0=Public, 1=Private)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("create_thought", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.create_thought_tool(
-            api, get_brain_id(brain_id), name, kind, label,
-            foreground_color, background_color, type_id,
-            source_thought_id, relation, ac_type,
-        ))
-    except Exception:
-        await runtime.rollback_debit("create_thought", npub)
-        raise
+    return await thoughts.create_thought_tool(
+        api, get_brain_id(brain_id), name, kind, label,
+        foreground_color, background_color, type_id,
+        source_thought_id, relation, ac_type,
+    )
 
 
 @tool
-async def get_thought(thought_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("get_thought", catch_errors=False)
+async def get_thought(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get details about a specific thought. Requires npub for credit billing.
 
     Args:
@@ -494,20 +457,14 @@ async def get_thought(thought_id: str, brain_id: str | None = None, npub: str = 
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_thought", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.get_thought_tool(api, get_brain_id(brain_id), thought_id))
-    except Exception:
-        await runtime.rollback_debit("get_thought", npub)
-        raise
+    return await thoughts.get_thought_tool(api, get_brain_id(brain_id), thought_id)
 
 
 @tool
+@runtime.paid_tool("get_thought_by_name", catch_errors=False)
 async def get_thought_by_name(
-    name_exact: str, brain_id: str | None = None, npub: str = "",
+    name_exact: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Exact name lookup — returns the first thought matching the name exactly. Requires npub for credit billing.
 
@@ -516,25 +473,19 @@ async def get_thought_by_name(
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_thought_by_name", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.get_thought_by_name_tool(
-            api, get_brain_id(brain_id), name_exact
-        ))
-    except Exception:
-        await runtime.rollback_debit("get_thought_by_name", npub)
-        raise
+    return await thoughts.get_thought_by_name_tool(
+        api, get_brain_id(brain_id), name_exact
+    )
 
 
 @tool
+@runtime.paid_tool("update_thought", catch_errors=False)
 async def update_thought(
     thought_id: str, brain_id: str | None = None, name: str | None = None,
     label: str | None = None, foreground_color: str | None = None,
     background_color: str | None = None, kind: int | None = None,
-    ac_type: int | None = None, type_id: str | None = None, npub: str = "",
+    ac_type: int | None = None, type_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Update a thought's properties. Requires npub for credit billing.
 
@@ -550,22 +501,16 @@ async def update_thought(
         type_id: New type ID
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("update_thought", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.update_thought_tool(
-            api, get_brain_id(brain_id), thought_id, name, label,
-            foreground_color, background_color, kind, ac_type, type_id,
-        ))
-    except Exception:
-        await runtime.rollback_debit("update_thought", npub)
-        raise
+    return await thoughts.update_thought_tool(
+        api, get_brain_id(brain_id), thought_id, name, label,
+        foreground_color, background_color, kind, ac_type, type_id,
+    )
 
 
 @tool
-async def delete_thought(thought_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("delete_thought", catch_errors=False)
+async def delete_thought(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Permanently delete a thought by ID. Cannot be undone. Requires npub for credit billing.
 
     Args:
@@ -573,21 +518,15 @@ async def delete_thought(thought_id: str, brain_id: str | None = None, npub: str
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("delete_thought", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.delete_thought_tool(api, get_brain_id(brain_id), thought_id))
-    except Exception:
-        await runtime.rollback_debit("delete_thought", npub)
-        raise
+    return await thoughts.delete_thought_tool(api, get_brain_id(brain_id), thought_id)
 
 
 @tool
+@runtime.paid_tool("search_thoughts", catch_errors=False)
 async def search_thoughts(
     query_text: str, brain_id: str | None = None, max_results: int = 30,
-    only_search_thought_names: bool = False, npub: str = "",
+    only_search_thought_names: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Full-text search across thought names and content. Requires npub for credit billing.
 
@@ -598,22 +537,16 @@ async def search_thoughts(
         only_search_thought_names: Only search in thought names (not content)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("search_thoughts", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.search_thoughts_tool(
-            api, get_brain_id(brain_id), query_text, max_results, only_search_thought_names
-        ))
-    except Exception:
-        await runtime.rollback_debit("search_thoughts", npub)
-        raise
+    return await thoughts.search_thoughts_tool(
+        api, get_brain_id(brain_id), query_text, max_results, only_search_thought_names
+    )
 
 
 @tool
+@runtime.paid_tool("get_thought_graph", catch_errors=False)
 async def get_thought_graph(
-    thought_id: str, brain_id: str | None = None, include_siblings: bool = False, npub: str = "",
+    thought_id: str, brain_id: str | None = None, include_siblings: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Get a thought's full connection graph. Requires npub for credit billing.
 
@@ -623,24 +556,18 @@ async def get_thought_graph(
         include_siblings: Include sibling thoughts in the graph
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_thought_graph", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.get_thought_graph_tool(
-            api, get_brain_id(brain_id), thought_id, include_siblings
-        ))
-    except Exception:
-        await runtime.rollback_debit("get_thought_graph", npub)
-        raise
+    return await thoughts.get_thought_graph_tool(
+        api, get_brain_id(brain_id), thought_id, include_siblings
+    )
 
 
 @tool
+@runtime.paid_tool("get_thought_graph_paginated", catch_errors=False)
 async def get_thought_graph_paginated(
     thought_id: str, page_size: int = 10, cursor: str | None = None,
     direction: str = "older", relation_filter: str | None = None,
-    brain_id: str | None = None, npub: str = "",
+    brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Cursor-based paginated traversal of a thought's connections. Requires npub for credit billing.
 
@@ -653,67 +580,49 @@ async def get_thought_graph_paginated(
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_thought_graph_paginated", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.get_thought_graph_paginated_tool(
-            api, get_brain_id(brain_id), thought_id,
-            page_size, cursor, direction, relation_filter,
-        ))
-    except Exception:
-        await runtime.rollback_debit("get_thought_graph_paginated", npub)
-        raise
+    return await thoughts.get_thought_graph_paginated_tool(
+        api, get_brain_id(brain_id), thought_id,
+        page_size, cursor, direction, relation_filter,
+    )
 
 
 @tool
-async def get_types(brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("get_types", catch_errors=False)
+async def get_types(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """List all thought types defined in the brain. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_types", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.get_types_tool(api, get_brain_id(brain_id)))
-    except Exception:
-        await runtime.rollback_debit("get_types", npub)
-        raise
+    return await thoughts.get_types_tool(api, get_brain_id(brain_id))
 
 
 @tool
-async def get_tags(brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("get_tags", catch_errors=False)
+async def get_tags(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get all tags in a brain. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_tags", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await thoughts.get_tags_tool(api, get_brain_id(brain_id)))
-    except Exception:
-        await runtime.rollback_debit("get_tags", npub)
-        raise
+    return await thoughts.get_tags_tool(api, get_brain_id(brain_id))
 
 
 # Link Operations
 
 
 @tool
+@runtime.paid_tool("create_link", catch_errors=False)
 async def create_link(
     thought_id_a: str, thought_id_b: str, relation: int,
     brain_id: str | None = None, name: str | None = None,
     color: str | None = None, thickness: int | None = None,
-    direction: int | None = None, type_id: str | None = None, npub: str = "",
+    direction: int | None = None, type_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Create a relationship between two thoughts by ID. Requires npub for credit billing.
 
@@ -729,25 +638,19 @@ async def create_link(
         type_id: ID of link type
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("create_link", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await links.create_link_tool(
-            api, get_brain_id(brain_id), thought_id_a, thought_id_b,
-            relation, name, color, thickness, direction, type_id,
-        ))
-    except Exception:
-        await runtime.rollback_debit("create_link", npub)
-        raise
+    return await links.create_link_tool(
+        api, get_brain_id(brain_id), thought_id_a, thought_id_b,
+        relation, name, color, thickness, direction, type_id,
+    )
 
 
 @tool
+@runtime.paid_tool("update_link", catch_errors=False)
 async def update_link(
     link_id: str, brain_id: str | None = None, name: str | None = None,
     color: str | None = None, thickness: int | None = None,
-    direction: int | None = None, relation: int | None = None, npub: str = "",
+    direction: int | None = None, relation: int | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Update link properties. Requires npub for credit billing.
 
@@ -761,21 +664,15 @@ async def update_link(
         relation: New relation type
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("update_link", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await links.update_link_tool(
-            api, get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
-        ))
-    except Exception:
-        await runtime.rollback_debit("update_link", npub)
-        raise
+    return await links.update_link_tool(
+        api, get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
+    )
 
 
 @tool
-async def get_link(link_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("get_link", catch_errors=False)
+async def get_link(link_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get details about a specific link. Requires npub for credit billing.
 
     Args:
@@ -783,19 +680,13 @@ async def get_link(link_id: str, brain_id: str | None = None, npub: str = "") ->
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_link", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await links.get_link_tool(api, get_brain_id(brain_id), link_id))
-    except Exception:
-        await runtime.rollback_debit("get_link", npub)
-        raise
+    return await links.get_link_tool(api, get_brain_id(brain_id), link_id)
 
 
 @tool
-async def delete_link(link_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("delete_link", catch_errors=False)
+async def delete_link(link_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Permanently delete a link by ID. Cannot be undone. Requires npub for credit billing.
 
     Args:
@@ -803,24 +694,18 @@ async def delete_link(link_id: str, brain_id: str | None = None, npub: str = "")
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("delete_link", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await links.delete_link_tool(api, get_brain_id(brain_id), link_id))
-    except Exception:
-        await runtime.rollback_debit("delete_link", npub)
-        raise
+    return await links.delete_link_tool(api, get_brain_id(brain_id), link_id)
 
 
 # Attachment Operations
 
 
 @tool
+@runtime.paid_tool("add_file_attachment", catch_errors=False)
 async def add_file_attachment(
     thought_id: str, file_path: str, brain_id: str | None = None,
-    file_name: str | None = None, npub: str = "",
+    file_name: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Add a file attachment to a thought. Requires npub for credit billing.
 
@@ -831,23 +716,17 @@ async def add_file_attachment(
         file_name: Name for the attachment (optional)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("add_file_attachment", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await attachments.add_file_attachment_tool(
-            api, get_brain_id(brain_id), thought_id, file_path, file_name,
-            safe_directory=get_settings().attachment_safe_directory,
-        ))
-    except Exception:
-        await runtime.rollback_debit("add_file_attachment", npub)
-        raise
+    return await attachments.add_file_attachment_tool(
+        api, get_brain_id(brain_id), thought_id, file_path, file_name,
+        safe_directory=get_settings().attachment_safe_directory,
+    )
 
 
 @tool
+@runtime.paid_tool("add_url_attachment", catch_errors=False)
 async def add_url_attachment(
-    thought_id: str, url: str, brain_id: str | None = None, name: str | None = None, npub: str = "",
+    thought_id: str, url: str, brain_id: str | None = None, name: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Add a URL attachment to a thought. Requires npub for credit billing.
 
@@ -858,21 +737,15 @@ async def add_url_attachment(
         name: Name for the URL attachment (auto-fetched if not provided)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("add_url_attachment", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await attachments.add_url_attachment_tool(
-            api, get_brain_id(brain_id), thought_id, url, name
-        ))
-    except Exception:
-        await runtime.rollback_debit("add_url_attachment", npub)
-        raise
+    return await attachments.add_url_attachment_tool(
+        api, get_brain_id(brain_id), thought_id, url, name
+    )
 
 
 @tool
-async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("get_attachment", catch_errors=False)
+async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get metadata about an attachment. Requires npub for credit billing.
 
     Args:
@@ -880,20 +753,14 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: 
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_attachment", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await attachments.get_attachment_tool(api, get_brain_id(brain_id), attachment_id))
-    except Exception:
-        await runtime.rollback_debit("get_attachment", npub)
-        raise
+    return await attachments.get_attachment_tool(api, get_brain_id(brain_id), attachment_id)
 
 
 @tool
+@runtime.paid_tool("get_attachment_content", catch_errors=False)
 async def get_attachment_content(
-    attachment_id: str, brain_id: str | None = None, save_to_path: str | None = None, npub: str = "",
+    attachment_id: str, brain_id: str | None = None, save_to_path: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Get the binary content of an attachment. Requires npub for credit billing.
 
@@ -903,22 +770,16 @@ async def get_attachment_content(
         save_to_path: Optional path to save the file locally
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_attachment_content", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await attachments.get_attachment_content_tool(
-            api, get_brain_id(brain_id), attachment_id, save_to_path,
-            safe_directory=get_settings().attachment_safe_directory,
-        ))
-    except Exception:
-        await runtime.rollback_debit("get_attachment_content", npub)
-        raise
+    return await attachments.get_attachment_content_tool(
+        api, get_brain_id(brain_id), attachment_id, save_to_path,
+        safe_directory=get_settings().attachment_safe_directory,
+    )
 
 
 @tool
-async def delete_attachment(attachment_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("delete_attachment", catch_errors=False)
+async def delete_attachment(attachment_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Delete an attachment. Requires npub for credit billing.
 
     Args:
@@ -926,21 +787,15 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None, npu
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("delete_attachment", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await attachments.delete_attachment_tool(
-            api, get_brain_id(brain_id), attachment_id
-        ))
-    except Exception:
-        await runtime.rollback_debit("delete_attachment", npub)
-        raise
+    return await attachments.delete_attachment_tool(
+        api, get_brain_id(brain_id), attachment_id
+    )
 
 
 @tool
-async def list_attachments(thought_id: str, brain_id: str | None = None, npub: str = "") -> dict[str, Any]:
+@runtime.paid_tool("list_attachments", catch_errors=False)
+async def list_attachments(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """List all attachments for a thought. Requires npub for credit billing.
 
     Args:
@@ -948,25 +803,19 @@ async def list_attachments(thought_id: str, brain_id: str | None = None, npub: s
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("list_attachments", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await attachments.list_attachments_tool(
-            api, get_brain_id(brain_id), thought_id
-        ))
-    except Exception:
-        await runtime.rollback_debit("list_attachments", npub)
-        raise
+    return await attachments.list_attachments_tool(
+        api, get_brain_id(brain_id), thought_id
+    )
 
 
 # Note Operations
 
 
 @tool
+@runtime.paid_tool("get_note", catch_errors=False)
 async def get_note(
-    thought_id: str, brain_id: str | None = None, format: str = "markdown", npub: str = "",
+    thought_id: str, brain_id: str | None = None, format: str = "markdown", npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Get the note content for a thought. Requires npub for credit billing.
 
@@ -976,20 +825,14 @@ async def get_note(
         format: Output format (markdown, html, or text)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_note", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await notes.get_note_tool(api, get_brain_id(brain_id), thought_id, format))
-    except Exception:
-        await runtime.rollback_debit("get_note", npub)
-        raise
+    return await notes.get_note_tool(api, get_brain_id(brain_id), thought_id, format)
 
 
 @tool
+@runtime.paid_tool("create_or_update_note", catch_errors=False)
 async def create_or_update_note(
-    thought_id: str, markdown: str, brain_id: str | None = None, npub: str = "",
+    thought_id: str, markdown: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Create or update a note with markdown content. Requires npub for credit billing.
 
@@ -999,22 +842,16 @@ async def create_or_update_note(
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("create_or_update_note", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await notes.create_or_update_note_tool(
-            api, get_brain_id(brain_id), thought_id, markdown
-        ))
-    except Exception:
-        await runtime.rollback_debit("create_or_update_note", npub)
-        raise
+    return await notes.create_or_update_note_tool(
+        api, get_brain_id(brain_id), thought_id, markdown
+    )
 
 
 @tool
+@runtime.paid_tool("append_to_note", catch_errors=False)
 async def append_to_note(
-    thought_id: str, markdown: str, brain_id: str | None = None, npub: str = "",
+    thought_id: str, markdown: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Append content to an existing note. Requires npub for credit billing.
 
@@ -1024,26 +861,20 @@ async def append_to_note(
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("append_to_note", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await notes.append_to_note_tool(
-            api, get_brain_id(brain_id), thought_id, markdown
-        ))
-    except Exception:
-        await runtime.rollback_debit("append_to_note", npub)
-        raise
+    return await notes.append_to_note_tool(
+        api, get_brain_id(brain_id), thought_id, markdown
+    )
 
 
 # Advanced Operations
 
 
 @tool
+@runtime.paid_tool("get_modifications", catch_errors=False)
 async def get_modifications(
     brain_id: str | None = None, max_logs: int = 100,
-    start_time: str | None = None, end_time: str | None = None, npub: str = "",
+    start_time: str | None = None, end_time: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Get modification history for a brain. Requires npub for credit billing.
 
@@ -1054,25 +885,19 @@ async def get_modifications(
         end_time: End time for logs (ISO format)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("get_modifications", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await stats.get_modifications_tool(
-            api, get_brain_id(brain_id), max_logs, start_time, end_time
-        ))
-    except Exception:
-        await runtime.rollback_debit("get_modifications", npub)
-        raise
+    return await stats.get_modifications_tool(
+        api, get_brain_id(brain_id), max_logs, start_time, end_time
+    )
 
 
 # BrainQuery Tool
 
 
 @tool
+@runtime.paid_tool("brain_query", catch_errors=False)
 async def brain_query(
-    query: str, brain_id: str | None = None, confirm: bool = False, npub: str = "",
+    query: str, brain_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Primary tool for pattern-based operations on TheBrain. Requires npub for credit billing.
 
@@ -1085,17 +910,9 @@ async def brain_query(
         confirm: Set to true to confirm and execute a DELETE operation.
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("brain_query", npub)
-    if err:
-        return err
-
     from thebrain_mcp.brainquery import BrainQuerySyntaxError, execute, parse
 
-    try:
-        parsed = parse(query)
-    except BrainQuerySyntaxError as e:
-        await runtime.rollback_debit("brain_query", npub)
-        return {"success": False, "error": str(e)}
+    parsed = parse(query)  # raises BrainQuerySyntaxError on bad syntax
 
     if parsed.action == "match_delete":
         parsed.confirm_delete = confirm
@@ -1103,21 +920,18 @@ async def brain_query(
     api = await _ensure_session(npub)
     bid = get_brain_id(brain_id)
 
-    try:
-        result = await execute(api, bid, parsed)
-        return await _with_warning(result.to_dict())
-    except Exception:
-        await runtime.rollback_debit("brain_query", npub)
-        raise
+    result = await execute(api, bid, parsed)
+    return result.to_dict()
 
 
 # Morpher Tool
 
 
 @tool
+@runtime.paid_tool("morph_thought", catch_errors=False)
 async def morph_thought(
     thought_id: str, brain_id: str | None = None,
-    new_parent_id: str | None = None, new_type_id: str | None = None, npub: str = "",
+    new_parent_id: str | None = None, new_type_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Atomically reparent and/or retype a thought in one operation. Requires npub for credit billing.
 
@@ -1128,26 +942,20 @@ async def morph_thought(
         new_type_id: ID of the new type to assign
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("morph_thought", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await morpher.morpher_tool(
-            api, get_brain_id(brain_id), thought_id, new_parent_id, new_type_id
-        ))
-    except Exception:
-        await runtime.rollback_debit("morph_thought", npub)
-        raise
+    return await morpher.morpher_tool(
+        api, get_brain_id(brain_id), thought_id, new_parent_id, new_type_id
+    )
 
 
 # Orphanage Tool
 
 
 @tool
+@runtime.paid_tool("scan_orphans", catch_errors=False)
 async def scan_orphans(
     brain_id: str | None = None, dry_run: bool = True, batch_size: int = 50,
-    orphanage_name: str = "Orphanage", npub: str = "",
+    orphanage_name: str = "Orphanage", npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Scan for orphaned thoughts with zero connections and optionally rescue them. Requires npub for credit billing.
 
@@ -1158,26 +966,20 @@ async def scan_orphans(
         orphanage_name: Name of the orphanage thought to rescue orphans under
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("scan_orphans", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await orphanage.scan_orphans_tool(
-            api, get_brain_id(brain_id), dry_run, batch_size, orphanage_name
-        ))
-    except Exception:
-        await runtime.rollback_debit("scan_orphans", npub)
-        raise
+    return await orphanage.scan_orphans_tool(
+        api, get_brain_id(brain_id), dry_run, batch_size, orphanage_name
+    )
 
 
 # WhoWhen Tool
 
 
 @tool
+@runtime.paid_tool("event_for_person", catch_errors=False)
 async def event_for_person(
     date: str, person: str, event_name: str | None = None, notes: str | None = None,
-    brain_id: str | None = None, npub: str = "",
+    brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
     """Create an Event+Person+Day in one action. Requires npub for credit billing.
 
@@ -1189,17 +991,10 @@ async def event_for_person(
         brain_id: The ID of the brain (uses active brain if not specified)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    err = await runtime.debit_or_error("event_for_person", npub)
-    if err:
-        return err
     api = await _ensure_session(npub)
-    try:
-        return await _with_warning(await whowhen.event_for_person_tool(
-            api, get_brain_id(brain_id), date, person, event_name, notes
-        ))
-    except Exception:
-        await runtime.rollback_debit("event_for_person", npub)
-        raise
+    return await whowhen.event_for_person_tool(
+        api, get_brain_id(brain_id), date, person, event_name, notes
+    )
 
 
 # ---------------------------------------------------------------------------
