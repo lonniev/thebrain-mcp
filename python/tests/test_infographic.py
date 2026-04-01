@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from thebrain_mcp.infographic import render_account_infographic
+from tollbooth.infographic import render_account_infographic
 
 # ---------------------------------------------------------------------------
 # Helpers
