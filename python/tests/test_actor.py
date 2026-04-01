@@ -22,9 +22,9 @@ def test_slug():
 
 
 def test_tool_catalog_completeness():
-    """Catalog has exactly 22 entries matching Protocol method names."""
+    """Catalog has exactly 23 entries matching Protocol method names."""
     catalog = BrainOperator.tool_catalog()
-    assert len(catalog) == 22
+    assert len(catalog) == 23
 
     for entry in catalog:
         assert isinstance(entry, ToolPathInfo)
