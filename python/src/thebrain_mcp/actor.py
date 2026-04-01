@@ -150,7 +150,7 @@ class BrainOperator:
     # DELEGATION_STUB
 
     async def certify_credits(
-        self, operator_id: str, amount_sats: int
+        self, npub: str, amount_sats: int
     ) -> dict[str, Any]:
         """(delegation, delegates to Authority) Not yet implemented."""
         return {  # DELEGATION_STUB

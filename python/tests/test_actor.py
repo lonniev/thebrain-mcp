@@ -77,6 +77,6 @@ async def test_service_status_returns_version():
 async def test_delegation_stub_returns_error():
     """Delegation stubs return success=False with guidance message."""
     op = BrainOperator()
-    result = await op.certify_credits(operator_id="npub1test", amount_sats=100)
+    result = await op.certify_credits(npub="npub1test", amount_sats=100)
     assert result["success"] is False
     assert "Authority" in result["error"]
