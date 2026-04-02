@@ -36,6 +36,7 @@ def _mock_cache(ledger: UserLedger | None = None):
     cache = AsyncMock(spec=LedgerCache)
     cache.get = AsyncMock(return_value=ledger or UserLedger())
     cache.mark_dirty = MagicMock()
+    cache.flush_user = AsyncMock(return_value=True)
     return cache
 
 
