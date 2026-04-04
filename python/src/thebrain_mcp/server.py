@@ -30,7 +30,8 @@ from thebrain_mcp.tools import (
     thoughts,
     whowhen,
 )
-from thebrain_mcp.utils.constants import TOOL_COSTS
+from thebrain_mcp.utils.constants import TOOL_REGISTRY
+from tollbooth.tool_identity import STANDARD_IDENTITIES
 from thebrain_mcp.vault import (
     get_session,
 )
@@ -107,7 +108,7 @@ def _ensure_settings_loaded() -> None:
 
 runtime = OperatorRuntime(
     service_name="Personal Brain",
-    tool_costs=TOOL_COSTS,
+    tool_registry={**STANDARD_IDENTITIES, **TOOL_REGISTRY},
     operator_credential_template=CredentialTemplate(
         service="thebrain-operator",
         version=1,
