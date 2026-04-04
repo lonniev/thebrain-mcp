@@ -9,13 +9,13 @@ import logging
 import sys
 from typing import Annotated, Any
 
-from pydantic import Field
-
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
+from pydantic import Field
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
 from tollbooth.slug_tools import make_slug_tool
+from tollbooth.tool_identity import STANDARD_IDENTITIES
 
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
@@ -31,7 +31,6 @@ from thebrain_mcp.tools import (
     whowhen,
 )
 from thebrain_mcp.utils.constants import TOOL_REGISTRY
-from tollbooth.tool_identity import STANDARD_IDENTITIES
 from thebrain_mcp.vault import (
     get_session,
 )
@@ -946,7 +945,7 @@ async def brain_query(
         confirm: Set to true to confirm and execute a DELETE operation.
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    from thebrain_mcp.brainquery import BrainQuerySyntaxError, execute, parse
+    from thebrain_mcp.brainquery import execute, parse
 
     parsed = parse(query)  # raises BrainQuerySyntaxError on bad syntax
 

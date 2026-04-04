@@ -7,8 +7,8 @@ delegated to NeonCredentialVault (via Secure Courier), not stored here.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 import time
+from dataclasses import dataclass, field
 
 from tollbooth.session_cache import SessionCache
 

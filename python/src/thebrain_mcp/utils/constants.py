@@ -146,7 +146,7 @@ class NoteFormat(str):
 
 
 # Re-exported from tollbooth
-from tollbooth.tool_identity import ToolIdentity, STANDARD_IDENTITIES  # noqa: E402, F401
+from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity  # noqa: E402, F401
 
 TOOL_REGISTRY: dict[str, ToolIdentity] = {
     # -- Domain-specific TheBrain tools --
