@@ -146,7 +146,11 @@ class NoteFormat(str):
 
 
 # Re-exported from tollbooth
-from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity, capability_uuid  # noqa: E402, F401
+from tollbooth.tool_identity import (  # noqa: E402, F401
+    STANDARD_IDENTITIES,
+    ToolIdentity,
+    capability_uuid,
+)
 
 _DOMAIN_TOOLS = [
     # -- Domain-specific TheBrain tools --
