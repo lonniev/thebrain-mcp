@@ -146,177 +146,179 @@ class NoteFormat(str):
 
 
 # Re-exported from tollbooth
-from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity  # noqa: E402, F401
+from tollbooth.tool_identity import STANDARD_IDENTITIES, ToolIdentity, capability_uuid  # noqa: E402, F401
 
-TOOL_REGISTRY: dict[str, ToolIdentity] = {
+_DOMAIN_TOOLS = [
     # -- Domain-specific TheBrain tools --
 
     # Read — knowledge-base browsing
-    "list_brains": ToolIdentity(
+    ToolIdentity(
         capability="list_knowledge_bases",
         category="read",
         intent="List available TheBrain knowledge bases.",
     ),
-    "get_brain": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_base",
         category="read",
         intent="Get metadata for a TheBrain knowledge base.",
     ),
-    "get_brain_stats": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_base_stats",
         category="read",
         intent="Get statistics for a TheBrain knowledge base.",
     ),
-    "set_active_brain": ToolIdentity(
+    ToolIdentity(
         capability="set_active_knowledge_base",
         category="read",
         intent="Set the active TheBrain knowledge base for the session.",
     ),
-    "get_thought": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_node",
         category="read",
         intent="Get a thought (node) by ID.",
     ),
-    "get_thought_by_name": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_node_by_name",
         category="read",
         intent="Look up a thought by exact name.",
     ),
-    "search_thoughts": ToolIdentity(
+    ToolIdentity(
         capability="search_knowledge_nodes",
         category="read",
         intent="Full-text search across thoughts.",
     ),
-    "get_thought_graph": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_graph",
         category="read",
         intent="Traverse connections around a thought.",
     ),
-    "get_types": ToolIdentity(
+    ToolIdentity(
         capability="list_knowledge_node_types",
         category="read",
         intent="List thought types in the brain.",
     ),
-    "get_tags": ToolIdentity(
+    ToolIdentity(
         capability="list_knowledge_node_tags",
         category="read",
         intent="List tags in the brain.",
     ),
-    "get_note": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_node_note",
         category="read",
         intent="Get the note content of a thought.",
     ),
-    "get_link": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_link",
         category="read",
         intent="Get a link between thoughts by ID.",
     ),
-    "get_attachment": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_attachment",
         category="read",
         intent="Get attachment metadata for a thought.",
     ),
-    "get_attachment_content": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_attachment_content",
         category="read",
         intent="Download attachment content.",
     ),
-    "list_attachments": ToolIdentity(
+    ToolIdentity(
         capability="list_knowledge_attachments",
         category="read",
         intent="List attachments for a thought.",
     ),
 
     # Write — knowledge-base mutations
-    "create_thought": ToolIdentity(
+    ToolIdentity(
         capability="create_knowledge_node",
         category="write",
         intent="Create a new thought in the brain.",
     ),
-    "update_thought": ToolIdentity(
+    ToolIdentity(
         capability="update_knowledge_node",
         category="write",
         intent="Update an existing thought.",
     ),
-    "delete_thought": ToolIdentity(
+    ToolIdentity(
         capability="delete_knowledge_node",
         category="write",
         intent="Delete a thought from the brain.",
     ),
-    "create_link": ToolIdentity(
+    ToolIdentity(
         capability="create_knowledge_link",
         category="write",
         intent="Create a link between two thoughts.",
     ),
-    "update_link": ToolIdentity(
+    ToolIdentity(
         capability="update_knowledge_link",
         category="write",
         intent="Update an existing link.",
     ),
-    "delete_link": ToolIdentity(
+    ToolIdentity(
         capability="delete_knowledge_link",
         category="write",
         intent="Delete a link between thoughts.",
     ),
-    "create_or_update_note": ToolIdentity(
+    ToolIdentity(
         capability="upsert_knowledge_node_note",
         category="write",
         intent="Create or replace a thought's note.",
     ),
-    "append_to_note": ToolIdentity(
+    ToolIdentity(
         capability="append_knowledge_node_note",
         category="write",
         intent="Append content to a thought's note.",
     ),
-    "add_file_attachment": ToolIdentity(
+    ToolIdentity(
         capability="attach_file_to_knowledge_node",
         category="write",
         intent="Upload a file attachment to a thought.",
     ),
-    "add_url_attachment": ToolIdentity(
+    ToolIdentity(
         capability="attach_url_to_knowledge_node",
         category="write",
         intent="Attach a URL to a thought.",
     ),
-    "delete_attachment": ToolIdentity(
+    ToolIdentity(
         capability="delete_knowledge_attachment",
         category="write",
         intent="Delete an attachment from a thought.",
     ),
-    "morph_thought": ToolIdentity(
+    ToolIdentity(
         capability="morph_knowledge_node",
         category="write",
         intent="Change a thought's type or kind.",
     ),
 
     # Heavy — expensive or bulk operations
-    "brain_query": ToolIdentity(
+    ToolIdentity(
         capability="query_knowledge_base",
         category="heavy",
         intent="Execute a BrainQuery (BQL) pattern against the brain.",
     ),
-    "get_modifications": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_base_history",
         category="heavy",
         intent="Get modification history for the brain.",
     ),
-    "get_thought_graph_paginated": ToolIdentity(
+    ToolIdentity(
         capability="get_knowledge_graph_paginated",
         category="heavy",
         intent="Paginated traversal of thought connections.",
     ),
-    "scan_orphans": ToolIdentity(
+    ToolIdentity(
         capability="scan_orphan_knowledge_nodes",
         category="heavy",
         intent="Find disconnected (orphan) thoughts.",
     ),
-    "event_for_person": ToolIdentity(
+    ToolIdentity(
         capability="get_person_event",
         category="heavy",
         intent="Find or create a calendar event for a person.",
     ),
-}
+]
+
+TOOL_REGISTRY: dict[str, ToolIdentity] = {ti.tool_id: ti for ti in _DOMAIN_TOOLS}
 
 
 # MIME type mapping for file uploads

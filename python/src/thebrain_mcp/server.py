@@ -15,7 +15,7 @@ from pydantic import Field
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
 from tollbooth.slug_tools import make_slug_tool
-from tollbooth.tool_identity import STANDARD_IDENTITIES
+from tollbooth.tool_identity import STANDARD_IDENTITIES, capability_uuid
 
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
@@ -361,7 +361,7 @@ _INTERNAL_BRAIN_PATTERNS = {"credential vault", "mcp vault", "operator vault"}
 
 
 @tool
-@runtime.paid_tool("list_brains", catch_errors=False)
+@runtime.paid_tool(capability_uuid("list_knowledge_bases"), catch_errors=False)
 async def list_brains(npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """List available brains.
 
@@ -391,7 +391,7 @@ async def list_brains(npub: Annotated[str, Field(description="Required. Your Nos
 
 
 @tool
-@runtime.paid_tool("get_brain", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_base"), catch_errors=False)
 async def get_brain(brain_id: str, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get details about a specific brain. Requires npub for credit billing.
 
@@ -404,7 +404,7 @@ async def get_brain(brain_id: str, npub: Annotated[str, Field(description="Requi
 
 
 @tool
-@runtime.paid_tool("set_active_brain", catch_errors=False)
+@runtime.paid_tool(capability_uuid("set_active_knowledge_base"), catch_errors=False)
 async def set_active_brain(brain_id: str, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Set the active brain for subsequent operations. Requires npub for credit billing.
 
@@ -429,7 +429,7 @@ async def set_active_brain(brain_id: str, npub: Annotated[str, Field(description
 
 
 @tool
-@runtime.paid_tool("get_brain_stats", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_base_stats"), catch_errors=False)
 async def get_brain_stats(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get statistics about a brain. Requires npub for credit billing.
 
@@ -445,7 +445,7 @@ async def get_brain_stats(brain_id: str | None = None, npub: Annotated[str, Fiel
 
 
 @tool
-@runtime.paid_tool("create_thought", catch_errors=False)
+@runtime.paid_tool(capability_uuid("create_knowledge_node"), catch_errors=False)
 async def create_thought(
     name: str,
     brain_id: str | None = None,
@@ -483,7 +483,7 @@ async def create_thought(
 
 
 @tool
-@runtime.paid_tool("get_thought", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_node"), catch_errors=False)
 async def get_thought(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get details about a specific thought. Requires npub for credit billing.
 
@@ -497,7 +497,7 @@ async def get_thought(thought_id: str, brain_id: str | None = None, npub: Annota
 
 
 @tool
-@runtime.paid_tool("get_thought_by_name", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_node_by_name"), catch_errors=False)
 async def get_thought_by_name(
     name_exact: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
@@ -515,7 +515,7 @@ async def get_thought_by_name(
 
 
 @tool
-@runtime.paid_tool("update_thought", catch_errors=False)
+@runtime.paid_tool(capability_uuid("update_knowledge_node"), catch_errors=False)
 async def update_thought(
     thought_id: str, brain_id: str | None = None, name: str | None = None,
     label: str | None = None, foreground_color: str | None = None,
@@ -544,7 +544,7 @@ async def update_thought(
 
 
 @tool
-@runtime.paid_tool("delete_thought", catch_errors=False)
+@runtime.paid_tool(capability_uuid("delete_knowledge_node"), catch_errors=False)
 async def delete_thought(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Permanently delete a thought by ID. Cannot be undone. Requires npub for credit billing.
 
@@ -558,7 +558,7 @@ async def delete_thought(thought_id: str, brain_id: str | None = None, npub: Ann
 
 
 @tool
-@runtime.paid_tool("search_thoughts", catch_errors=False)
+@runtime.paid_tool(capability_uuid("search_knowledge_nodes"), catch_errors=False)
 async def search_thoughts(
     query_text: str, brain_id: str | None = None, max_results: int = 30,
     only_search_thought_names: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
@@ -579,7 +579,7 @@ async def search_thoughts(
 
 
 @tool
-@runtime.paid_tool("get_thought_graph", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_graph"), catch_errors=False)
 async def get_thought_graph(
     thought_id: str, brain_id: str | None = None, include_siblings: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
@@ -598,7 +598,7 @@ async def get_thought_graph(
 
 
 @tool
-@runtime.paid_tool("get_thought_graph_paginated", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_graph_paginated"), catch_errors=False)
 async def get_thought_graph_paginated(
     thought_id: str, page_size: int = 10, cursor: str | None = None,
     direction: str = "older", relation_filter: str | None = None,
@@ -623,7 +623,7 @@ async def get_thought_graph_paginated(
 
 
 @tool
-@runtime.paid_tool("get_types", catch_errors=False)
+@runtime.paid_tool(capability_uuid("list_knowledge_node_types"), catch_errors=False)
 async def get_types(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """List all thought types defined in the brain. Requires npub for credit billing.
 
@@ -636,7 +636,7 @@ async def get_types(brain_id: str | None = None, npub: Annotated[str, Field(desc
 
 
 @tool
-@runtime.paid_tool("get_tags", catch_errors=False)
+@runtime.paid_tool(capability_uuid("list_knowledge_node_tags"), catch_errors=False)
 async def get_tags(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get all tags in a brain. Requires npub for credit billing.
 
@@ -652,7 +652,7 @@ async def get_tags(brain_id: str | None = None, npub: Annotated[str, Field(descr
 
 
 @tool
-@runtime.paid_tool("create_link", catch_errors=False)
+@runtime.paid_tool(capability_uuid("create_knowledge_link"), catch_errors=False)
 async def create_link(
     thought_id_a: str, thought_id_b: str, relation: int,
     brain_id: str | None = None, name: str | None = None,
@@ -681,7 +681,7 @@ async def create_link(
 
 
 @tool
-@runtime.paid_tool("update_link", catch_errors=False)
+@runtime.paid_tool(capability_uuid("update_knowledge_link"), catch_errors=False)
 async def update_link(
     link_id: str, brain_id: str | None = None, name: str | None = None,
     color: str | None = None, thickness: int | None = None,
@@ -706,7 +706,7 @@ async def update_link(
 
 
 @tool
-@runtime.paid_tool("get_link", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_link"), catch_errors=False)
 async def get_link(link_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get details about a specific link. Requires npub for credit billing.
 
@@ -720,7 +720,7 @@ async def get_link(link_id: str, brain_id: str | None = None, npub: Annotated[st
 
 
 @tool
-@runtime.paid_tool("delete_link", catch_errors=False)
+@runtime.paid_tool(capability_uuid("delete_knowledge_link"), catch_errors=False)
 async def delete_link(link_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Permanently delete a link by ID. Cannot be undone. Requires npub for credit billing.
 
@@ -737,7 +737,7 @@ async def delete_link(link_id: str, brain_id: str | None = None, npub: Annotated
 
 
 @tool
-@runtime.paid_tool("add_file_attachment", catch_errors=False)
+@runtime.paid_tool(capability_uuid("attach_file_to_knowledge_node"), catch_errors=False)
 async def add_file_attachment(
     thought_id: str, file_path: str, brain_id: str | None = None,
     file_name: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
@@ -759,7 +759,7 @@ async def add_file_attachment(
 
 
 @tool
-@runtime.paid_tool("add_url_attachment", catch_errors=False)
+@runtime.paid_tool(capability_uuid("attach_url_to_knowledge_node"), catch_errors=False)
 async def add_url_attachment(
     thought_id: str, url: str, brain_id: str | None = None, name: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
@@ -779,7 +779,7 @@ async def add_url_attachment(
 
 
 @tool
-@runtime.paid_tool("get_attachment", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_attachment"), catch_errors=False)
 async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Get metadata about an attachment. Requires npub for credit billing.
 
@@ -793,7 +793,7 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: 
 
 
 @tool
-@runtime.paid_tool("get_attachment_content", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_attachment_content"), catch_errors=False)
 async def get_attachment_content(
     attachment_id: str, brain_id: str | None = None, save_to_path: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
@@ -813,7 +813,7 @@ async def get_attachment_content(
 
 
 @tool
-@runtime.paid_tool("delete_attachment", catch_errors=False)
+@runtime.paid_tool(capability_uuid("delete_knowledge_attachment"), catch_errors=False)
 async def delete_attachment(attachment_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """Delete an attachment. Requires npub for credit billing.
 
@@ -829,7 +829,7 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None, npu
 
 
 @tool
-@runtime.paid_tool("list_attachments", catch_errors=False)
+@runtime.paid_tool(capability_uuid("list_knowledge_attachments"), catch_errors=False)
 async def list_attachments(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "") -> dict[str, Any]:
     """List all attachments for a thought. Requires npub for credit billing.
 
@@ -848,7 +848,7 @@ async def list_attachments(thought_id: str, brain_id: str | None = None, npub: A
 
 
 @tool
-@runtime.paid_tool("get_note", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_node_note"), catch_errors=False)
 async def get_note(
     thought_id: str, brain_id: str | None = None, format: str = "markdown", npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
@@ -865,7 +865,7 @@ async def get_note(
 
 
 @tool
-@runtime.paid_tool("create_or_update_note", catch_errors=False)
+@runtime.paid_tool(capability_uuid("upsert_knowledge_node_note"), catch_errors=False)
 async def create_or_update_note(
     thought_id: str, markdown: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
@@ -884,7 +884,7 @@ async def create_or_update_note(
 
 
 @tool
-@runtime.paid_tool("append_to_note", catch_errors=False)
+@runtime.paid_tool(capability_uuid("append_knowledge_node_note"), catch_errors=False)
 async def append_to_note(
     thought_id: str, markdown: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
@@ -906,7 +906,7 @@ async def append_to_note(
 
 
 @tool
-@runtime.paid_tool("get_modifications", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_knowledge_base_history"), catch_errors=False)
 async def get_modifications(
     brain_id: str | None = None, max_logs: int = 100,
     start_time: str | None = None, end_time: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
@@ -930,7 +930,7 @@ async def get_modifications(
 
 
 @tool
-@runtime.paid_tool("brain_query", catch_errors=False)
+@runtime.paid_tool(capability_uuid("query_knowledge_base"), catch_errors=False)
 async def brain_query(
     query: str, brain_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
 ) -> dict[str, Any]:
@@ -963,7 +963,7 @@ async def brain_query(
 
 
 @tool
-@runtime.paid_tool("morph_thought", catch_errors=False)
+@runtime.paid_tool(capability_uuid("morph_knowledge_node"), catch_errors=False)
 async def morph_thought(
     thought_id: str, brain_id: str | None = None,
     new_parent_id: str | None = None, new_type_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
@@ -987,7 +987,7 @@ async def morph_thought(
 
 
 @tool
-@runtime.paid_tool("scan_orphans", catch_errors=False)
+@runtime.paid_tool(capability_uuid("scan_orphan_knowledge_nodes"), catch_errors=False)
 async def scan_orphans(
     brain_id: str | None = None, dry_run: bool = True, batch_size: int = 50,
     orphanage_name: str = "Orphanage", npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
@@ -1011,7 +1011,7 @@ async def scan_orphans(
 
 
 @tool
-@runtime.paid_tool("event_for_person", catch_errors=False)
+@runtime.paid_tool(capability_uuid("get_person_event"), catch_errors=False)
 async def event_for_person(
     date: str, person: str, event_name: str | None = None, notes: str | None = None,
     brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "",
