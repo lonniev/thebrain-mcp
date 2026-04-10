@@ -10,7 +10,6 @@ import sys
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
-from fastmcp.server.dependencies import get_http_headers
 from pydantic import Field
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
@@ -45,8 +44,7 @@ mcp = FastMCP(
         "powered by TheBrain.\n\n"
         "## Zero-Config Connectivity\n\n"
         "This server runs on FastMCP Cloud over a remote SSE endpoint. "
-        "Horizon OAuth handles authentication automatically — no environment "
-        "variables, no local install, just connect.\n\n"
+        "No environment variables, no local install, just connect.\n\n"
         "## Getting Started\n\n"
         "1. Call `session_status` to check your current session.\n"
         "2. If no active session, follow the Secure Courier onboarding flow:\n"
@@ -83,9 +81,6 @@ mcp = FastMCP(
 )
 tool = make_slug_tool(mcp, "brain")
 
-# Global API client and active brain state (initialized at runtime)
-_operator_api_client: TheBrainAPI | None = None
-active_brain_id: str | None = None
 _settings_loaded = False
 
 
@@ -170,8 +165,7 @@ def _on_credentials_forgotten(service: str, npub: str) -> None:
     Clears the in-memory session so the patron gate re-checks the vault.
     """
     from thebrain_mcp.vault import clear_session
-    user_id = npub  # session keyed by npub when no Horizon user_id
-    clear_session(user_id)
+    clear_session(npub)
     _revoked_npubs.add(npub)
     logger.info("Session cleared for %s (service=%s)", npub[:20], service)
 
@@ -193,33 +187,13 @@ register_standard_tools(
 # ---------------------------------------------------------------------------
 
 
-def _get_operator_api() -> TheBrainAPI:
-    """Get or create the operator's API client (singleton).
-
-    The API key comes from the operator's own patron credential vault
-    (the operator is also a patron of their own TheBrain instance).
-    """
-    global _operator_api_client
+def get_api(npub: str) -> TheBrainAPI:
+    """Get API client for the patron identified by npub."""
     _ensure_settings_loaded()
-    if _operator_api_client is None:
-        settings = get_settings()
-        # Operator uses their own TheBrain API key — will be loaded at first use
-        _operator_api_client = TheBrainAPI(api_key="", api_url=settings.thebrain_api_url)
-    return _operator_api_client
-
-
-def get_api() -> TheBrainAPI:
-    """Get API client — per-user if session active, operator's for STDIO mode."""
-    _ensure_settings_loaded()
-
-    user_id = runtime.get_current_user_id()
-    if user_id:
-        session = get_session(user_id)
-        if session:
-            return session.api_client
-        raise ValueError(_SESSION_GUIDANCE["no_credentials"])
-
-    return _get_operator_api()
+    session = get_session(npub)
+    if session:
+        return session.api_client
+    raise ValueError(_SESSION_GUIDANCE["no_credentials"])
 
 
 _revoked_npubs: set[str] = set()
@@ -264,19 +238,17 @@ async def _ensure_session(npub: str) -> TheBrainAPI:
 
     Hard gate: if no patron credentials exist in the vault for this
     npub, raises ValueError directing the caller to the Secure Courier
-    onboarding flow. Never falls back to the operator's API client.
+    onboarding flow.
     """
-    user_id = runtime.get_current_user_id() or npub
-
     # Check if this npub was revoked (forget_credentials was called)
     if npub in _revoked_npubs:
         from thebrain_mcp.vault import clear_session
-        clear_session(user_id)
+        clear_session(npub)
         _revoked_npubs.discard(npub)
         raise ValueError(_SESSION_GUIDANCE["credentials_revoked"])
 
     # Check in-memory session first
-    session = get_session(user_id)
+    session = get_session(npub)
     if session:
         return session.api_client
 
@@ -291,7 +263,7 @@ async def _ensure_session(npub: str) -> TheBrainAPI:
         try:
             from thebrain_mcp.vault import set_session as _set_session
             session = _set_session(
-                user_id, creds["api_key"], creds.get("brain_id", ""),
+                npub, creds["api_key"], creds.get("brain_id", ""),
             )
             logger.info("Restored session for %s from vault.", npub[:20])
             return session.api_client
@@ -305,30 +277,22 @@ async def _ensure_session(npub: str) -> TheBrainAPI:
     raise ValueError(guidance)
 
 
-def get_brain_id(brain_id: str | None = None) -> str:
-    """Get brain ID: explicit arg > per-user session > STDIO global.
+def get_brain_id(brain_id: str | None = None, npub: str = "") -> str:
+    """Get brain ID: explicit arg > patron session.
 
-    In multi-tenant (Horizon) mode, brain_id MUST come from the patron's
-    session — never from the global. The global is only for STDIO
-    single-user mode.
+    If brain_id is provided, use it directly. Otherwise look up the
+    patron's active brain from their session.
     """
-    _ensure_settings_loaded()
     if brain_id:
         return brain_id
 
-    user_id = runtime.get_current_user_id()
-    if user_id:
-        # Multi-tenant: per-patron session only — no global fallback
-        session = get_session(user_id)
+    if npub:
+        session = get_session(npub)
         if session and session.active_brain_id:
             return session.active_brain_id
-        raise ValueError(_SESSION_GUIDANCE["no_credentials"])
 
-    # STDIO mode: global is acceptable (single user)
-    if active_brain_id:
-        return active_brain_id
     raise ValueError(
-        "Brain ID is required. Use set_active_brain or provide brain_id."
+        "brain_id is required. Use set_active_brain or provide brain_id."
     )
 
 
@@ -341,16 +305,18 @@ def get_brain_id(brain_id: str | None = None) -> str:
 
 
 @tool
-async def whoami() -> dict[str, Any]:
-    """Return the authenticated user's identity and token claims."""
-    result: dict[str, Any] = {}
-    headers = get_http_headers(include_all=True)
-    result["fastmcp_cloud"] = {
-        k: v for k, v in headers.items() if k.startswith("fastmcp-")
-    } or None
-    user_id = runtime.get_current_user_id()
-    if user_id:
-        result["dpyc_session"] = {"active": False, "npub": None, "note": "Pass npub explicitly to credit tools."}
+async def whoami(npub: str = "") -> dict[str, Any]:
+    """Return the caller's session state.
+
+    Args:
+        npub: Your Nostr public key (npub1...).
+    """
+    result: dict[str, Any] = {"npub": npub or None}
+    if npub:
+        session = get_session(npub)
+        result["session_active"] = session is not None
+        if session and session.active_brain_id:
+            result["active_brain_id"] = session.active_brain_id
     return result
 
 
@@ -412,19 +378,12 @@ async def set_active_brain(brain_id: str, npub: Annotated[str, Field(description
         brain_id: The ID of the brain to set as active
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
-    global active_brain_id
     api = await _ensure_session(npub)
     result = await brains.set_active_brain_tool(api, brain_id)
     if result.get("success"):
-        user_id = runtime.get_current_user_id()
-        if user_id:
-            # Multi-tenant: set on session only
-            session = get_session(user_id)
-            if session:
-                session.active_brain_id = brain_id
-        else:
-            # STDIO: global is acceptable
-            active_brain_id = brain_id
+        session = get_session(npub)
+        if session:
+            session.active_brain_id = brain_id
     return result
 
 
@@ -438,7 +397,7 @@ async def get_brain_stats(brain_id: str | None = None, npub: Annotated[str, Fiel
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await brains.get_brain_stats_tool(api, get_brain_id(brain_id))
+    return await brains.get_brain_stats_tool(api, get_brain_id(brain_id, npub))
 
 
 # Thought Operations
@@ -476,7 +435,7 @@ async def create_thought(
     """
     api = await _ensure_session(npub)
     return await thoughts.create_thought_tool(
-        api, get_brain_id(brain_id), name, kind, label,
+        api, get_brain_id(brain_id, npub), name, kind, label,
         foreground_color, background_color, type_id,
         source_thought_id, relation, ac_type,
     )
@@ -493,7 +452,7 @@ async def get_thought(thought_id: str, brain_id: str | None = None, npub: Annota
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await thoughts.get_thought_tool(api, get_brain_id(brain_id), thought_id)
+    return await thoughts.get_thought_tool(api, get_brain_id(brain_id, npub), thought_id)
 
 
 @tool
@@ -510,7 +469,7 @@ async def get_thought_by_name(
     """
     api = await _ensure_session(npub)
     return await thoughts.get_thought_by_name_tool(
-        api, get_brain_id(brain_id), name_exact
+        api, get_brain_id(brain_id, npub), name_exact
     )
 
 
@@ -538,7 +497,7 @@ async def update_thought(
     """
     api = await _ensure_session(npub)
     return await thoughts.update_thought_tool(
-        api, get_brain_id(brain_id), thought_id, name, label,
+        api, get_brain_id(brain_id, npub), thought_id, name, label,
         foreground_color, background_color, kind, ac_type, type_id,
     )
 
@@ -554,7 +513,7 @@ async def delete_thought(thought_id: str, brain_id: str | None = None, npub: Ann
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await thoughts.delete_thought_tool(api, get_brain_id(brain_id), thought_id)
+    return await thoughts.delete_thought_tool(api, get_brain_id(brain_id, npub), thought_id)
 
 
 @tool
@@ -574,7 +533,7 @@ async def search_thoughts(
     """
     api = await _ensure_session(npub)
     return await thoughts.search_thoughts_tool(
-        api, get_brain_id(brain_id), query_text, max_results, only_search_thought_names
+        api, get_brain_id(brain_id, npub), query_text, max_results, only_search_thought_names
     )
 
 
@@ -593,7 +552,7 @@ async def get_thought_graph(
     """
     api = await _ensure_session(npub)
     return await thoughts.get_thought_graph_tool(
-        api, get_brain_id(brain_id), thought_id, include_siblings
+        api, get_brain_id(brain_id, npub), thought_id, include_siblings
     )
 
 
@@ -617,7 +576,7 @@ async def get_thought_graph_paginated(
     """
     api = await _ensure_session(npub)
     return await thoughts.get_thought_graph_paginated_tool(
-        api, get_brain_id(brain_id), thought_id,
+        api, get_brain_id(brain_id, npub), thought_id,
         page_size, cursor, direction, relation_filter,
     )
 
@@ -632,7 +591,7 @@ async def get_types(brain_id: str | None = None, npub: Annotated[str, Field(desc
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await thoughts.get_types_tool(api, get_brain_id(brain_id))
+    return await thoughts.get_types_tool(api, get_brain_id(brain_id, npub))
 
 
 @tool
@@ -645,7 +604,7 @@ async def get_tags(brain_id: str | None = None, npub: Annotated[str, Field(descr
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await thoughts.get_tags_tool(api, get_brain_id(brain_id))
+    return await thoughts.get_tags_tool(api, get_brain_id(brain_id, npub))
 
 
 # Link Operations
@@ -675,7 +634,7 @@ async def create_link(
     """
     api = await _ensure_session(npub)
     return await links.create_link_tool(
-        api, get_brain_id(brain_id), thought_id_a, thought_id_b,
+        api, get_brain_id(brain_id, npub), thought_id_a, thought_id_b,
         relation, name, color, thickness, direction, type_id,
     )
 
@@ -701,7 +660,7 @@ async def update_link(
     """
     api = await _ensure_session(npub)
     return await links.update_link_tool(
-        api, get_brain_id(brain_id), link_id, name, color, thickness, direction, relation
+        api, get_brain_id(brain_id, npub), link_id, name, color, thickness, direction, relation
     )
 
 
@@ -716,7 +675,7 @@ async def get_link(link_id: str, brain_id: str | None = None, npub: Annotated[st
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await links.get_link_tool(api, get_brain_id(brain_id), link_id)
+    return await links.get_link_tool(api, get_brain_id(brain_id, npub), link_id)
 
 
 @tool
@@ -730,7 +689,7 @@ async def delete_link(link_id: str, brain_id: str | None = None, npub: Annotated
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await links.delete_link_tool(api, get_brain_id(brain_id), link_id)
+    return await links.delete_link_tool(api, get_brain_id(brain_id, npub), link_id)
 
 
 # Attachment Operations
@@ -753,7 +712,7 @@ async def add_file_attachment(
     """
     api = await _ensure_session(npub)
     return await attachments.add_file_attachment_tool(
-        api, get_brain_id(brain_id), thought_id, file_path, file_name,
+        api, get_brain_id(brain_id, npub), thought_id, file_path, file_name,
         safe_directory=get_settings().attachment_safe_directory,
     )
 
@@ -774,7 +733,7 @@ async def add_url_attachment(
     """
     api = await _ensure_session(npub)
     return await attachments.add_url_attachment_tool(
-        api, get_brain_id(brain_id), thought_id, url, name
+        api, get_brain_id(brain_id, npub), thought_id, url, name
     )
 
 
@@ -789,7 +748,7 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: 
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await attachments.get_attachment_tool(api, get_brain_id(brain_id), attachment_id)
+    return await attachments.get_attachment_tool(api, get_brain_id(brain_id, npub), attachment_id)
 
 
 @tool
@@ -807,7 +766,7 @@ async def get_attachment_content(
     """
     api = await _ensure_session(npub)
     return await attachments.get_attachment_content_tool(
-        api, get_brain_id(brain_id), attachment_id, save_to_path,
+        api, get_brain_id(brain_id, npub), attachment_id, save_to_path,
         safe_directory=get_settings().attachment_safe_directory,
     )
 
@@ -824,7 +783,7 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None, npu
     """
     api = await _ensure_session(npub)
     return await attachments.delete_attachment_tool(
-        api, get_brain_id(brain_id), attachment_id
+        api, get_brain_id(brain_id, npub), attachment_id
     )
 
 
@@ -840,7 +799,7 @@ async def list_attachments(thought_id: str, brain_id: str | None = None, npub: A
     """
     api = await _ensure_session(npub)
     return await attachments.list_attachments_tool(
-        api, get_brain_id(brain_id), thought_id
+        api, get_brain_id(brain_id, npub), thought_id
     )
 
 
@@ -861,7 +820,7 @@ async def get_note(
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await notes.get_note_tool(api, get_brain_id(brain_id), thought_id, format)
+    return await notes.get_note_tool(api, get_brain_id(brain_id, npub), thought_id, format)
 
 
 @tool
@@ -879,7 +838,7 @@ async def create_or_update_note(
     """
     api = await _ensure_session(npub)
     return await notes.create_or_update_note_tool(
-        api, get_brain_id(brain_id), thought_id, markdown
+        api, get_brain_id(brain_id, npub), thought_id, markdown
     )
 
 
@@ -898,7 +857,7 @@ async def append_to_note(
     """
     api = await _ensure_session(npub)
     return await notes.append_to_note_tool(
-        api, get_brain_id(brain_id), thought_id, markdown
+        api, get_brain_id(brain_id, npub), thought_id, markdown
     )
 
 
@@ -922,7 +881,7 @@ async def get_modifications(
     """
     api = await _ensure_session(npub)
     return await stats.get_modifications_tool(
-        api, get_brain_id(brain_id), max_logs, start_time, end_time
+        api, get_brain_id(brain_id, npub), max_logs, start_time, end_time
     )
 
 
@@ -953,7 +912,7 @@ async def brain_query(
         parsed.confirm_delete = confirm
 
     api = await _ensure_session(npub)
-    bid = get_brain_id(brain_id)
+    bid = get_brain_id(brain_id, npub)
 
     result = await execute(api, bid, parsed)
     return result.to_dict()
@@ -979,7 +938,7 @@ async def morph_thought(
     """
     api = await _ensure_session(npub)
     return await morpher.morpher_tool(
-        api, get_brain_id(brain_id), thought_id, new_parent_id, new_type_id
+        api, get_brain_id(brain_id, npub), thought_id, new_parent_id, new_type_id
     )
 
 
@@ -1003,7 +962,7 @@ async def scan_orphans(
     """
     api = await _ensure_session(npub)
     return await orphanage.scan_orphans_tool(
-        api, get_brain_id(brain_id), dry_run, batch_size, orphanage_name
+        api, get_brain_id(brain_id, npub), dry_run, batch_size, orphanage_name
     )
 
 
@@ -1028,7 +987,7 @@ async def event_for_person(
     """
     api = await _ensure_session(npub)
     return await whowhen.event_for_person_tool(
-        api, get_brain_id(brain_id), date, person, event_name, notes
+        api, get_brain_id(brain_id, npub), date, person, event_name, notes
     )
 
 
