@@ -304,22 +304,6 @@ def get_brain_id(brain_id: str | None = None, npub: str = "") -> str:
 # Authentication Diagnostics
 
 
-@tool
-async def whoami(npub: str = "") -> dict[str, Any]:
-    """Return the caller's session state.
-
-    Args:
-        npub: Your Nostr public key (npub1...).
-    """
-    result: dict[str, Any] = {"npub": npub or None}
-    if npub:
-        session = get_session(npub)
-        result["session_active"] = session is not None
-        if session and session.active_brain_id:
-            result["active_brain_id"] = session.active_brain_id
-    return result
-
-
 # Brain Management Tools
 
 
