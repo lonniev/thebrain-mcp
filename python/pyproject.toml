@@ -1,6 +1,6 @@
 [project]
 name = "thebrain-mcp"
-version = "1.9.19"
+version = "1.9.20"
 description = "FastMCP server for TheBrain API - enables AI assistants to interact with TheBrain knowledge management system"
 authors = [{name = "TheBrain MCP Contributors"}]
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "lark>=1.1.0",
     "cachetools>=5.3.0",
-    "tollbooth-dpyc[nostr,qr]>=0.3.3",
+    "tollbooth-dpyc[nostr,qr]>=0.4.0",
     "python-dateutil>=2.8.0",
 ]
 
