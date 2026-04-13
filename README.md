@@ -1,4 +1,4 @@
-# thebrain-mcp
+# thebrain-mcp v1.10.0
 
 **The first city on the Lightning Turnpike.**
 
@@ -32,7 +32,7 @@ It's also the proving ground for [Tollbooth DPYC™](https://github.com/lonniev/
 | Write | 5 sats | `create_thought`, `create_link`, `update_thought` |
 | Heavy | 10 sats | `brain_query`, `get_modifications` |
 
-Auth, balance checks, and credit purchases are always free. First-time users receive a seed balance on registration — enough to explore without purchasing credits up front.
+Auth, balance checks, and credit purchases are always free. First-time users receive a seed balance on onboarding — enough to explore without purchasing credits up front. All tools that accept an `npub` parameter also require a `proof: str` parameter for identity verification.
 
 ## BrainQuery (BQL)
 
@@ -62,12 +62,14 @@ No configuration needed — Horizon OAuth handles authentication automatically.
 ### First Connection Walkthrough
 
 1. **`session_status`** — Check your current session state.
-2. Get a TheBrain API key at [api.bra.in](https://api.bra.in) and find your brain ID in TheBrain's settings.
-3. **`register_credentials(api_key, brain_id, passphrase)`** — Encrypts your credentials in the operator's vault. A seed balance is granted automatically.
-4. **`list_brains`** → **`set_active_brain`** — Select which brain to work with.
-5. **`brain_query`** — Start exploring your knowledge graph.
+2. Get your **patron npub** from the dpyc-oracle's `how_to_join()` tool.
+3. **`request_credential_channel(recipient_npub=<patron_npub>)`** — Opens a Secure Courier channel; sends a welcome DM to your Nostr client.
+4. Reply via your Nostr client with your credentials in JSON: `{"api_key": "...", "brain_id": "..."}`
+5. **`receive_credentials(sender_npub=<patron_npub>)`** — Vaults your credentials and activates the session. A seed balance is granted automatically.
+6. **`list_brains`** → **`set_active_brain`** — Select which brain to work with.
+7. **`brain_query`** — Start exploring your knowledge graph.
 
-Returning users: call **`activate_session(passphrase)`** at the start of each session.
+Returning users: call **`receive_credentials(sender_npub=<patron_npub>)`** — vault-first lookup activates instantly, no relay I/O needed.
 
 ### Self-Hosting
 
@@ -75,18 +77,18 @@ For local installation, configuration, and the full tool reference, see [python/
 
 To run your own instance, set these environment variables:
 
-| Variable | Purpose | Example |
-|----------|---------|---------|
-| `THEBRAIN_API_KEY` | Operator's TheBrain API key (for vault access) | `your-thebrain-key` |
-| `THEBRAIN_DEFAULT_BRAIN_ID` | Default brain ID for STDIO mode | `uuid-of-brain` |
-| `THEBRAIN_API_URL` | TheBrain API base URL | `https://api.bra.in` (default) |
-| `THEBRAIN_VAULT_BRAIN_ID` | Brain ID for the encrypted credential vault | `uuid-of-vault-brain` |
-| `BTCPAY_HOST` | BTCPay Server URL for credit purchases | `https://btcpay.example.com` |
-| `BTCPAY_STORE_ID` | BTCPay store ID | `AbCdEfGh1234` |
-| `BTCPAY_API_KEY` | BTCPay API key with invoice + payout permissions | `your-btcpay-api-key` |
-| `BTCPAY_TIER_CONFIG` | JSON string mapping tier names to credit multipliers | `{"default": {"credit_multiplier": 1}}` |
-| `BTCPAY_USER_TIERS` | JSON string mapping user IDs to tier names | `{"user_01KGZY...": "vip"}` |
-| `SEED_BALANCE_SATS` | Free starter balance for new users (0 to disable) | `500` |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `TOLLBOOTH_NOSTR_OPERATOR_NSEC` | Yes | Operator's Nostr secret key for Secure Courier DMs and audit signing |
+| `THEBRAIN_DEFAULT_BRAIN_ID` | No | Default brain ID for STDIO mode |
+| `THEBRAIN_API_URL` | No | TheBrain API base URL (default: `https://api.bra.in`) |
+| `NEON_DATABASE_URL` | No | Neon Postgres URL for commerce ledger persistence |
+| `BTCPAY_HOST` | No | BTCPay Server URL for credit purchases |
+| `BTCPAY_STORE_ID` | No | BTCPay store ID |
+| `BTCPAY_API_KEY` | No | BTCPay API key with invoice + payout permissions |
+| `SEED_BALANCE_SATS` | No | Free starter balance for new users (0 to disable) |
+
+> **Note:** `THEBRAIN_API_KEY` is not an environment variable. Patrons deliver their TheBrain API key and brain ID via Secure Courier (encrypted Nostr DM). Only the operator's nsec is configured as an env var.
 
 ## Actor Protocol
 
@@ -102,6 +104,7 @@ assert isinstance(BrainOperator(), OperatorProtocol)
 The actor exposes:
 
 - **`slug`** — returns `"brain"` for tool-name prefixing
+- **`register_standard_tools()`** — delegates standard Tollbooth tools (session, billing, community) to the wheel
 - **`tool_catalog()`** — returns `OPERATOR_BASE_CATALOG` (19 `ToolPathInfo` entries) — the canonical tool surface from tollbooth-dpyc
 
 | Path | Tools | Status |

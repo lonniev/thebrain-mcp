@@ -1,10 +1,10 @@
-# TheBrain MCP Server (Python/FastMCP)
+# TheBrain MCP Server v1.10.0 (Python/FastMCP)
 
 A FastMCP server that gives AI agents read-write access to [TheBrain](https://www.thebrain.com/) personal knowledge graphs --- and pays for itself with Bitcoin Lightning micropayments.
 
 ## Features
 
-- **53 MCP Tools**: Full CRUD on thoughts, links, attachments, notes, plus compound operations, billing, community Oracle, and auditing
+- **53+ MCP Tools**: Full CRUD on thoughts, links, attachments, notes, plus compound operations, billing, community Oracle, and auditing (standard tools delegated to wheel via `register_standard_tools()`)
 - **BrainQuery (BQL)**: A Cypher-subset query language for pattern-based graph operations --- `MATCH`, `CREATE`, `SET`, `MERGE`, `DELETE` in one tool call
 - **Tollbooth Monetization**: Pre-funded Lightning micropayments via BTCPay Server; zero payment friction during conversations
 - **Multi-Tenant Credential Vault**: Per-user encrypted credential storage via Secure Courier (Nostr DMs)
@@ -37,7 +37,7 @@ See the [Tollbooth DPYC™ protocol flow diagram](../docs/diagrams/tollbooth-pro
 ### Prerequisites
 
 - Python 3.12
-- TheBrain API key ([Get one here](https://api.bra.in))
+- A Nostr keypair (nsec/npub) for operator identity
 
 ### Setup
 
@@ -60,7 +60,7 @@ pip install -e .
 4. Create a `.env` file:
 ```bash
 cp .env.example .env
-# Edit .env and add your THEBRAIN_API_KEY
+# Edit .env and add your TOLLBOOTH_NOSTR_OPERATOR_NSEC
 ```
 
 ## Configuration
@@ -136,13 +136,12 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 
 > **Note:** In STDIO mode, the TheBrain API key is still delivered via Secure Courier at first session. Set `THEBRAIN_DEFAULT_BRAIN_ID` to skip the brain selection step.
 
-## Available Tools (53)
+## Available Tools
 
 ### Session & Auth (free)
 
 | Tool | Description |
 |------|-------------|
-| `whoami` | Return the authenticated user's identity and OAuth claims |
 | `session_status` | Check current session state (active brain, vault, DPYC™ identity) |
 | `request_credential_channel` | Open a Secure Courier channel — sends a welcome DM to your Nostr client |
 | `receive_credentials` | Pick up credentials from the Secure Courier (vault-first, then relay) |
@@ -293,11 +292,14 @@ TOLLBOOTH_NOSTR_OPERATOR_NSEC=nsec1...   # Operator's Nostr secret key for Secur
 
 Users deliver their TheBrain API credentials via encrypted Nostr DMs — credentials never appear in the chat window:
 
-1. Call `request_credential_channel(recipient_npub=<npub>)` to send a welcome DM
-2. User replies via their Nostr client with credentials in the JSON format shown
-3. Call `receive_credentials(sender_npub=<npub>)` to vault and activate
+1. Get your **patron npub** from the dpyc-oracle's `how_to_join()` tool.
+2. Call `request_credential_channel(recipient_npub=<patron_npub>)` — sends a welcome DM to your Nostr client.
+3. Reply via your Nostr client with credentials as JSON: `{"api_key": "...", "brain_id": "..."}`
+4. Call `receive_credentials(sender_npub=<patron_npub>)` — vaults credentials and activates the session.
 
-Returning users just call `receive_credentials` — vault-first lookup activates instantly, no relay I/O needed. The Secure Courier is provided by [Tollbooth DPYC™](https://github.com/lonniev/tollbooth-dpyc) — thebrain-mcp doesn't manage auth internally.
+Returning users just call `receive_credentials(sender_npub=<patron_npub>)` — vault-first lookup activates instantly, no relay I/O needed. The Secure Courier is provided by [Tollbooth DPYC™](https://github.com/lonniev/tollbooth-dpyc) — thebrain-mcp doesn't manage auth internally.
+
+> **Note:** All tools that accept an `npub` parameter also require a `proof: str` parameter for identity verification.
 
 ## Development
 
