@@ -1503,15 +1503,6 @@ wheels = [
 ]
 
 [[package]]
-name = "segno"
-version = "1.6.6"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1c/2e/b396f750c53f570055bf5a9fc1ace09bed2dff013c73b7afec5702a581ba/segno-1.6.6.tar.gz", hash = "sha256:e60933afc4b52137d323a4434c8340e0ce1e58cec71439e46680d4db188f11b3", size = 1628586, upload-time = "2025-03-12T22:12:53.324Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/02/12c73fd423eb9577b97fc1924966b929eff7074ae6b2e15dd3d30cb9e4ae/segno-1.6.6-py3-none-any.whl", hash = "sha256:28c7d081ed0cf935e0411293a465efd4d500704072cdb039778a2ab8736190c7", size = 76503, upload-time = "2025-03-12T22:12:48.106Z" },
-]
-
-[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1557,7 +1548,7 @@ wheels = [
 
 [[package]]
 name = "thebrain-mcp"
-version = "1.9.18"
+version = "1.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "cachetools" },
@@ -1568,7 +1559,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
-    { name = "tollbooth-dpyc", extra = ["nostr", "qr"] },
+    { name = "tollbooth-dpyc", extra = ["nostr"] },
 ]
 
 [package.optional-dependencies]
@@ -1597,7 +1588,7 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.8.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
-    { name = "tollbooth-dpyc", extras = ["nostr", "qr"], specifier = ">=0.2.0" },
+    { name = "tollbooth-dpyc", extras = ["nostr"], specifier = ">=0.9.1" },
 ]
 provides-extras = ["dev"]
 
@@ -1609,23 +1600,20 @@ sdist = { url = "https://files.pythonhosted.org/packages/bb/89/6df40b0c5fd9a1c30
 
 [[package]]
 name = "tollbooth-dpyc"
-version = "0.2.0"
+version = "0.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pynostr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/95/5260a30754af4fb51b7babe1e999b690f042ad5226b60f047358a16e0430/tollbooth_dpyc-0.2.0.tar.gz", hash = "sha256:a1378f189b1f12b032d167eaebe0a7dfc60e7019f704f2f572da3b392a3fab28", size = 2136794, upload-time = "2026-04-02T20:20:32.319Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/cc/66d31863566c5b0d6ee43b2a4ba2fdc891b146574f6d814a408e1471be04/tollbooth_dpyc-0.9.1.tar.gz", hash = "sha256:3eb540dc492891baf512b857553951f350e8d536dcc9968282597c810b3606a2", size = 2155791, upload-time = "2026-04-15T13:27:03.337Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/7e/383884d5cf5c6a885155dc1f19cf4a20a2373a90590c351404b8f2140bfe/tollbooth_dpyc-0.2.0-py3-none-any.whl", hash = "sha256:e8a862bb5a4718854f1038cbe250530f55f6f6e1e5ba48afdce2f637b32bfe01", size = 203983, upload-time = "2026-04-02T20:20:30.536Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/b6/92e6943c3475d0414f5436141903be9a60b8fe5f60d649fbd45a57bcf46e/tollbooth_dpyc-0.9.1-py3-none-any.whl", hash = "sha256:77235ebd713de52c53a66cc3080c522ab814e835178a677bf3c186612441e671", size = 223269, upload-time = "2026-04-15T13:27:01.877Z" },
 ]
 
 [package.optional-dependencies]
 nostr = [
     { name = "websocket-client" },
-]
-qr = [
-    { name = "segno" },
 ]
 
 [[package]]
