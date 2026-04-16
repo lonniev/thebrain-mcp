@@ -341,7 +341,7 @@ class TestCheckPayment:
         cache = _mock_cache(ledger)
         await check_payment_tool(
             btcpay, cache, "user1", "inv-1",
-            default_credit_ttl_seconds=3600,
+            tranche_lifetime_seconds=3600,
         )
         assert ledger.tranches[0].expires_at is not None
 
