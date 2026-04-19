@@ -108,16 +108,33 @@ For local installation, configuration, and the full tool reference, see [python/
 
 To run your own instance, set these environment variables:
 
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `TOLLBOOTH_NOSTR_OPERATOR_NSEC` | Yes | Operator's Nostr secret key for Secure Courier DMs and audit signing |
-| `THEBRAIN_DEFAULT_BRAIN_ID` | No | Default brain ID for STDIO mode |
-| `THEBRAIN_API_URL` | No | TheBrain API base URL (default: `https://api.bra.in`) |
-| `NEON_DATABASE_URL` | No | Neon Postgres URL for commerce ledger persistence |
-| `BTCPAY_HOST` | No | BTCPay Server URL for credit purchases |
-| `BTCPAY_STORE_ID` | No | BTCPay store ID |
-| `BTCPAY_API_KEY` | No | BTCPay API key with invoice + payout permissions |
-| `SEED_BALANCE_SATS` | No | Free starter balance for new users (0 to disable) |
+#### Required
+
+| Variable | Purpose |
+|----------|---------|
+| `TOLLBOOTH_NOSTR_OPERATOR_NSEC` | Operator's Nostr secret key -- the single bootstrap key for identity, Secure Courier DMs, and audit signing |
+
+This is the only env var required to start. Certified operators bootstrap their Neon database URL from the Authority via encrypted Nostr DM -- `NEON_DATABASE_URL` is not read from the environment.
+
+#### Optional Tuning
+
+| Variable | Purpose |
+|----------|---------|
+| `TOLLBOOTH_NOSTR_RELAYS` | Comma-separated relay URLs (overrides defaults) |
+| `THEBRAIN_API_URL` | TheBrain API base URL (default: `https://api.bra.in`) |
+| `SEED_BALANCE_SATS` | Free starter balance for new users (0 to disable) |
+| `CREDIT_TTL_SECONDS` | Tranche lifetime in seconds (default: 604800 = 7 days) |
+| `DPYC_REGISTRY_CACHE_TTL_SECONDS` | How long to cache the DPYC community registry (default: 300) |
+| `CONSTRAINTS_ENABLED` | `"true"` to enable constraint engine evaluation on tool calls |
+
+#### Credentials via Secure Courier (NOT env vars)
+
+All secrets flow through Secure Courier -- they never appear as environment variables:
+
+| Credential | Delivery |
+|------------|----------|
+| TheBrain API key + brain ID | Patron delivers via encrypted Nostr DM |
+| BTCPay credentials (`btcpay_host`, `btcpay_api_key`, `btcpay_store_id`) | Operator delivers via Secure Courier |
 
 > **Note:** `THEBRAIN_API_KEY` is not an environment variable. Patrons deliver their TheBrain API key and brain ID via Secure Courier (encrypted Nostr DM). Only the operator's nsec is configured as an env var.
 
