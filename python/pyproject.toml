@@ -16,7 +16,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "lark>=1.1.0",
     "cachetools>=5.3.0",
-    "tollbooth-dpyc[nostr]==0.13.7",
+    "tollbooth-dpyc[nostr]==0.14.0",
     "python-dateutil>=2.8.0",
 ]
 
