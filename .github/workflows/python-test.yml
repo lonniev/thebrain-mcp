@@ -21,6 +21,21 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Wait for tollbooth-dpyc on PyPI
+        run: |
+          REQUIRED=$(grep 'tollbooth-dpyc' pyproject.toml | grep -oP '==\K[0-9.]+')
+          if [ -n "$REQUIRED" ]; then
+            echo "Waiting for tollbooth-dpyc==$REQUIRED on PyPI..."
+            for i in $(seq 1 30); do
+              if pip index versions tollbooth-dpyc 2>/dev/null | grep -q "$REQUIRED"; then
+                echo "Found tollbooth-dpyc==$REQUIRED on PyPI"
+                break
+              fi
+              echo "Attempt $i/30 — not yet available, waiting 10s..."
+              sleep 10
+            done
+          fi
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
