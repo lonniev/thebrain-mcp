@@ -4,7 +4,7 @@ A FastMCP server that gives AI agents read-write access to [TheBrain](https://ww
 
 ## Features
 
-- **53+ MCP Tools**: Full CRUD on thoughts, links, attachments, notes, plus compound operations, billing, community Oracle, and auditing (standard tools delegated to wheel via `register_standard_tools()`)
+- **32 domain tools + standard DPYC tools**: Full CRUD on knowledge nodes, links, attachments, notes, plus compound operations, billing, community Oracle, and auditing (standard tools delegated to wheel via `register_standard_tools()`)
 - **BrainQuery (BQL)**: A Cypher-subset query language for pattern-based graph operations --- `MATCH`, `CREATE`, `SET`, `MERGE`, `DELETE` in one tool call
 - **Tollbooth Monetization**: Pre-funded Lightning micropayments via BTCPay Server; zero payment friction during conversations
 - **Multi-Tenant Credential Vault**: Per-user encrypted credential storage via Secure Courier (Nostr DMs)
@@ -147,29 +147,29 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 | `receive_credentials` | Pick up credentials from the Secure Courier (vault-first, then relay) |
 | `forget_credentials` | Delete vaulted credentials for key rotation or re-delivery |
 
-### Brain Management (1 sat)
+### Knowledge Base Management (1 sat)
 
 | Tool | Description |
 |------|-------------|
-| `list_brains` | List all available brains (free) |
-| `get_brain` | Get brain details by ID |
-| `set_active_brain` | Set the active brain for subsequent operations |
-| `get_brain_stats` | Get comprehensive brain statistics (thought/link/attachment counts) |
+| `list_knowledge_bases` | List all available brains (free) |
+| `get_knowledge_base` | Get brain details by ID |
+| `set_active_knowledge_base` | Set the active brain for subsequent operations |
+| `get_knowledge_base_stats` | Get comprehensive brain statistics (thought/link/attachment counts) |
 
-### Thought Operations
+### Knowledge Node Operations
 
 | Tool | Cost | Description |
 |------|------|-------------|
-| `get_thought` | 1 sat | Retrieve thought details by ID |
-| `get_thought_by_name` | 1 sat | Look up a thought by exact name |
-| `search_thoughts` | 1 sat | Full-text search across the brain |
-| `get_thought_graph` | 1 sat | Get a thought with all its connections (parents, children, jumps, siblings) |
-| `get_thought_graph_paginated` | 10 sats | Paginated graph traversal for thoughts with many connections |
-| `get_types` | 1 sat | List all thought types defined in the brain |
-| `get_tags` | 1 sat | List all tags defined in the brain |
-| `create_thought` | 5 sats | Create a thought with optional type, label, colors, and parent link |
-| `update_thought` | 5 sats | Update thought properties (name, label, colors, type) |
-| `delete_thought` | 5 sats | Delete a thought by ID |
+| `get_knowledge_node` | 1 sat | Retrieve thought details by ID |
+| `get_knowledge_node_by_name` | 1 sat | Look up a thought by exact name |
+| `search_knowledge_nodes` | 1 sat | Full-text search across the brain |
+| `get_knowledge_graph` | 1 sat | Get a thought with all its connections (parents, children, jumps, siblings) |
+| `get_knowledge_graph_paginated` | 10 sats | Paginated graph traversal for thoughts with many connections |
+| `get_knowledge_types` | 1 sat | List all thought types defined in the brain |
+| `get_knowledge_tags` | 1 sat | List all tags defined in the brain |
+| `create_knowledge_node` | 5 sats | Create a thought with optional type, label, colors, and parent link |
+| `update_knowledge_node` | 5 sats | Update thought properties (name, label, colors, type) |
+| `delete_knowledge_node` | 5 sats | Delete a thought by ID |
 
 ### Link Operations
 
@@ -203,9 +203,9 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 
 | Tool | Cost | Description |
 |------|------|-------------|
-| `brain_query` | 10 sats | Execute a BQL (Cypher-subset) query --- the primary tool for pattern-based graph operations |
-| `morph_thought` | 5 sats | Atomically reparent and/or retype a thought in one operation |
-| `scan_orphans` | 10 sats | Scan for orphaned thoughts with zero connections; optionally rescue them |
+| `query_knowledge_base` | 10 sats | Execute a BQL (Cypher-subset) query --- the primary tool for pattern-based graph operations |
+| `morph_knowledge_node` | 5 sats | Atomically reparent and/or retype a thought in one operation |
+| `scan_orphan_knowledge_nodes` | 10 sats | Scan for orphaned thoughts with zero connections; optionally rescue them |
 | `event_for_person` | 10 sats | Create an Event linked to a Person and a calendar Day in one action |
 | `get_modifications` | 10 sats | View brain modification history (creates, deletes, renames, etc.) |
 
@@ -242,7 +242,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 
 ## BrainQuery (BQL)
 
-`brain_query` is the marquee tool --- a Cypher-subset query language purpose-built for TheBrain. Agents and humans express graph operations in the same formalism:
+`query_knowledge_base` is the marquee tool --- a Cypher-subset query language purpose-built for TheBrain. Agents and humans express graph operations in the same formalism:
 
 ```cypher
 -- Find children of a thought
@@ -325,8 +325,8 @@ ruff check src/ tests/
 
 ## Known Limitations
 
-- **TheBrain search index is incomplete**: The cloud search index covers a subset of thoughts (typically older/synced ones). Newer thoughts may not appear in `search_thoughts`. Use `get_thought_graph` traversal or BQL scoped paths for reliable access.
-- **Graph endpoint caches stale link data**: Azure App Service caching can cause `get_thought_graph` to return deleted links or hide newly created links. The BQL planner tolerates this.
+- **TheBrain search index is incomplete**: The cloud search index covers a subset of thoughts (typically older/synced ones). Newer thoughts may not appear in `search_knowledge_nodes`. Use `get_knowledge_graph` traversal or BQL scoped paths for reliable access.
+- **Graph endpoint caches stale link data**: Azure App Service caching can cause `get_knowledge_graph` to return deleted links or hide newly created links. The BQL planner tolerates this.
 - **Visual styling issues**: Some visual properties (colors, link thickness) may not apply consistently due to TheBrain API limitations.
 - **Large files**: Very large attachments may timeout.
 - **Long notes**: Keep notes under 10,000 characters for best results.

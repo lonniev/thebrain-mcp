@@ -44,8 +44,8 @@ No configuration needed — Horizon OAuth handles authentication automatically.
    - Call `request_credential_channel(recipient_npub=<patron_npub>)` — opens a Secure Courier channel; sends a welcome DM to your Nostr client.
    - Reply via your Nostr client with your credentials in JSON: `{"api_key": "...", "brain_id": "..."}`
    - Call `receive_credentials(sender_npub=<patron_npub>)` — vaults your credentials and activates the session. A seed balance is granted automatically.
-4. **`list_brains`** → **`set_active_brain`** — Select which brain to work with.
-5. **`brain_query`** — Start exploring your knowledge graph.
+4. **`list_knowledge_bases`** → **`set_active_knowledge_base`** — Select which brain to work with.
+5. **`query_knowledge_base`** — Start exploring your knowledge graph.
 
 **Returning users:** call `receive_credentials(sender_npub=<patron_npub>)` — vault-first lookup activates instantly, no relay I/O needed.
 
@@ -60,9 +60,9 @@ Credentials are delivered via encrypted Nostr DMs — they never appear in the c
 | Category | Pricing hint | Examples |
 |----------|-------------|----------|
 | `free`   | 0 sats      | `session_status`, `check_balance`, `check_price` |
-| `read`   | 1 sat       | `get_thought`, `search_thoughts`, `get_note` |
-| `write`  | 5 sats      | `create_thought`, `create_link`, `update_thought` |
-| `heavy`  | 10 sats     | `brain_query`, `get_modifications` |
+| `read`   | 1 sat       | `get_knowledge_node`, `search_knowledge_nodes`, `get_note` |
+| `write`  | 5 sats      | `create_knowledge_node`, `create_link`, `update_knowledge_node` |
+| `heavy`  | 10 sats     | `query_knowledge_base`, `get_modifications` |
 
 Actual prices are set dynamically by the operator's pricing model in Neon via `api_sats` per tool. Auth and balance tools are always free. First-time users receive a seed balance on onboarding — enough to explore without purchasing credits up front.
 
