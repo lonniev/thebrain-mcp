@@ -203,8 +203,7 @@ _revoked_npubs: set[str] = set()
 _SESSION_GUIDANCE: dict[str, str] = {
     "vault_bootstrapping": (
         "The server is establishing its encrypted connection to the "
-        "credential vault. This happens once after a cold start and "
-        "typically completes within 10-15 seconds. "
+        "credential vault. This happens once after a cold start. "
         "Action: repeat your request shortly — no re-authentication needed."
     ),
     "operator_not_configured": (
