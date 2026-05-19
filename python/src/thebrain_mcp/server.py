@@ -13,7 +13,6 @@ from fastmcp import FastMCP
 from pydantic import Field
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
-from tollbooth.slug_tools import make_slug_tool
 from tollbooth.tool_identity import STANDARD_IDENTITIES, capability_uuid
 
 from thebrain_mcp.api.client import TheBrainAPI
@@ -79,8 +78,6 @@ mcp = FastMCP(
         "credit balance is running low. Proactively inform the user when you see this."
     ),
 )
-tool = make_slug_tool(mcp, "brain")
-
 _settings_loaded = False
 
 
@@ -173,7 +170,7 @@ def _on_credentials_forgotten(service: str, npub: str) -> None:
 # Register all standard DPYC tools from the wheel
 # ---------------------------------------------------------------------------
 
-register_standard_tools(
+tool = register_standard_tools(
     mcp,
     "brain",
     runtime,
