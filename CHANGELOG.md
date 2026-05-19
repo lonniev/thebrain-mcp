@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.11.0] — 2026-05-19
+
+### Changed — sync with tollbooth-dpyc 0.25.0
+
+Picks up the wheel's runtime-name + DRY pass:
+
+- **Identity proofs sign the runtime tool name** (`<slug>_<capability>` —
+  e.g. `<slug>_check_balance`). The bare capability seed never crosses the
+  server boundary. (wheel 0.24.0)
+- **Oracle delegations mount under `<slug>_oracle_*`** — every wire-exposed
+  tool on this operator now shares the same slug prefix. (wheel 0.24.1)
+- **`register_standard_tools` returns the `@tool` decorator** — the slug
+  literal now appears exactly once in this server's bootstrap. (wheel 0.25.0)
+
+
 ## [1.10.0] — 2026-04-13
 
 - security: add proof parameter to all tools with npub
