@@ -152,6 +152,10 @@ from tollbooth.tool_identity import (  # noqa: E402, F401
     capability_uuid,
 )
 
+# Domain tool registry. Capability strings here are the canonical
+# UUID-derivation source — the wheel's @paid_tool decorators must
+# use these EXACT strings or the resolver will reject the call as
+# "tool not in pricing model".
 _DOMAIN_TOOLS = [
     # -- Domain-specific TheBrain tools --
 
