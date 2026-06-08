@@ -138,22 +138,12 @@ All secrets flow through Secure Courier -- they never appear as environment vari
 
 > **Note:** `THEBRAIN_API_KEY` is not an environment variable. Patrons deliver their TheBrain API key and brain ID via Secure Courier (encrypted Nostr DM). Only the operator's nsec is configured as an env var.
 
-## Actor Protocol
+## Tool Surface
 
-The `BrainOperator` class (in `actor.py`) satisfies `OperatorProtocol` from [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc). It's a thin delegation layer over existing `server.py` tool functions.
-
-```python
-from thebrain_mcp.actor import BrainOperator
-from tollbooth import OperatorProtocol
-
-assert isinstance(BrainOperator(), OperatorProtocol)
-```
-
-The actor exposes:
-
-- **`slug`** — returns `"brain"` for tool-name prefixing
-- **`register_standard_tools()`** — delegates standard Tollbooth DPYC™ tools (session, billing, community) to the wheel
-- **`tool_catalog()`** — returns `OPERATOR_BASE_CATALOG` (19 `ToolPathInfo` entries) — the canonical tool surface from tollbooth-dpyc
+The server exposes the standard Tollbooth DPYC™ operator surface via
+`register_standard_tools()` from [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc),
+plus its domain tools. Tools fall into three paths in the DPYC three-actor
+topology (Operator / Authority / Oracle):
 
 | Path | Tools | Status |
 |------|-------|--------|
