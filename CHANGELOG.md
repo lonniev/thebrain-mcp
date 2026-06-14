@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.0] — 2026-06-13
+- fix: surface upstream TheBrain search 500s as self-describing errors — an empty-body upstream 5xx now names TheBrain's hosted API (api.bra.in) as the source instead of a bare "HTTP 500:"; search/name-resolution is proxied to TheBrain, so there is no local index to rebuild. (#161)
+- chore: track tollbooth-dpyc through 0.44.15 — SDK audit hardening (correctness fixes in 0.44.9/0.44.10; mypy + coverage gates). No wire-API changes.
+
 ## [1.11.0] — 2026-05-19
 
 ### Changed — sync with tollbooth-dpyc 0.25.0
