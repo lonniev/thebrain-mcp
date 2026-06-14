@@ -43,6 +43,30 @@ class TheBrainAPIError(Exception):
     pass
 
 
+def _format_http_error(method: str, endpoint: str, exc: httpx.HTTPStatusError) -> str:
+    """Build a self-describing message for an upstream TheBrain HTTP error.
+
+    A bare upstream 5xx with an empty body (which TheBrain returns when its
+    own search/name-resolution subsystem faults) is otherwise surfaced as a
+    contentless 'HTTP 500: ' — which reads like a fault in this server and has
+    misled responders into hunting for a local full-text index that does not
+    exist (search is proxied to TheBrain, not indexed here). Name the source
+    and the situation so the next failure explains itself.
+    """
+    status = exc.response.status_code
+    body = exc.response.text.strip()
+    if status >= 500 and not body:
+        return (
+            f"TheBrain API returned HTTP {status} with an empty body for "
+            f"{method} {endpoint}. This is an upstream fault in TheBrain's hosted "
+            f"API (api.bra.in), not in this MCP server — UUID-addressed reads and "
+            f"all writes are unaffected. The search and name-resolution endpoints "
+            f"(/search, ?nameExact) are proxied to TheBrain and have no local index "
+            f"to rebuild. Retry later; if it persists, TheBrain's service is degraded."
+        )
+    return f"HTTP {status}: {body}" if body else f"HTTP {status}: (empty body) for {method} {endpoint}"
+
+
 class TheBrainAPI:
     """TheBrain API client."""
 
@@ -119,8 +143,7 @@ class TheBrainAPI:
                 return response.text
 
         except httpx.HTTPStatusError as e:
-            error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
-            raise TheBrainAPIError(error_msg) from e
+            raise TheBrainAPIError(_format_http_error(method, endpoint, e)) from e
         except Exception as e:
             raise TheBrainAPIError(f"Request failed: {str(e)}") from e
 
@@ -139,8 +162,7 @@ class TheBrainAPI:
                 return response.json()
             return response.text
         except httpx.HTTPStatusError as e:
-            error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
-            raise TheBrainAPIError(error_msg) from e
+            raise TheBrainAPIError(_format_http_error("PATCH", endpoint, e)) from e
         except Exception as e:
             raise TheBrainAPIError(f"Request failed: {str(e)}") from e
 
@@ -269,7 +291,9 @@ class TheBrainAPI:
                 return Thought.model_validate(data[0]) if data else None
             return Thought.model_validate(data)
         except httpx.HTTPStatusError as e:
-            raise TheBrainAPIError(f"HTTP {e.response.status_code}: {e.response.text}") from e
+            raise TheBrainAPIError(
+                _format_http_error("GET", f"/thoughts/{brain_id}?nameExact", e)
+            ) from e
         except Exception as e:
             raise TheBrainAPIError(f"Request failed: {str(e)}") from e
 
