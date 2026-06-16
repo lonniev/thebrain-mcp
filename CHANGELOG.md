@@ -3,6 +3,10 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+- feat: `update_thought` now accepts `new_parent_id`, so a single call can set any subset of {name, label, type, parent} on one thought. Reparenting reuses the morpher's link-surgery (replaces the existing parent link, does not add one). Removes the two-call dance (`morph_thought` + `update_thought`) for routine restructures like Kanban moves. One billable unit — single-thought scope. (Brain task 06e4610c)
+- docs: document `morph_thought` / `update_thought` reparent semantics in their tool descriptions — reparenting *replaces* the existing parent child-link (old deleted, new created); it does not add an additional parent. (Brain task 27deaf6f)
+
 ## [1.12.0] — 2026-06-13
 - fix: surface upstream TheBrain search 500s as self-describing errors — an empty-body upstream 5xx now names TheBrain's hosted API (api.bra.in) as the source instead of a bare "HTTP 500:"; search/name-resolution is proxied to TheBrain, so there is no local index to rebuild. (#161)
 - chore: track tollbooth-dpyc through 0.44.15 — SDK audit hardening (correctness fixes in 0.44.9/0.44.10; mypy + coverage gates). No wire-API changes.

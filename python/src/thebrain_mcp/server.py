@@ -461,9 +461,14 @@ async def update_thought(
     thought_id: str, brain_id: str | None = None, name: str | None = None,
     label: str | None = None, foreground_color: str | None = None,
     background_color: str | None = None, kind: int | None = None,
-    ac_type: int | None = None, type_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", proof: str = "",
+    ac_type: int | None = None, type_id: str | None = None,
+    new_parent_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", proof: str = "",
 ) -> dict[str, Any]:
-    """Update a thought's properties. Requires npub for credit billing.
+    """Update a thought's properties and/or its parent in one call. Requires npub for credit billing.
+
+    Sets any subset of {name, label, colors, kind, ac_type, type, parent} on a single
+    thought. Reparenting via ``new_parent_id`` *replaces* the existing parent link (the old
+    parent child-link is deleted and a new one created); it does not add an additional parent.
 
     Args:
         thought_id: The ID of the thought to update
@@ -475,12 +480,13 @@ async def update_thought(
         kind: New kind
         ac_type: New access type
         type_id: New type ID
+        new_parent_id: New parent thought ID (replaces all current parents)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.update_thought_tool(
         api, get_brain_id(brain_id, npub), thought_id, name, label,
-        foreground_color, background_color, kind, ac_type, type_id,
+        foreground_color, background_color, kind, ac_type, type_id, new_parent_id,
     )
 
 
@@ -911,10 +917,14 @@ async def morph_thought(
 ) -> dict[str, Any]:
     """Atomically reparent and/or retype a thought in one operation. Requires npub for credit billing.
 
+    Reparenting *replaces* the thought's existing parent link (the old parent child-link is
+    deleted and a new one created); it does not add an additional parent. To also set the
+    thought's name or label in the same call, use update_thought (which now accepts new_parent_id).
+
     Args:
         thought_id: The ID of the thought to morph
         brain_id: The ID of the brain (uses active brain if not specified)
-        new_parent_id: ID of the new parent thought
+        new_parent_id: ID of the new parent thought (replaces all current parents)
         new_type_id: ID of the new type to assign
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """

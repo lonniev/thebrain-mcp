@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
+from thebrain_mcp.tools.morpher import reparent_thought
 from thebrain_mcp.utils.formatters import (
     get_access_type_name,
     get_kind_name,
@@ -192,8 +193,15 @@ async def update_thought_tool(
     kind: int | None = None,
     ac_type: int | None = None,
     type_id: str | None = None,
+    new_parent_id: str | None = None,
 ) -> dict[str, Any]:
-    """Update a thought including its visual properties.
+    """Update a thought's scalar fields and/or its parent in a single call.
+
+    Sets any subset of {name, label, colors, kind, ac_type, type, parent}.
+    Reparenting reuses the morpher's link-surgery: it *replaces* the
+    thought's existing parent link (old parent child-link deleted, new one
+    created); it does not add an additional parent. Unspecified fields are
+    left untouched.
 
     Args:
         api: TheBrain API client
@@ -206,12 +214,13 @@ async def update_thought_tool(
         kind: New kind
         ac_type: New access type
         type_id: New type ID to assign
+        new_parent_id: New parent thought ID (replaces all current parents)
 
     Returns:
         Dictionary with success status and update details
     """
     try:
-        updates = {}
+        updates: dict[str, Any] = {}
 
         # Build update object with only provided fields
         if name is not None:
@@ -229,13 +238,23 @@ async def update_thought_tool(
         if type_id is not None:
             updates["typeId"] = type_id
 
-        await api.update_thought(brain_id, thought_id, updates)
+        if updates:
+            await api.update_thought(brain_id, thought_id, updates)
 
-        return {
+        result: dict[str, Any] = {
             "success": True,
             "message": f"Thought {thought_id} updated successfully",
             "updates": updates,
         }
+
+        # Reparent (optional) — reuse the morpher's link-surgery
+        if new_parent_id is not None:
+            graph = await api.get_thought_graph(brain_id, thought_id)
+            result["reparent"] = await reparent_thought(
+                api, brain_id, thought_id, new_parent_id, graph
+            )
+
+        return result
     except TheBrainAPIError as e:
         return {"success": False, "error": str(e)}
 
