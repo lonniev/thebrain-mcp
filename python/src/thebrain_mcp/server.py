@@ -818,6 +818,9 @@ async def create_or_update_note(
 ) -> dict[str, Any]:
     """Create or update a note with markdown content. Requires npub for credit billing.
 
+    Note style. Prefer plain prose. Reserve bold for rare critical flags only — a ⚠️ caution, an unconfirmed-status note — never for ordinary emphasis, labels, or whole clauses. Overusing bold buries the links and makes notes hard to scan; let thought-links and source links carry the visual emphasis. Put web sources on a quiet "Sources:" line rather than bolding labels like "TL;DR" or "Source".
+    Linking to other thoughts. To link from inside a note to another thought, write a wikilink: [[Thought Name]] or [[Thought Name|display text]]. The tool resolves it to the correct in-plex thought link automatically — do not hand-write brain:// URLs or paste GUIDs. If a name is ambiguous or not found, the tool leaves the [[...]] literal and returns it in unresolved; disambiguate by pinning the id with [[#<thoughtId>]]. For external web pages, use normal markdown links: [text](https://…).
+
     Args:
         thought_id: The ID of the thought
         markdown: Markdown content for the note
@@ -836,6 +839,9 @@ async def append_to_note(
     thought_id: str, markdown: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", proof: str = "",
 ) -> dict[str, Any]:
     """Append content to an existing note. Requires npub for credit billing.
+
+    Note style. Prefer plain prose. Reserve bold for rare critical flags only — a ⚠️ caution, an unconfirmed-status note — never for ordinary emphasis, labels, or whole clauses. Overusing bold buries the links and makes notes hard to scan; let thought-links and source links carry the visual emphasis. Put web sources on a quiet "Sources:" line rather than bolding labels like "TL;DR" or "Source".
+    Linking to other thoughts. To link from inside a note to another thought, write a wikilink: [[Thought Name]] or [[Thought Name|display text]]. The tool resolves it to the correct in-plex thought link automatically — do not hand-write brain:// URLs or paste GUIDs. If a name is ambiguous or not found, the tool leaves the [[...]] literal and returns it in unresolved; disambiguate by pinning the id with [[#<thoughtId>]]. For external web pages, use normal markdown links: [text](https://…).
 
     Args:
         thought_id: The ID of the thought

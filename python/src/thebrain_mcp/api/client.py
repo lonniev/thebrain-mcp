@@ -297,6 +297,34 @@ class TheBrainAPI:
         except Exception as e:
             raise TheBrainAPIError(f"Request failed: {str(e)}") from e
 
+    async def get_thoughts_by_name(self, brain_id: str, name_exact: str) -> list[Thought]:
+        """Get all thoughts matching the name exactly.
+
+        Like :meth:`get_thought_by_name` but returns the full match list (so
+        callers can detect ambiguity) instead of collapsing to the first match.
+        Returns an empty list if no thought matches (API returns 404).
+        """
+        _validate_uuid(brain_id, "brain_id")
+        try:
+            response = await self.client.request(
+                method="GET",
+                url=f"/thoughts/{brain_id}",
+                params={"nameExact": name_exact},
+            )
+            if response.status_code == 404:
+                return []
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list):
+                return [Thought.model_validate(t) for t in data]
+            return [Thought.model_validate(data)]
+        except httpx.HTTPStatusError as e:
+            raise TheBrainAPIError(
+                _format_http_error("GET", f"/thoughts/{brain_id}?nameExact", e)
+            ) from e
+        except Exception as e:
+            raise TheBrainAPIError(f"Request failed: {str(e)}") from e
+
     async def get_types(self, brain_id: str) -> list[Thought]:
         """Get all thought types."""
         _validate_uuid(brain_id, "brain_id")

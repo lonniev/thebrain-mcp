@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] — 2026-06-16
+
+### Added
+- Note-write tools (`create_or_update_note`, `append_to_note`) now auto-resolve wikilink-style thought references at write time. Write `[[Thought Name]]`, `[[Thought Name|Display]]`, or pin an exact target with `[[#<thoughtId>]]` (hyphenated GUID or compact id); the tool rewrites each to a correct bare two-segment `brain://` in-plex link. Agents no longer hand-author `brain://` URLs or paste raw GUIDs (which don't resolve in TheBrain and leave dead links). Name lookup uses the lag-free exact-name endpoint (`?nameExact`), not the full-text search index.
+- Unresolved tokens (no match, ambiguous, or upstream lookup failure) are left literal and returned in a structured `unresolved` list so the agent can disambiguate via `[[#<thoughtId>]]`. A write is never failed because a token didn't resolve. Tokens inside code fences/inline code and already-resolved links are left untouched (idempotent).
+- `TheBrainAPI.get_thoughts_by_name` — list-returning exact-name lookup (the existing `get_thought_by_name` collapses to the first match, which can't detect ambiguity).
+
+### Documentation
+- `create_or_update_note` and `append_to_note` tool descriptions now carry authoring guidance: prefer plain prose and reserve bold for rare critical flags; link to other thoughts with `[[wikilinks]]` rather than hand-written `brain://` URLs; use normal markdown links for external pages.
+
 ## [1.13.0] — 2026-06-16
 
 ### Added
