@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- chore: track `tollbooth-dpyc[nostr]` through 0.45.4 — SDK releases since 0.44.15 (deferred-courtship adoption in 0.45.0; refund-on-raise UX fix surfacing `ValueError` as `tool_input_invalid` in 0.45.3; 0.45.4). No wire-API changes.
+
+### Documentation
+- README: refreshed the DPYC ecosystem list to the full current roster (adds cypher-mcp, optionality-mcp, tollbooth-pricing-studio, taxsort-mcp, tollbooth-oauth2-collector, tollbooth-shortlinks).
+
 ## [1.14.0] — 2026-06-16
 
 ### Added

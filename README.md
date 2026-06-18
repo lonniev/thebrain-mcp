@@ -208,13 +208,20 @@ The author reserves all rights to seek patent protection for the novel methods a
 
 ## DPYC™ Ecosystem
 
-- [dpyc-community](https://github.com/lonniev/dpyc-community) — Registry + governance
-- [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc) — Python SDK for Tollbooth DPYC™ monetization
-- [tollbooth-authority](https://github.com/lonniev/tollbooth-authority) — Authority MCP service
-- [excalibur-mcp](https://github.com/lonniev/excalibur-mcp) — Twitter MCP service
-- [schwab-mcp](https://github.com/lonniev/schwab-mcp) — Schwab brokerage MCP service
-- [dpyc-oracle](https://github.com/lonniev/dpyc-oracle) — Community concierge
-- [tollbooth-sample](https://github.com/lonniev/tollbooth-sample) — Educational weather MCP (canonical reference for new operators)
+- [tollbooth-dpyc](https://github.com/lonniev/tollbooth-dpyc) — Python SDK (vault, auth, pricing, Lightning, Nostr identity)
+- [dpyc-community](https://github.com/lonniev/dpyc-community) — Governance registry: membership, advisories, threat model
+- [dpyc-oracle](https://github.com/lonniev/dpyc-oracle) — Community concierge (free onboarding + member lookup)
+- [tollbooth-authority](https://github.com/lonniev/tollbooth-authority) — Certification backbone (Schnorr-signed certificates)
+- [tollbooth-sample](https://github.com/lonniev/tollbooth-sample) — Sample Operator (canonical template)
+- [tollbooth-pricing-studio](https://github.com/lonniev/tollbooth-pricing-studio) — iOS pricing-model editor / operator console
+- [cypher-mcp](https://github.com/lonniev/cypher-mcp) — Monetized graph answers: named Cypher templates over Neo4j/AuraDB
+- [schwab-mcp](https://github.com/lonniev/schwab-mcp) — Charles Schwab brokerage data
+- [thebrain-mcp](https://github.com/lonniev/thebrain-mcp) — TheBrain personal knowledge graph
+- [excalibur-mcp](https://github.com/lonniev/excalibur-mcp) — X/Twitter posting
+- [taxsort-mcp](https://github.com/lonniev/taxsort-mcp) — Tax classification + Cloudflare Pages UI
+- [optionality-mcp](https://github.com/lonniev/optionality-mcp) — Options analytics (brokerage-data operator)
+- [tollbooth-oauth2-collector](https://github.com/lonniev/tollbooth-oauth2-collector) — OAuth2 callback handler (advocate service)
+- [tollbooth-shortlinks](https://github.com/lonniev/tollbooth-shortlinks) — URL shortener utility
 
 ## Further Reading
 
