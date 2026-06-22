@@ -31,7 +31,10 @@ async def create_thought_tool(
         api: TheBrain API client
         brain_id: The ID of the brain
         name: The name of the thought
-        kind: Kind of thought (1=Normal, 2=Type, 3=Event, 4=Tag, 5=System)
+        kind: Kind of thought to create — 1=Normal (default) or 2=Type.
+            Tags and Events are NOT created via kind (the API rejects those
+            values); model them as Normal thoughts carrying the appropriate
+            type_id from get_types (e.g. the "Event" type).
         label: Optional label for the thought
         foreground_color: Foreground color in hex format (e.g., "#ff0000")
         background_color: Background color in hex format (e.g., "#0000ff")
@@ -121,7 +124,7 @@ async def get_thought_by_name_tool(
                 "name": thought.name,
                 "label": thought.label,
                 "kind": thought.kind,
-                "kindName": get_kind_name(thought.kind),
+                "kindName": get_kind_name(thought.kind, thought.kind_name),
                 "typeId": thought.type_id,
                 "foregroundColor": thought.foreground_color,
                 "backgroundColor": thought.background_color,
@@ -162,7 +165,7 @@ async def get_thought_tool(api: TheBrainAPI, brain_id: str, thought_id: str) -> 
                 "name": thought.name,
                 "label": thought.label,
                 "kind": thought.kind,
-                "kindName": get_kind_name(thought.kind),
+                "kindName": get_kind_name(thought.kind, thought.kind_name),
                 "typeId": thought.type_id,
                 "foregroundColor": thought.foreground_color,
                 "backgroundColor": thought.background_color,
@@ -348,7 +351,7 @@ async def get_thought_graph_tool(
                 "name": thought.name,
                 "label": thought.label,
                 "kind": thought.kind,
-                "kindName": get_kind_name(thought.kind),
+                "kindName": get_kind_name(thought.kind, thought.kind_name),
                 "foregroundColor": thought.foreground_color,
                 "backgroundColor": thought.background_color,
             }
@@ -417,7 +420,7 @@ async def get_types_tool(api: TheBrainAPI, brain_id: str) -> dict[str, Any]:
                     "name": t.name,
                     "label": t.label,
                     "kind": t.kind,
-                    "kindName": get_kind_name(t.kind),
+                    "kindName": get_kind_name(t.kind, t.kind_name),
                     "foregroundColor": t.foreground_color,
                     "backgroundColor": t.background_color,
                 }
@@ -449,7 +452,7 @@ async def get_tags_tool(api: TheBrainAPI, brain_id: str) -> dict[str, Any]:
                     "name": t.name,
                     "label": t.label,
                     "kind": t.kind,
-                    "kindName": get_kind_name(t.kind),
+                    "kindName": get_kind_name(t.kind, t.kind_name),
                     "foregroundColor": t.foreground_color,
                     "backgroundColor": t.background_color,
                 }
@@ -497,7 +500,7 @@ def _collect_related_thoughts(graph: Any, relation_filter: str | None) -> list[d
                 "name": t.name,
                 "label": t.label,
                 "kind": t.kind,
-                "kindName": get_kind_name(t.kind),
+                "kindName": get_kind_name(t.kind, t.kind_name),
                 "relation": relation_label,
                 "modificationDateTime": (
                     t.modification_date_time.isoformat()

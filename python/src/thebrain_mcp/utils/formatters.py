@@ -14,8 +14,16 @@ from thebrain_mcp.utils.constants import (
 )
 
 
-def get_kind_name(kind: int) -> str:
-    """Get human-readable name for thought kind."""
+def get_kind_name(kind: int, kind_name: str | None = None) -> str:
+    """Get human-readable name for thought kind.
+
+    Prefers the authoritative ``kindName`` returned by TheBrain's API when
+    available — the local ``ThoughtKind`` enum is only a fallback for callers
+    that have a raw kind int but no API-supplied name (e.g. echoing back the
+    kind a caller just asked to create).
+    """
+    if kind_name:
+        return kind_name
     try:
         return ThoughtKind(kind).name.title()
     except ValueError:

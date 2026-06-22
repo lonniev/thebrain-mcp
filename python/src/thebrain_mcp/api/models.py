@@ -22,6 +22,7 @@ class Thought(BaseModel):
     name: str
     label: str | None = None
     kind: int
+    kind_name: str | None = Field(None, alias="kindName")
     type_id: str | None = Field(None, alias="typeId")
     foreground_color: str | None = Field(None, alias="foregroundColor")
     background_color: str | None = Field(None, alias="backgroundColor")

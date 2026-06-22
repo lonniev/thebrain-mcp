@@ -5,8 +5,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.15.0] — 2026-06-22
+
+### Fixed — Event/Person modeled as thought *types*, not creatable Kinds
+- `event_for_person` now resolves **both** the Person and Event thought *types* from the brain's type system (`_find_person_type_id` generalized to `_find_type_id(name)`). In TheBrain, "Person"/"Event" are Kind=Type thoughts applied to Normal thoughts via `typeId` — they are **not** distinct creatable Kinds (the create-thought API accepts only Normal/Type), so a domain object is always a Normal thought wearing a type.
+- Human-readable kind labels are now taken from TheBrain's authoritative `kindName` API field when present; the local `ThoughtKind` enum (whose 3/4/5 values are an unverified best-effort fallback) is used only when no API name is available. `Thought` gained a `kind_name` field (alias `kindName`); `get_kind_name(kind, kind_name=None)` prefers it; all `get_thought*/get_types/get_tags/graph` call sites pass it through.
+- `create_thought` docstring corrected: `kind` is 1=Normal or 2=Type only; Tags/Events are modeled as Normal thoughts carrying the appropriate `type_id`, not via a kind value the API rejects.
+
+### Fixed — version reporting
+- `service_status` now reports the real package version: `__version__` derives from `pyproject [project].version` via installed metadata with a from-source `pyproject.toml` fallback (was `service_version=""`, so service_status reported an empty version). One source of truth — `/release` bumping pyproject is the only lever.
+
 ### Changed
-- chore: track `tollbooth-dpyc[nostr]` through 0.45.4 — SDK releases since 0.44.15 (deferred-courtship adoption in 0.45.0; refund-on-raise UX fix surfacing `ValueError` as `tool_input_invalid` in 0.45.3; 0.45.4). No wire-API changes.
+- chore: track `tollbooth-dpyc[nostr]` through **0.52.1** — parallel Nostr profile relay I/O (0.52.1); vault_source/purchase_mode decoupling (0.52.0, non-breaking for this operator's defaults); and SDK releases since 0.44.15 (deferred-courtship adoption 0.45.0; refund-on-raise UX 0.45.3; NIP-33 bootstrap switchover 0.49.0; merge-on-receive credentials 0.50.0; kind-0 profile tools 0.51.0). No wire-API changes here.
 
 ### Documentation
 - README: refreshed the DPYC ecosystem list to the full current roster (adds cypher-mcp, optionality-mcp, tollbooth-pricing-studio, taxsort-mcp, tollbooth-oauth2-collector, tollbooth-shortlinks).

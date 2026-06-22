@@ -15,6 +15,7 @@ from tollbooth.credential_templates import CredentialTemplate, FieldSpec
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
 from tollbooth.tool_identity import STANDARD_IDENTITIES, capability_uuid
 
+from thebrain_mcp import __version__
 from thebrain_mcp.api.client import TheBrainAPI
 from thebrain_mcp.config import get_settings
 from thebrain_mcp.tools import (
@@ -177,7 +178,7 @@ tool = register_standard_tools(
     "brain",
     runtime,
     service_name="thebrain-mcp",
-    service_version="",
+    service_version=__version__,
 )
 
 
@@ -405,7 +406,10 @@ async def create_thought(
     Args:
         name: The name of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
-        kind: Kind of thought (1=Normal, 2=Type, 3=Event, 4=Tag, 5=System)
+        kind: Kind of thought to create — 1=Normal (default) or 2=Type.
+            Tags and Events are NOT created via kind (the API rejects those
+            values); model them as Normal thoughts carrying the appropriate
+            type_id from get_types (e.g. the "Event" type).
         label: Optional label for the thought
         foreground_color: Foreground color in hex format (e.g., "#ff0000")
         background_color: Background color in hex format (e.g., "#0000ff")

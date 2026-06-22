@@ -22,11 +22,20 @@ def _parse_date(date_str: str) -> tuple[int, str, int]:
     return dt.year, dt.strftime("%B"), dt.day
 
 
-async def _find_person_type_id(api: TheBrainAPI, brain_id: str) -> str | None:
-    """Find the Person type ID from the brain's type list."""
+async def _find_type_id(
+    api: TheBrainAPI, brain_id: str, type_name: str
+) -> str | None:
+    """Find a thought type's ID by name from the brain's type list.
+
+    In TheBrain, concepts like "Person" and "Event" are thought *types*
+    (Kind=Type thoughts), applied to Normal thoughts via ``typeId`` — not
+    distinct thought Kinds. The create-thought API only accepts Normal/Type
+    kinds, so a domain object is always a Normal thought wearing a type.
+    """
     types = await api.get_types(brain_id)
+    target = type_name.lower()
     for t in types:
-        if t.name.lower() == "person":
+        if t.name.lower() == target:
             return t.id
     return None
 
@@ -196,9 +205,10 @@ async def event_for_person_tool(
     except TheBrainAPIError as e:
         return {"success": False, "error": str(e)}
 
-    # Step 2 — Resolve Person
+    # Step 2 — Resolve Person and Event types from the brain's type system
     try:
-        person_type_id = await _find_person_type_id(api, brain_id)
+        person_type_id = await _find_type_id(api, brain_id, "person")
+        event_type_id = await _find_type_id(api, brain_id, "event")
     except TheBrainAPIError as e:
         return {"success": False, "error": f"Failed to fetch types: {e}"}
 
@@ -223,11 +233,14 @@ async def event_for_person_tool(
     resolved_event_name = event_name or f"Event with {person_name}"
     structured_name = f"{year},{month_name},{day:02d}, {resolved_event_name}, {person_name}"
 
+    event_data: dict[str, Any] = {
+        "name": structured_name,
+        "kind": ThoughtKind.NORMAL,
+    }
+    if event_type_id:
+        event_data["typeId"] = event_type_id
     try:
-        event_result = await api.create_thought(brain_id, {
-            "name": structured_name,
-            "kind": ThoughtKind.EVENT,
-        })
+        event_result = await api.create_thought(brain_id, event_data)
         event_id = event_result["id"]
     except TheBrainAPIError as e:
         return {"success": False, "error": f"Event creation failed: {e}"}
@@ -259,6 +272,7 @@ async def event_for_person_tool(
         "success": True,
         "event_id": event_id,
         "event_name": structured_name,
+        "event_typed": event_type_id is not None,
         "person_id": person_id,
         "person_name": person_name,
         "person_created": person_created,

@@ -4,7 +4,15 @@ from enum import IntEnum
 
 
 class ThoughtKind(IntEnum):
-    """Thought kinds in TheBrain."""
+    """Thought kinds in TheBrain.
+
+    NORMAL and TYPE are used in logic and are authoritative. The 3/4/5
+    values are a best-effort *fallback* only: human-readable kind labels
+    come from the API's ``kindName`` field (see ``get_kind_name``), which
+    is canonical. Do not rely on the 3/4/5 names here without confirming
+    against the live API — they are believed to be Tag=3, Event=4,
+    SuperType=5 but have not been verified end-to-end.
+    """
 
     NORMAL = 1
     TYPE = 2

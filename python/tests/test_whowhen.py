@@ -7,7 +7,7 @@ import pytest
 from thebrain_mcp.api.client import TheBrainAPIError
 from thebrain_mcp.api.models import Brain, SearchResult, Thought
 from thebrain_mcp.tools.whowhen import (
-    _find_person_type_id,
+    _find_type_id,
     _parse_date,
     _resolve_day,
     _resolve_person,
@@ -18,6 +18,7 @@ from thebrain_mcp.utils.constants import RelationType, ThoughtKind
 BRAIN = "brain-00000000-0000-0000-0000-000000000000"
 HOME = "home-00000000-0000-0000-0000-000000000000"
 PERSON_TYPE = "ptype-0000-0000-0000-0000-000000000000"
+EVENT_TYPE = "etype-0000-0000-0000-0000-000000000000"
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ def _mock_api() -> AsyncMock:
     api.get_brain = AsyncMock(return_value=_brain())
     api.get_types = AsyncMock(return_value=[
         _thought(PERSON_TYPE, "Person", kind=2),
+        _thought(EVENT_TYPE, "Event", kind=2),
         _thought("org-type", "Organization", kind=2),
     ])
     api.get_thought_by_name = AsyncMock(return_value=None)
@@ -178,24 +180,30 @@ class TestPersonResolution:
 
 
 # ---------------------------------------------------------------------------
-# TestFindPersonTypeId
+# TestFindTypeId
 # ---------------------------------------------------------------------------
 
 
-class TestFindPersonTypeId:
+class TestFindTypeId:
     @pytest.mark.asyncio
     async def test_finds_person_type(self):
         api = _mock_api()
-        result = await _find_person_type_id(api, BRAIN)
+        result = await _find_type_id(api, BRAIN, "person")
         assert result == PERSON_TYPE
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_no_person_type(self):
+    async def test_finds_event_type_case_insensitive(self):
+        api = _mock_api()
+        result = await _find_type_id(api, BRAIN, "EVENT")
+        assert result == EVENT_TYPE
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_type_absent(self):
         api = _mock_api()
         api.get_types = AsyncMock(return_value=[
             _thought("org-type", "Organization", kind=2),
         ])
-        result = await _find_person_type_id(api, BRAIN)
+        result = await _find_type_id(api, BRAIN, "person")
         assert result is None
 
 
@@ -366,7 +374,9 @@ class TestEventCreation:
         )
 
     @pytest.mark.asyncio
-    async def test_event_thought_uses_event_kind(self):
+    async def test_event_is_normal_thought_with_event_type(self):
+        """Event is a Normal thought wearing the Event typeId — not a special
+        Kind. TheBrain's create-thought API rejects Kind=Event/Tag outright."""
         api = _mock_api()
         sarah = _thought("sarah-id", "Sarah Smith", type_id=PERSON_TYPE)
         api.search_thoughts = AsyncMock(return_value=[_search_result(sarah)])
@@ -374,12 +384,36 @@ class TestEventCreation:
         api.get_thought_by_name = AsyncMock(return_value=day)
         api.create_thought = AsyncMock(return_value={"id": "event-id"})
 
-        await event_for_person_tool(
+        result = await event_for_person_tool(
             api, BRAIN, "2026-03-01", "Sarah Smith", event_name="Test"
         )
 
         create_data = api.create_thought.call_args[0][1]
-        assert create_data["kind"] == ThoughtKind.EVENT
+        assert create_data["kind"] == ThoughtKind.NORMAL
+        assert create_data["typeId"] == EVENT_TYPE
+        assert result["event_typed"] is True
+
+    @pytest.mark.asyncio
+    async def test_event_created_untyped_when_event_type_absent(self):
+        """No Event type in the brain — still creates a Normal thought, no typeId."""
+        api = _mock_api()
+        api.get_types = AsyncMock(return_value=[
+            _thought(PERSON_TYPE, "Person", kind=2),
+        ])
+        sarah = _thought("sarah-id", "Sarah Smith", type_id=PERSON_TYPE)
+        api.search_thoughts = AsyncMock(return_value=[_search_result(sarah)])
+        day = _thought("day-id", "1, March, 2026")
+        api.get_thought_by_name = AsyncMock(return_value=day)
+        api.create_thought = AsyncMock(return_value={"id": "event-id"})
+
+        result = await event_for_person_tool(
+            api, BRAIN, "2026-03-01", "Sarah Smith", event_name="Test"
+        )
+
+        create_data = api.create_thought.call_args[0][1]
+        assert create_data["kind"] == ThoughtKind.NORMAL
+        assert "typeId" not in create_data
+        assert result["event_typed"] is False
 
 
 # ---------------------------------------------------------------------------

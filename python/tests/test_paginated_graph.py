@@ -22,6 +22,7 @@ class MockThought:
         self.name = name
         self.label = None
         self.kind = 1
+        self.kind_name = "Normal"
         self.modification_date_time = mod_dt
         self.foreground_color = None
         self.background_color = None
