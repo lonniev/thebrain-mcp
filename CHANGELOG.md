@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-06-29
+
+### Changed — BREAKING: identity-proof param `proof` → `dpop_token`
+- All paid tools that accepted an identity-proof argument now declare `dpop_token: str` instead of `proof: str`, in lockstep with **tollbooth-dpyc 0.57.0**, which unified the Secure Courier possession token under the single name `dpop_token` (retiring `proof_token`, `poison`, and the `proof` tool parameter). The SDK's `paid_tool` decorator now extracts `kwargs["dpop_token"]`; a tool still declaring `proof` would fail every paid call with `proof_required`. No backward-compat shims.
+- Secure Courier onboarding instructions/docstrings updated: `receive_credentials(..., dpop_token=<session phrase>)` (was `poison=`).
+- Pin bumped `tollbooth-dpyc[nostr]==0.53.1` → `==0.57.0`; `uv.lock` regenerated.
+
 ## [1.15.0] — 2026-06-22
 
 ### Fixed — Event/Person modeled as thought *types*, not creatable Kinds

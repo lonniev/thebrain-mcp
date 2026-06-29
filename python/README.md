@@ -299,7 +299,7 @@ Users deliver their TheBrain API credentials via encrypted Nostr DMs — credent
 
 Returning users just call `receive_credentials(sender_npub=<patron_npub>)` — vault-first lookup activates instantly, no relay I/O needed. The Secure Courier is provided by [Tollbooth DPYC™](https://github.com/lonniev/tollbooth-dpyc) — thebrain-mcp doesn't manage auth internally.
 
-> **Note:** All tools that accept an `npub` parameter also require a `proof: str` parameter for identity verification.
+> **Note:** All tools that accept an `npub` parameter also require a `dpop_token: str` parameter for identity verification.
 
 ## Development
 
