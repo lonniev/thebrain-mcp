@@ -312,12 +312,14 @@ class TestRestoreCredits:
         """restore_credits won't double-credit an already-credited invoice."""
         from thebrain_mcp.tools.credits import restore_credits_tool
 
-        cache = _make_cache()
-        # Pre-credit the invoice
-        ledger = await cache.get("user-1")
+        # Restore reads fresh from the vault, so pre-credit the invoice THERE
+        # (seeding only the in-memory cache is discarded by the fresh reload).
+        ledger = UserLedger(credited_invoices=["inv-1"])
         ledger.credit_deposit(1000, "inv-1")
-        cache.mark_dirty("user-1")
-        cache._vault.store_ledger.reset_mock()
+        vault = AsyncMock()
+        vault.fetch_ledger = AsyncMock(return_value=ledger.to_json())
+        vault.store_ledger = AsyncMock()
+        cache = LedgerCache(vault)
 
         btcpay = _mock_btcpay({"id": "inv-1", "status": "Settled", "amount": "1000"})
         result = await restore_credits_tool(btcpay, cache, "user-1", "inv-1")

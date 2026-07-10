@@ -34,9 +34,20 @@ def _mock_btcpay(invoice_response: dict | None = None, error: Exception | None =
 
 def _mock_cache(ledger: UserLedger | None = None):
     cache = AsyncMock(spec=LedgerCache)
-    cache.get = AsyncMock(return_value=ledger or UserLedger())
+    led = ledger or UserLedger()
+    cache.get = AsyncMock(return_value=led)
+    # 0.62.0 credit paths read fresh; 0.62.1 settlement is a CAS write-through.
+    cache.get_fresh = AsyncMock(return_value=led)
     cache.mark_dirty = MagicMock()
     cache.flush_user = AsyncMock(return_value=True)
+
+    # mutate(user_id, fn) applies fn to the definitive ledger and returns its
+    # result — simulate against the real UserLedger so credit/tranche assertions
+    # still exercise ledger logic.
+    async def _apply(user_id, fn):
+        return fn(led)
+
+    cache.mutate = AsyncMock(side_effect=_apply)
     return cache
 
 

@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.16.1] — 2026-07-09
+
+### Changed
+- Pin bumped `tollbooth-dpyc[nostr]==0.62.0` → `==0.62.1` (security-hardening batch — invoice-owner check on credit settlement, AES-256-GCM credential vault, encrypted self-provisioning ledger, no plaintext audit); `uv.lock` regenerated.
+
 ## [1.16.0] — 2026-06-29
 
 ### Changed — BREAKING: identity-proof param `proof` → `dpop_token`

@@ -129,8 +129,16 @@ def _mock_btcpay(invoice_response: dict | None = None, error: Exception | None =
 def _mock_cache(ledger: UserLedger | None = None):
     """Create a mock LedgerCache."""
     cache = AsyncMock(spec=LedgerCache)
-    cache.get = AsyncMock(return_value=ledger or UserLedger())
+    led = ledger or UserLedger()
+    cache.get = AsyncMock(return_value=led)
+    # 0.62.0 credit paths read fresh; 0.62.1 settlement is a CAS write-through.
+    cache.get_fresh = AsyncMock(return_value=led)
     cache.mark_dirty = MagicMock()  # sync method, not async
+
+    async def _apply(user_id, fn):
+        return fn(led)
+
+    cache.mutate = AsyncMock(side_effect=_apply)
     return cache
 
 
@@ -317,7 +325,7 @@ class TestCheckPayment:
         assert result["credits_granted"] == 1000
         assert result["balance_api_sats"] == 1000
         assert "inv-1" not in ledger.pending_invoices
-        cache.mark_dirty.assert_called()
+        cache.mutate.assert_called()
 
     @pytest.mark.asyncio
     async def test_settled_creates_tranche(self) -> None:
