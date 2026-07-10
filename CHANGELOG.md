@@ -5,6 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.16.2] — 2026-07-10
+
+### Removed
+- Dropped 4 dead re-export shims (`ledger.py`, `ledger_cache.py`, `btcpay_client.py`, `tools/credits.py`) — each was a pure `from tollbooth.X import *` backward-compat shim with no real consumer.
+- Removed 7 vendored test files (`test_credit_tools`, `test_invoice_persistence`, `test_ledger_durability`, `test_ledger_hardening`, `test_ledger_cache`, `test_ledger`, `test_btcpay_client`) that tested **SDK-owned** code, not thebrain's. They rotted on every SDK change. The SDK now owns that coverage (equivalents already present or relocated into `tollbooth-dpyc`), so testing responsibility lives where the code lives.
+
 ## [1.16.1] — 2026-07-09
 
 ### Changed
