@@ -19,8 +19,8 @@ jobs:
     uses: lonniev/dpyc-community/.github/workflows/deploy-verify.yml@main
     secrets: inherit
     with:
-      # This service predates the fleet and deploys at personal-brain.fastmcp.app (derived from
-      # the original TheBrain "thebrain-mcp"), NOT the kin pattern <repo>.fastmcp.app. TEMPORARY
-      # override until the deployment is renamed to thebrain-mcp.fastmcp.app to match its kin;
-      # remove this `with:` block once that migration lands.
+      # This service predates the fleet and deploys at personal-brain.fastmcp.app. TEMPORARY
+      # override until the deployment is renamed to personalbrain-mcp.fastmcp.app — the intended
+      # name (NOT "thebrain-mcp", which is the vendor's trademark and is being retired from our
+      # public identity). Remove this `with:` block once that migration lands.
       service_url: https://personal-brain.fastmcp.app/mcp
