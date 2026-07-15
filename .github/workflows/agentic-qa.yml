@@ -1,0 +1,25 @@
+# Thin caller — Role 3 (QA). Reviews only the Engineering agent's own PRs
+# (same-repo branch agent/fix-*). Uses pull_request (never pull_request_target):
+# GitHub withholds secrets from fork PRs, so a stranger's PR can't run QA or reach
+# the nsec/App token — the load-bearing fork-secrets property. Doctrine-enforced by
+# the doctrine linter's pull_request_target ban.
+name: Agentic QA
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'agent/fix-')
+    uses: lonniev/dpyc-community/.github/workflows/qa.yml@main
+    secrets: inherit
+    with:
+      model: claude-opus-4-8
