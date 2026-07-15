@@ -1,0 +1,20 @@
+# Thin caller — post-merge deploy verification. Logic lives once in dpyc-community.
+# Distributed ONLY to MCP operators (repos with a live Horizon service), NOT via the generic
+# sync-factory-callers.sh (which fans out to every repo). On each merge to main it confirms the
+# operator's live service actually redeployed the new sha; a stale/broken deploy opens agent/fix.
+# For a custom domain, pass `with: { service_url: https://host/mcp }`.
+name: Agentic Deploy Verify
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  verify:
+    uses: lonniev/dpyc-community/.github/workflows/deploy-verify.yml@main
+    secrets: inherit
