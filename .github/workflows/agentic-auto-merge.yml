@@ -1,0 +1,16 @@
+# Thin caller — path-gated auto-merge. Fires when QA applies qa/pass.
+name: Agentic Auto-merge
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    if: github.event.label.name == 'qa/pass'
+    uses: lonniev/dpyc-community/.github/workflows/auto-merge.yml@main
+    secrets: inherit

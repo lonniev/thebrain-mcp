@@ -1,0 +1,33 @@
+# Thin caller — PR Dialogue. Fires when a reviewer mentions @journeyman in a PR
+# comment or review, so the Journeyman can answer the bench's question on the record.
+name: Agentic PR Dialogue
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  answer:
+    # Only on PRs, only when the Journeyman is summoned, and never on the bot's own
+    # comments — that last guard is what stops an answer from re-triggering the workflow.
+    if: >-
+      github.event.sender.login != 'dpyc-agentic-desk[bot]' &&
+      (
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '@journeyman')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@journeyman')) ||
+        (github.event_name == 'pull_request_review' && github.event.review.body != null && contains(github.event.review.body, '@journeyman'))
+      )
+    uses: lonniev/dpyc-community/.github/workflows/pr-dialogue.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.issue.number || github.event.pull_request.number }}
+      model: claude-opus-4-8

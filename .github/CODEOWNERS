@@ -1,0 +1,7 @@
+# Money-path human gate. Every source/config change requires @lonniev review
+# (CODEOWNERS + branch protection); the agentic Journeyman may open PRs but nothing
+# lands without you. Only tests and docs are uncovered, so path-gated auto-merge
+# can land those unattended.
+* @lonniev
+/tests/
+*.md

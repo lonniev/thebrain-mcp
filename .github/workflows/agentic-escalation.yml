@@ -1,0 +1,15 @@
+# Thin caller — cross-repo escalation. Fires when an agent labels an issue blocked/upstream.
+name: Agentic Escalation
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+
+jobs:
+  escalate:
+    if: github.event.label.name == 'blocked/upstream'
+    uses: lonniev/dpyc-community/.github/workflows/escalation.yml@main
+    secrets: inherit

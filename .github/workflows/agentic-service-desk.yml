@@ -1,0 +1,17 @@
+# Thin caller — Role 1 (Service Desk). Logic lives once in dpyc-community.
+name: Agentic Service Desk
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    uses: lonniev/dpyc-community/.github/workflows/service-desk.yml@main
+    secrets: inherit
+    with:
+      model: claude-sonnet-5
