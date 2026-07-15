@@ -1,0 +1,18 @@
+# Thin caller — merge on approval. Logic lives once in dpyc-community.
+# When the repo owner approves a PR, GitHub native auto-merge is enabled and the PR lands
+# once branch protection is satisfied (required checks green + code-owner review). Safe by
+# construction: --auto never merges on a red check.
+name: Agentic Merge on Approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  merge:
+    uses: lonniev/dpyc-community/.github/workflows/approval-merge.yml@main
+    secrets: inherit
