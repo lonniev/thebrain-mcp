@@ -1,6 +1,6 @@
 {
   "name": "Personal Brain",
-  "server": "python/src/thebrain_mcp/server.py",
+  "server": "src/thebrain_mcp/server.py",
   "deployment": {
     "env": {
       "TOLLBOOTH_NOSTR_OPERATOR_NSEC": "${TOLLBOOTH_NOSTR_OPERATOR_NSEC}"

@@ -2,8 +2,9 @@ name: personal-brain
 version: 1.1.0
 description: TheBrain MCP Server - FastMCP Python implementation
 
-# No workdir needed - we're already in the python directory
-# Installation command
+# Package now lives at the repo root (de-nested from python/) — `pip install -e .` and the
+# module invocation below both resolve from root. NOTE: fastmcp.json is the primary deploy
+# config; this legacy .fastmcp.yaml is kept in sync until confirmed unused, then removable.
 install: pip install -e .
 
 # Command to run the server
