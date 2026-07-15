@@ -86,7 +86,7 @@ MATCH (p {name: "Ideas"}) CREATE (p)-[:CHILD]->(n {name: "New Concept"})
 MATCH (root {name: "Company"})-[:CHILD*1..3]->(d) WHERE d.name CONTAINS "Budget" RETURN d
 ```
 
-Variable-length paths, multi-hop chains, compound `WHERE` with `AND`/`OR`/`NOT`/`XOR`, similarity search, and property existence checks. Full grammar in [python/BRAINQUERY.md](python/BRAINQUERY.md).
+Variable-length paths, multi-hop chains, compound `WHERE` with `AND`/`OR`/`NOT`/`XOR`, similarity search, and property existence checks. Full grammar in [BRAINQUERY.md](BRAINQUERY.md).
 
 ## Troubleshooting
 
@@ -104,7 +104,7 @@ When a tool call fails, **read the response** — it tells you what happened and
 
 ## Self-Hosting
 
-For local installation, configuration, and the full tool reference, see [python/README.md](python/README.md).
+For local installation and setup, see [INSTALL.md](INSTALL.md) and [QUICKSTART.md](QUICKSTART.md).
 
 To run your own instance, set these environment variables:
 
@@ -172,13 +172,13 @@ See the [Three-Party Protocol diagram](https://github.com/lonniev/tollbooth-auth
 
 ```
 thebrain-mcp/
-├── python/                  # FastMCP server package
-│   ├── src/thebrain_mcp/    # Server source, BQL engine, Tollbooth
-│   ├── tests/               # Test suite (525+ tests)
-│   ├── README.md            # Install, config, tools, usage
-│   └── BRAINQUERY.md        # BQL grammar and reference
-├── docs/
-│   └── diagrams/            # Architecture and protocol flow diagrams
+├── src/thebrain_mcp/        # Server source, BQL engine, Tollbooth
+├── tests/                   # Test suite (525+ tests)
+├── fastmcp.json             # FastMCP Cloud deploy entrypoint (src/thebrain_mcp/server.py)
+├── pyproject.toml           # Package metadata and dependencies
+├── BRAINQUERY.md            # BQL grammar and reference
+├── INSTALL.md / QUICKSTART.md  # Local install and setup
+├── docs/diagrams/           # Architecture and protocol flow diagrams
 ├── LICENSE                  # Apache License 2.0
 └── NOTICE                   # Attribution notice
 ```

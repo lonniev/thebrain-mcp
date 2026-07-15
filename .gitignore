@@ -13,11 +13,13 @@ venv/
 .env.local
 .env.*.local
 
-# Test / coverage
+# Test / coverage / linters
 .pytest_cache/
 .coverage
 htmlcov/
 coverage/
+.ruff_cache/
+.mypy_cache/
 
 # Claude Code
 .claude/
