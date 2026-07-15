@@ -5,6 +5,7 @@ pydantic>=2.0.0
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
 
-# Install the package itself from GitHub
-# (FastMCP Cloud should run this from the python/ directory)
-git+https://github.com/lonniev/thebrain-mcp.git#subdirectory=python
+# Install this package (root pyproject.toml declares the FULL dependency set — incl. lark,
+# cachetools, tollbooth-dpyc, python-dateutil — so this line is load-bearing, not just the
+# partial list above). The package now lives at the repo root (de-nested from python/).
+-e .
