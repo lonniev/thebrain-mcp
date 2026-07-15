@@ -1,1 +1,1 @@
-# redeploy: 2026-04-14T21:02:01Z — retry after PyPI 503
+# redeploy: 2026-07-15T00:00:00Z — clear stale wheel, land 25e7e8cd (#172)
