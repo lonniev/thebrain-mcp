@@ -1,0 +1,21 @@
+# Thin caller — Housekeeper (backlog hygiene). Runs on a daily SCHEDULE, deliberately
+# separate from Porter's per-issue triage so triage stays bounded. workflow_dispatch
+# lets a human run a sweep on demand. All logic lives in the reusable (dpyc-community @main).
+name: Agentic Housekeeper
+
+on:
+  schedule:
+    - cron: "17 13 * * *"   # daily ~13:17 UTC; offset minute to dodge top-of-hour cron congestion
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  tidy:
+    uses: lonniev/dpyc-community/.github/workflows/housekeeper.yml@main
+    secrets: inherit
+    with:
+      model: claude-sonnet-5
