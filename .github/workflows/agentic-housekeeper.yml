@@ -5,7 +5,7 @@ name: Agentic Housekeeper
 
 on:
   schedule:
-    - cron: "17 13 * * *"   # daily ~13:17 UTC; offset minute to dodge top-of-hour cron congestion
+    - cron: "17 13 * * 1"   # weekly, Mondays ~13:17 UTC; low fleet churn makes daily unnecessary
   workflow_dispatch:
 
 permissions:
