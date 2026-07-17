@@ -3,7 +3,10 @@ name: Agentic Service Desk
 
 on:
   issues:
-    types: [opened, reopened]
+    # opened/reopened: normal intake. labeled: the credit canary re-fires Porter
+    # on recovery by adding agent/retriage — the guard below keeps it from looping
+    # on Porter's OWN type/sev/area labels.
+    types: [opened, reopened, labeled]
 
 permissions:
   contents: read
@@ -11,6 +14,7 @@ permissions:
 
 jobs:
   triage:
+    if: ${{ github.event.action != 'labeled' || github.event.label.name == 'agent/retriage' }}
     uses: lonniev/dpyc-community/.github/workflows/service-desk.yml@main
     secrets: inherit
     with:
