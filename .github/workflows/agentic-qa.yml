@@ -7,7 +7,10 @@ name: Agentic QA
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # labeled: the credit canary re-fires QA on recovery by adding agent/retriage to a
+    # PR that was deferred during an outage. The guard below keeps QA from re-running on
+    # its OWN qa/pass|qa/flag labels.
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
@@ -18,7 +21,8 @@ jobs:
   review:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'agent/fix-')
+      startsWith(github.event.pull_request.head.ref, 'agent/fix-') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'agent/retriage')
     uses: lonniev/dpyc-community/.github/workflows/qa.yml@main
     secrets: inherit
     with:
