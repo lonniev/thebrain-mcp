@@ -69,11 +69,22 @@ mcp = FastMCP(
         "This server provides both a high-level query language (BrainQuery/BQL via brain_query) "
         "and low-level tools for direct API access. Use them together:\n\n"
         "1. brain_query (BQL) — primary tool for pattern-based CRUD.\n"
-        "2. get_thought_by_name — fast exact-name lookup\n"
-        "3. search_thoughts — full-text keyword search\n"
-        "4. get_thought_graph / get_thought_graph_paginated — traverse connections\n"
+        "2. get_thought_by_name — fast exact-name lookup (⚠️ index-backed, misses are not proof of absence)\n"
+        "3. search_thoughts — full-text keyword search (⚠️ index-backed, incomplete on large brains)\n"
+        "4. get_thought_graph / get_thought_graph_paginated — traverse connections (⚠️ cached, stale for recent writes)\n"
         "5. create_or_update_note, append_to_note, list_attachments — note/attachment ops\n"
         "6. create_thought, create_link, etc. — direct CRUD\n\n"
+        "## Endpoint Authority (read-after-write)\n\n"
+        "The vendor splits reads across two stores that can disagree. Choose by whether you "
+        "need the truth right now:\n"
+        "- **Authoritative / fresh:** get_thought (by ID) and the write tools' own responses "
+        "read the command store — use these to VERIFY any mutation you just made.\n"
+        "- **Cached / lagging:** get_thought_graph(_paginated) is fronted by an Azure response "
+        "cache that reflects creates but lags updates/deletes by hours-to-days (it can even "
+        "return deleted thoughts). get_thought_by_name and search_thoughts are backed by an "
+        "incomplete search index. Treat all three as fast lookups of established structure and "
+        "older IDs — NEVER as confirmation of a recent change, and never infer a thought is "
+        "absent from an empty name/search result. Confirm by ID with get_thought instead.\n\n"
         "## Full UUIDs Required\n\n"
         "TheBrain API requires full UUIDs (36 characters) for all thought and link IDs.\n\n"
         "## Low-Balance Warning\n\n"
@@ -448,6 +459,12 @@ async def get_thought_by_name(
 ) -> dict[str, Any]:
     """Exact name lookup — returns the first thought matching the name exactly. Requires npub for credit billing.
 
+    ⚠️ NOT AUTHORITATIVE. Backed by the vendor's name index, which is known to be
+    incomplete on large brains (upstream: TheBrainTech/thebrain-api-quickstart-python#1):
+    a hit is real, but a MISS is NOT proof the thought is absent. Never conclude a
+    thought does not exist from a null result here — verify by ID with get_thought, or
+    by graph traversal from a known neighbour, before creating a duplicate.
+
     Args:
         name_exact: The exact name to match (case-sensitive)
         brain_id: The ID of the brain (uses active brain if not specified)
@@ -516,6 +533,12 @@ async def search_thoughts(
 ) -> dict[str, Any]:
     """Full-text search across thought names and content. Requires npub for credit billing.
 
+    ⚠️ NOT AUTHORITATIVE. Backed by the vendor's search index, which is incomplete on
+    large brains (upstream: TheBrainTech/thebrain-api-quickstart-python#1) — it returns
+    empty for the majority of thoughts that provably exist. A hit is real; an empty
+    result is NOT proof of absence. Use for discovery of older/established thoughts, not
+    as an existence check — verify by ID with get_thought before acting on "not found".
+
     Args:
         query_text: Search query text
         brain_id: The ID of the brain (uses active brain if not specified)
@@ -535,6 +558,15 @@ async def get_thought_graph(
     thought_id: str, brain_id: str | None = None, include_siblings: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
 ) -> dict[str, Any]:
     """Get a thought's full connection graph. Requires npub for credit billing.
+
+    ⚠️ NOT AUTHORITATIVE FOR RECENT CHANGES. Served through the vendor's cached graph
+    layer (Azure App Service response cache), which lags writes by hours-to-days and
+    reflects creates but NOT updates or deletes — it can return renamed/retyped thoughts
+    with their old values and even serve thoughts that were already deleted (upstream:
+    TheBrainTech/thebrain-api-quickstart-python#2). Use this for fast traversal of
+    established structure and for finding older thought IDs. Do NOT use it to verify a
+    recent write — confirm mutations by ID with get_thought, which reads the authoritative
+    command store.
 
     Args:
         thought_id: The ID of the thought
@@ -556,6 +588,11 @@ async def get_thought_graph_paginated(
     brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
 ) -> dict[str, Any]:
     """Cursor-based paginated traversal of a thought's connections. Requires npub for credit billing.
+
+    ⚠️ NOT AUTHORITATIVE FOR RECENT CHANGES. Same cached graph layer as get_thought_graph
+    (upstream: TheBrainTech/thebrain-api-quickstart-python#2) — lags writes by hours-to-days
+    and does not reflect updates or deletes. Use for traversal/ID discovery, never as
+    read-after-write verification; confirm mutations by ID with get_thought.
 
     Args:
         thought_id: The ID of the thought
@@ -895,6 +932,13 @@ async def brain_query(
 
     Accepts BrainQuery (BQL) -- a Cypher subset supporting MATCH, WHERE, CREATE,
     SET, MERGE, DELETE, and RETURN.
+
+    ⚠️ Name-based matching (MATCH by name, WHERE CONTAINS/STARTS WITH/=~) resolves through
+    the vendor's search/name index, which is incomplete on large brains
+    (TheBrainTech/thebrain-api-quickstart-python#1): a query may fail to match a thought
+    that provably exists. An empty match set is NOT proof of absence — do not CREATE/MERGE a
+    node on the assumption it is missing without an ID-based check (get_thought). Matching by
+    ID is reliable; matching by name inherits the index's blind spots.
 
     Args:
         query: A BrainQuery string (Cypher subset).
