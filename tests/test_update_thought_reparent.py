@@ -182,8 +182,13 @@ class TestErrorPaths:
         assert "404" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_undeletable_parent_link_not_fatal(self):
-        """Undeletable old parent link is tracked, reparent still succeeds."""
+    async def test_undeletable_parent_link_aborts_reparent(self):
+        """Undeletable old parent link aborts the reparent (issue #186).
+
+        update_thought reuses the morpher's link-surgery, so a move that
+        cannot persist must surface as success=False rather than a silent
+        revert.
+        """
         child = _thought("child-1", "My Thought")
         old_parent = _thought("parent-a", "Old Parent")
         stuck_link = _link("stuck-link", "parent-a", "child-1")
@@ -196,6 +201,6 @@ class TestErrorPaths:
             api, BRAIN, "child-1", new_parent_id="parent-b",
         )
 
-        assert result["success"] is True
-        assert result["reparent"]["undeletable_links"] == ["stuck-link"]
-        api.create_link.assert_called_once()
+        assert result["success"] is False
+        assert "stuck-link" in result["error"]
+        api.create_link.assert_not_called()
