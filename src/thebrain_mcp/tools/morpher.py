@@ -35,11 +35,15 @@ async def reparent_thought(
 
     Returns:
         Reparent-info dict: ``old_parents``, ``new_parent_id``,
-        ``deleted_links``, ``created_link_id``, and ``undeletable_links``
-        (only present when some links could not be deleted).
+        ``deleted_links``, and ``created_link_id``.
 
     Raises:
-        TheBrainAPIError: if the new parent link cannot be created.
+        TheBrainAPIError: if any existing parent link cannot be deleted, or
+            if the new parent link cannot be created. Reparenting is atomic:
+            when an old parent link is undeletable the new link is never
+            created and any already-deleted links are restored, so the
+            thought is left with its original parent rather than in a
+            half-moved state that reads back as unchanged.
     """
     old_parents = [{"id": p.id, "name": p.name} for p in (graph.parents or [])]
     parent_ids = {p.id for p in (graph.parents or [])}
@@ -52,33 +56,61 @@ async def reparent_thought(
         and link.thought_id_b == thought_id
     ]
 
+    # Phase 1 — try to delete every old parent link, tracking which genuinely
+    # deleted (candidates for rollback), which were ghosts (already gone), and
+    # which the API refuses to delete (desktop-synced links).
     deleted_link_ids = []
+    deleted_links = []  # real deletions only, kept for rollback
     undeletable_link_ids = []
     for link in parent_links:
         try:
-            await api.delete_link_verified(brain_id, link.id)
+            outcome = await api.delete_link_verified(brain_id, link.id)
         except TheBrainAPIError as e:
             # Link exists but API won't delete it — not a ghost
             logger.warning("Cannot delete link %s: %s", link.id, e)
             undeletable_link_ids.append(link.id)
             continue
         deleted_link_ids.append(link.id)
+        if not outcome.get("ghost"):
+            deleted_links.append(link)
 
+    # Phase 2 — if any old parent link is undeletable the move cannot persist
+    # (the read path would still resolve the surviving parent). Roll back the
+    # deletions we did make and fail loudly rather than reporting a success
+    # that silently reverts.
+    if undeletable_link_ids:
+        for link in deleted_links:
+            try:
+                await api.create_link(brain_id, {
+                    "thoughtIdA": link.thought_id_a,
+                    "thoughtIdB": link.thought_id_b,
+                    "relation": link.relation,
+                })
+            except TheBrainAPIError as restore_error:
+                logger.error(
+                    "Rollback failed: could not restore parent link %s: %s",
+                    link.id, restore_error,
+                )
+        raise TheBrainAPIError(
+            "Reparent aborted: TheBrain API refused to delete existing parent "
+            f"link(s) {undeletable_link_ids}, so the move cannot persist. "
+            "These are typically links synced from the desktop app; delete them "
+            "from the TheBrain desktop application, then retry."
+        )
+
+    # Phase 3 — old parents cleared; attach the new one.
     new_link = await api.create_link(brain_id, {
         "thoughtIdA": new_parent_id,
         "thoughtIdB": thought_id,
         "relation": 1,
     })
 
-    reparent_info: dict[str, Any] = {
+    return {
         "old_parents": old_parents,
         "new_parent_id": new_parent_id,
         "deleted_links": deleted_link_ids,
         "created_link_id": new_link.get("id"),
     }
-    if undeletable_link_ids:
-        reparent_info["undeletable_links"] = undeletable_link_ids
-    return reparent_info
 
 
 async def morpher_tool(

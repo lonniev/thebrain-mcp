@@ -191,7 +191,11 @@ class TestApiErrorPropagated:
 
     @pytest.mark.asyncio
     async def test_delete_link_error(self):
-        """Undeletable links are tracked, not fatal — operation continues."""
+        """An undeletable old parent link aborts the reparent (issue #186).
+
+        The move cannot persist while the old parent link survives, so the
+        tool must fail loudly rather than report a success that reverts.
+        """
         child = _thought("child-1", "My Thought")
         old_parent = _thought("parent-a", "Old Parent")
         parent_link = _link("link-1", "parent-a", "child-1")
@@ -202,8 +206,10 @@ class TestApiErrorPropagated:
 
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-b")
 
-        assert result["success"] is True
-        assert result["reparent"]["undeletable_links"] == ["link-1"]
+        assert result["success"] is False
+        assert "link-1" in result["error"]
+        # No orphan parent link left behind.
+        api.create_link.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_thought_error(self):
@@ -274,13 +280,15 @@ class TestStaleCacheTolerance:
 class TestUndeletableLinks:
     """Links that exist but the API refuses to delete (desktop-synced).
 
-    delete_link_verified raises TheBrainAPIError for these. The morpher
-    tracks them as undeletable rather than failing the whole operation.
+    delete_link_verified raises TheBrainAPIError for these. Because the move
+    cannot persist while such a link survives, the reparent aborts atomically
+    (issue #186): the new link is never created and any already-deleted parent
+    links are restored, leaving the thought on its original parent.
     """
 
     @pytest.mark.asyncio
-    async def test_undeletable_link_tracked_in_result(self):
-        """Desktop-synced link → tracked in undeletable_links, operation continues."""
+    async def test_undeletable_link_aborts_reparent(self):
+        """Desktop-synced link → reparent fails loudly, no new link created."""
         child = _thought("child-1", "My Thought")
         old_parent = _thought("parent-a", "Old Parent")
         desktop_link = _link("desktop-link", "parent-a", "child-1")
@@ -296,14 +304,18 @@ class TestUndeletableLinks:
 
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-b")
 
-        assert result["success"] is True
-        assert result["reparent"]["deleted_links"] == []
-        assert result["reparent"]["undeletable_links"] == ["desktop-link"]
-        api.create_link.assert_called_once()
+        assert result["success"] is False
+        assert "desktop-link" in result["error"]
+        # No orphan parent link created.
+        api.create_link.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_mixed_deletable_and_undeletable(self):
-        """One link deletes ok, one is undeletable — both tracked separately."""
+    async def test_mixed_deletable_and_undeletable_rolls_back(self):
+        """One link deletes ok, one is undeletable — the deletion is rolled back.
+
+        The successfully-deleted link is restored so the thought keeps its
+        original parents, and the new link is never created.
+        """
         child = _thought("child-1", "My Thought")
         parent_a = _thought("parent-a", "Parent A")
         parent_b = _thought("parent-b", "Parent B")
@@ -322,6 +334,54 @@ class TestUndeletableLinks:
 
         result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-c")
 
-        assert result["success"] is True
-        assert result["reparent"]["deleted_links"] == ["ok-link"]
-        assert result["reparent"]["undeletable_links"] == ["stuck-link"]
+        assert result["success"] is False
+        assert "stuck-link" in result["error"]
+        # The only create_link call is the rollback restoring the deleted parent
+        # link — the new parent-c link is never created.
+        api.create_link.assert_called_once_with(BRAIN, {
+            "thoughtIdA": "parent-a",
+            "thoughtIdB": "child-1",
+            "relation": 1,
+        })
+
+    @pytest.mark.asyncio
+    async def test_ghost_link_not_restored_on_rollback(self):
+        """A ghost (already-gone) link is not recreated when rolling back.
+
+        With a real link that deletes and a ghost that vanishes, an undeletable
+        third link aborts the move. Only the genuinely-deleted real link is
+        restored; the ghost is left gone.
+        """
+        child = _thought("child-1", "My Thought")
+        parent_a = _thought("parent-a", "Parent A")
+        parent_b = _thought("parent-b", "Parent B")
+        parent_c = _thought("parent-c", "Parent C")
+        real_link = _link("real-link", "parent-a", "child-1")
+        ghost_link = _link("ghost-link", "parent-b", "child-1")
+        stuck_link = _link("stuck-link", "parent-c", "child-1")
+
+        graph = _graph(
+            child,
+            parents=[parent_a, parent_b, parent_c],
+            links=[real_link, ghost_link, stuck_link],
+        )
+        api = _mock_api(graph)
+
+        async def selective_delete(brain_id, link_id):
+            if link_id == "stuck-link":
+                raise TheBrainAPIError("API refused to delete")
+            if link_id == "ghost-link":
+                return {"success": True, "ghost": True}
+            return {"success": True}
+
+        api.delete_link_verified = AsyncMock(side_effect=selective_delete)
+
+        result = await morpher_tool(api, BRAIN, "child-1", new_parent_id="parent-d")
+
+        assert result["success"] is False
+        # Only the real link is restored — not the ghost, not the new parent.
+        api.create_link.assert_called_once_with(BRAIN, {
+            "thoughtIdA": "parent-a",
+            "thoughtIdB": "child-1",
+            "relation": 1,
+        })
