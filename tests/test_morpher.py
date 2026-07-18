@@ -114,6 +114,10 @@ class TestRetypeOnly:
         child = _thought("child-1", "My Thought", type_id="old-type")
         graph = _graph(child)
         api = _mock_api(graph)
+        # Read-back confirms the type actually changed.
+        api.get_thought = AsyncMock(
+            return_value=_thought("child-1", "My Thought", type_id="new-type")
+        )
 
         result = await morpher_tool(api, BRAIN, "child-1", new_type_id="new-type")
 
@@ -121,7 +125,28 @@ class TestRetypeOnly:
         api.update_thought.assert_called_once_with(BRAIN, "child-1", {"typeId": "new-type"})
         assert result["retype"]["old_type_id"] == "old-type"
         assert result["retype"]["new_type_id"] == "new-type"
+        assert result["retype"]["persisted"] is True
         assert "reparent" not in result
+
+    @pytest.mark.asyncio
+    async def test_retype_that_does_not_persist_reports_failure(self):
+        """TheBrain accepts the PATCH (no error) but silently drops the type
+        change. The tool must detect this via read-back and report it, instead
+        of returning a false success with no failure signal (issue #187)."""
+        child = _thought("child-1", "My Thought", type_id="old-type")
+        graph = _graph(child)
+        api = _mock_api(graph)
+        # PATCH "succeeds" but the type stays old on read-back.
+        api.get_thought = AsyncMock(
+            return_value=_thought("child-1", "My Thought", type_id="old-type")
+        )
+
+        result = await morpher_tool(api, BRAIN, "child-1", new_type_id="new-type")
+
+        assert result["success"] is False
+        assert result["retype"]["persisted"] is False
+        assert "old-type" in result["error"]
+        assert "new-type" in result["error"]
 
 
 class TestReparentAndRetype:
@@ -133,6 +158,9 @@ class TestReparentAndRetype:
 
         graph = _graph(child, parents=[old_parent], links=[parent_link])
         api = _mock_api(graph)
+        api.get_thought = AsyncMock(
+            return_value=_thought("child-1", "My Thought", type_id="new-type")
+        )
 
         result = await morpher_tool(
             api, BRAIN, "child-1",

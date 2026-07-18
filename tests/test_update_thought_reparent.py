@@ -121,6 +121,9 @@ class TestUnifiedMutation:
         old_parent = _thought("parent-a", "Old Parent")
         parent_link = _link("link-1", "parent-a", "child-1")
         api = _mock_api(_graph(child, parents=[old_parent], links=[parent_link]))
+        api.get_thought = AsyncMock(
+            return_value=_thought("child-1", "New Name", type_id="type-x")
+        )
 
         result = await update_thought_tool(
             api, BRAIN, "child-1",
@@ -132,9 +135,27 @@ class TestUnifiedMutation:
         api.update_thought.assert_called_once_with(BRAIN, "child-1", {
             "name": "New Name", "label": "New Label", "typeId": "type-x",
         })
+        assert result["typeChangePersisted"] is True
         assert result["reparent"]["new_parent_id"] == "parent-b"
         api.delete_link_verified.assert_called_once()
         api.create_link.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_type_change_that_does_not_persist_reports_failure(self):
+        """A type change the API accepts but silently drops must surface as a
+        failure via read-back, not a false success (issue #187)."""
+        child = _thought("child-1", "My Thought", type_id="old-type")
+        api = _mock_api(_graph(child))
+        # PATCH "succeeds" but read-back still shows the old type.
+        api.get_thought = AsyncMock(
+            return_value=_thought("child-1", "My Thought", type_id="old-type")
+        )
+
+        result = await update_thought_tool(api, BRAIN, "child-1", type_id="new-type")
+
+        assert result["success"] is False
+        assert result["typeChangePersisted"] is False
+        assert "new-type" in result["message"]
 
 
 class TestErrorPaths:

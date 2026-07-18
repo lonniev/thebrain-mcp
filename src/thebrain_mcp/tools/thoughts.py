@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
-from thebrain_mcp.tools.morpher import reparent_thought
+from thebrain_mcp.tools.morpher import reparent_thought, retype_persisted
 from thebrain_mcp.utils.formatters import (
     get_access_type_name,
     get_kind_name,
@@ -249,6 +249,19 @@ async def update_thought_tool(
             "message": f"Thought {thought_id} updated successfully",
             "updates": updates,
         }
+
+        # A type change reports success even when TheBrain silently drops it
+        # (issue #187), so verify it landed via read-back rather than trusting
+        # the PATCH response.
+        if type_id is not None:
+            persisted = await retype_persisted(api, brain_id, thought_id, type_id)
+            result["typeChangePersisted"] = persisted
+            if not persisted:
+                result["success"] = False
+                result["message"] = (
+                    f"Thought {thought_id} type change did not persist: TheBrain "
+                    f"accepted the request to set type {type_id!r} but did not apply it."
+                )
 
         # Reparent (optional) — reuse the morpher's link-surgery
         if new_parent_id is not None:

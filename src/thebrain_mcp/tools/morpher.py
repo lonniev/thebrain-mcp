@@ -81,6 +81,31 @@ async def reparent_thought(
     return reparent_info
 
 
+async def retype_persisted(
+    api: TheBrainAPI, brain_id: str, thought_id: str, expected_type_id: str
+) -> bool:
+    """Read the thought back and confirm its type actually changed.
+
+    TheBrain's PATCH endpoint accepts a ``typeId`` change and returns success
+    even when it silently declines to persist it (issue #187). Callers must
+    therefore verify the write rather than trust the 2xx response.
+
+    Args:
+        api: TheBrain API client
+        brain_id: The ID of the brain
+        thought_id: The thought that was retyped
+        expected_type_id: The type ID that should now be set
+
+    Returns:
+        True if the thought's type is now ``expected_type_id``, else False.
+
+    Raises:
+        TheBrainAPIError: if the read-back request itself fails.
+    """
+    thought = await api.get_thought(brain_id, thought_id)
+    return thought.type_id == expected_type_id
+
+
 async def morpher_tool(
     api: TheBrainAPI,
     brain_id: str,
@@ -131,12 +156,21 @@ async def morpher_tool(
         old_type_id = graph.active_thought.type_id
         try:
             await api.update_thought(brain_id, thought_id, {"typeId": new_type_id})
+            persisted = await retype_persisted(api, brain_id, thought_id, new_type_id)
         except TheBrainAPIError as e:
             return {"success": False, "error": str(e)}
 
         result["retype"] = {
             "old_type_id": old_type_id,
             "new_type_id": new_type_id,
+            "persisted": persisted,
         }
+        if not persisted:
+            result["success"] = False
+            result["error"] = (
+                f"Retype did not persist: thought {thought_id} still has type "
+                f"{old_type_id!r} after a request to set {new_type_id!r}. TheBrain "
+                "accepted the request but did not apply the type change."
+            )
 
     return result
