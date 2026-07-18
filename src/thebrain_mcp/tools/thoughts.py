@@ -5,6 +5,8 @@ from typing import Any
 
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.tools.morpher import reparent_thought, retype_persisted
+from thebrain_mcp.tools.stats import change_confirmed, since_marker
+from thebrain_mcp.utils.constants import ModificationType
 from thebrain_mcp.utils.formatters import (
     get_access_type_name,
     get_kind_name,
@@ -197,6 +199,7 @@ async def update_thought_tool(
     ac_type: int | None = None,
     type_id: str | None = None,
     new_parent_id: str | None = None,
+    confirm: bool = False,
 ) -> dict[str, Any]:
     """Update a thought's scalar fields and/or its parent in a single call.
 
@@ -223,6 +226,10 @@ async def update_thought_tool(
         Dictionary with success status and update details
     """
     try:
+        # Capture a marker before any write so an optional change-log
+        # confirmation can find the ops this call is about to make.
+        since = since_marker() if confirm else None
+
         updates: dict[str, Any] = {}
 
         # Build update object with only provided fields
@@ -270,13 +277,31 @@ async def update_thought_tool(
                 api, brain_id, thought_id, new_parent_id, graph
             )
 
+        # Optional: prove the type/parent changes against the authoritative
+        # change-log (the cached graph would hide them).
+        if confirm and since is not None:
+            confirmation: dict[str, Any] = {}
+            if type_id is not None:
+                confirmation["retype"] = await change_confirmed(
+                    api, brain_id, thought_id, [ModificationType.SET_TYPE], since
+                )
+            if new_parent_id is not None:
+                confirmation["reparent"] = await change_confirmed(
+                    api, brain_id, thought_id,
+                    [ModificationType.MOVED_LINK, ModificationType.CREATED,
+                     ModificationType.DELETED],
+                    since, match_link_endpoints=True,
+                )
+            if confirmation:
+                result["confirmation"] = confirmation
+
         return result
     except TheBrainAPIError as e:
         return {"success": False, "error": str(e)}
 
 
 async def delete_thought_tool(
-    api: TheBrainAPI, brain_id: str, thought_id: str
+    api: TheBrainAPI, brain_id: str, thought_id: str, confirm: bool = False
 ) -> dict[str, Any]:
     """Delete a thought.
 
@@ -284,16 +309,24 @@ async def delete_thought_tool(
         api: TheBrain API client
         brain_id: The ID of the brain
         thought_id: The ID of the thought
+        confirm: If True, verify the deletion against the authoritative
+            change-log (a logged DELETED entry) rather than trusting the 2xx.
 
     Returns:
         Dictionary with success status and message
     """
     try:
+        since = since_marker() if confirm else None
         await api.delete_thought(brain_id, thought_id)
-        return {
+        result: dict[str, Any] = {
             "success": True,
             "message": f"Thought {thought_id} deleted successfully",
         }
+        if confirm and since is not None:
+            result["confirmation"] = await change_confirmed(
+                api, brain_id, thought_id, [ModificationType.DELETED], since
+            )
+        return result
     except TheBrainAPIError as e:
         return {"success": False, "error": str(e)}
 

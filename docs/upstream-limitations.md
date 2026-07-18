@@ -22,11 +22,33 @@ already been deleted.
 
 | Purpose | Use | Why |
 |---|---|---|
-| Verify a mutation you just made | `get_thought` (by ID), or the write tool's own response | Reads the command store — fresh, authoritative |
+| Verify a mutation you just made | `get_thought` (by ID), the write tool's own response, or `get_modifications` | Command store / change-log — fresh, authoritative |
+| Confirm a delete or a type/link change | `get_modifications` (change-log) | The only place these land visibly; the graph hides them |
 | Fast traversal / find older IDs / established structure | `get_thought_graph(_paginated)` | Convenient, but cached — **never** trust for recent writes |
 
 **Rule:** never confirm a write by reading `get_thought_graph`. Confirm by ID with
-`get_thought`. (`morph_thought`'s retype read-back already does this.)
+`get_thought`, or via the change-log `get_modifications`. (`morph_thought`'s retype
+read-back already does this.)
+
+### The change-log — a third, uncached endpoint
+
+`GET /brains/{brainId}/modifications` is an append-only, **uncached** audit feed that records
+every operation (`CREATED` 101, `DELETED` 102, `CHANGED_NAME` 103, `SET_TYPE` 203,
+`MOVED_LINK` 402, …) with old→new values and timestamps. It is the closest thing the API has
+to the desktop "sync" and reflects writes promptly, so we use it two ways:
+
+- **Write-confirmation** — the `change_confirmed()` helper (`tools/stats.py`) scans it for the
+  op just made; `delete_thought`, `morph_thought`, and `update_thought` accept `confirm=True`
+  to attach a `confirmation` block. It's *stronger* than `get_thought`-by-ID for **deletes**
+  (logged with the old name vs. a bare 404) and **type/link** changes the cached graph hides.
+- **Activity / peer-work discovery** — `get_modifications` (with `source_id` / `source_type` /
+  `mod_types` filters) answers "what changed since T," so an agent can pick up peer work.
+
+**Attribution caveat:** every entry carries one **account-level `userId`** (the TheBrain API-key
+owner). It distinguishes human-desktop vs API activity, but **not one DPYC agent from another** —
+all agents share the operator's key. Peer discovery is therefore by **time + content**, not by
+author. True per-agent attribution would require *us* to stamp the acting agent's npub into a
+label / note / link-name convention on every write (deferred — see below).
 
 ## 2. The search / name index is incomplete on large brains
 
@@ -61,8 +83,23 @@ cannot be removed, so the move cannot persist.
 
 Prefer **create-new + link-in-place + retire-old**, expressing the desired parent/type as
 **creation-time links** (they cannot be PATCHed in afterward). Verify each step by ID with
-`get_thought`, not the graph. For desktop-origin thoughts, retirement via delete may itself
-be refused — treat those as effectively immutable and build alongside them.
+`get_thought` or via the `get_modifications` change-log, not the graph. For desktop-origin
+thoughts, retirement via delete may itself be refused — treat those as effectively immutable
+and build alongside them.
+
+**Do not create throwaway test nodes in a *synced* brain.** The stale graph cache (§1) can be
+re-materialized by a desktop sync: on 2026-07-18 a thought deleted via the API (`GET` → 404)
+came back as a *new persistent node* grafted onto an unrelated real thought after a routine
+desktop sync. Only a desktop-side delete removed it. Use a scratch/unsynced brain for
+lifecycle probing. Reported upstream on quickstart#2.
+
+## Deferred: per-agent provenance
+
+The change-log's `userId` is account-level, so it cannot attribute a change to a specific DPYC
+agent (all share the operator's TheBrain key). If per-agent peer attribution becomes necessary,
+have each write stamp the acting agent's npub into a label / note / link-name convention that
+`get_modifications` consumers can read back. Not built yet — flagged so we don't assume the
+vendor log provides it.
 
 ## Related closed issues
 

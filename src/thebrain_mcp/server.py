@@ -78,13 +78,17 @@ mcp = FastMCP(
         "The vendor splits reads across two stores that can disagree. Choose by whether you "
         "need the truth right now:\n"
         "- **Authoritative / fresh:** get_thought (by ID) and the write tools' own responses "
-        "read the command store — use these to VERIFY any mutation you just made.\n"
+        "read the command store — use these to VERIFY any mutation you just made. "
+        "get_modifications is the authoritative, uncached change-log — the best proof a write "
+        "landed (it confirms deletes and type/link changes the graph hides), and the way to find "
+        "recent/peer activity. The heavy mutating tools accept confirm=True to check it for you.\n"
         "- **Cached / lagging:** get_thought_graph(_paginated) is fronted by an Azure response "
         "cache that reflects creates but lags updates/deletes by hours-to-days (it can even "
         "return deleted thoughts). get_thought_by_name and search_thoughts are backed by an "
         "incomplete search index. Treat all three as fast lookups of established structure and "
         "older IDs — NEVER as confirmation of a recent change, and never infer a thought is "
-        "absent from an empty name/search result. Confirm by ID with get_thought instead.\n\n"
+        "absent from an empty name/search result. Confirm by ID with get_thought or via "
+        "get_modifications instead.\n\n"
         "## Full UUIDs Required\n\n"
         "TheBrain API requires full UUIDs (36 characters) for all thought and link IDs.\n\n"
         "## Low-Balance Warning\n\n"
@@ -483,7 +487,7 @@ async def update_thought(
     label: str | None = None, foreground_color: str | None = None,
     background_color: str | None = None, kind: int | None = None,
     ac_type: int | None = None, type_id: str | None = None,
-    new_parent_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    new_parent_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
 ) -> dict[str, Any]:
     """Update a thought's properties and/or its parent in one call. Requires npub for credit billing.
 
@@ -502,27 +506,37 @@ async def update_thought(
         ac_type: New access type
         type_id: New type ID
         new_parent_id: New parent thought ID (replaces all current parents)
+        confirm: If True, verify type/parent changes against the authoritative
+            change-log (SET_TYPE / MOVED_LINK) instead of the cached graph, and
+            attach a ``confirmation`` block. Costs one extra billed read.
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.update_thought_tool(
         api, get_brain_id(brain_id, npub), thought_id, name, label,
         foreground_color, background_color, kind, ac_type, type_id, new_parent_id,
+        confirm,
     )
 
 
 @tool
 @runtime.paid_tool(capability_uuid("delete_knowledge_node"), catch_errors=False)
-async def delete_thought(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def delete_thought(thought_id: str, brain_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
     """Permanently delete a thought by ID. Cannot be undone. Requires npub for credit billing.
 
     Args:
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
+        confirm: If True, verify the deletion against the authoritative change-log
+            (a logged DELETED entry) and attach a ``confirmation`` block. The
+            command store already 404s a deleted thought; this adds an audit-grade
+            log proof. Costs one extra billed read.
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
-    return await thoughts.delete_thought_tool(api, get_brain_id(brain_id, npub), thought_id)
+    return await thoughts.delete_thought_tool(
+        api, get_brain_id(brain_id, npub), thought_id, confirm
+    )
 
 
 @tool
@@ -903,20 +917,43 @@ async def append_to_note(
 @runtime.paid_tool(capability_uuid("get_knowledge_base_history"), catch_errors=False)
 async def get_modifications(
     brain_id: str | None = None, max_logs: int = 100,
-    start_time: str | None = None, end_time: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    start_time: str | None = None, end_time: str | None = None,
+    source_id: str | None = None, source_type: int | None = None,
+    mod_types: list[int] | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
 ) -> dict[str, Any]:
-    """Get modification history for a brain. Requires npub for credit billing.
+    """The brain's authoritative, uncached change-log. Requires npub for credit billing.
+
+    Unlike get_thought_graph and search (Azure-cached, stale for recent writes),
+    this feed reflects every operation promptly — CREATED (101), DELETED (102),
+    CHANGED_NAME (103), SET_TYPE (203), MOVED_LINK (402), etc. — with old→new
+    values and timestamps. Use it for two things:
+
+    1. **Confirm a write landed** — after a mutation, query with start_time set to
+       just before it and check for the matching entry. This is the authoritative
+       read-after-write check (stronger than the cached graph, and it confirms
+       deletes and type/link changes the graph hides). The heavy mutating tools
+       also expose a ``confirm=True`` flag that does this for you.
+    2. **Discover recent / peer activity** — "what changed since T" so an agent can
+       pick up where others left off.
+
+    ⚠️ ``userId`` is the TheBrain *account* owner, shared by every agent using this
+    operator's key — it distinguishes human-desktop vs API activity, NOT one agent
+    from another. Peer discovery here is by time + content, not by author.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
-        max_logs: Maximum number of logs to return
+        max_logs: Maximum number of logs to fetch from the API (pre-filter)
         start_time: Start time for logs (ISO format)
         end_time: End time for logs (ISO format)
+        source_id: Only return entries for this thought/link ID
+        source_type: Only return entries of this SourceType (2=Thought, 3=Link)
+        mod_types: Only return entries whose modType is in this list (e.g. [102] for deletes)
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await stats.get_modifications_tool(
-        api, get_brain_id(brain_id, npub), max_logs, start_time, end_time
+        api, get_brain_id(brain_id, npub), max_logs, start_time, end_time,
+        source_id, source_type, mod_types,
     )
 
 
@@ -967,7 +1004,7 @@ async def brain_query(
 @runtime.paid_tool(capability_uuid("morph_knowledge_node"), catch_errors=False)
 async def morph_thought(
     thought_id: str, brain_id: str | None = None,
-    new_parent_id: str | None = None, new_type_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    new_parent_id: str | None = None, new_type_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
 ) -> dict[str, Any]:
     """Atomically reparent and/or retype a thought in one operation. Requires npub for credit billing.
 
@@ -980,11 +1017,14 @@ async def morph_thought(
         brain_id: The ID of the brain (uses active brain if not specified)
         new_parent_id: ID of the new parent thought (replaces all current parents)
         new_type_id: ID of the new type to assign
+        confirm: If True, verify the reparent/retype against the authoritative
+            change-log (MOVED_LINK / SET_TYPE) instead of the cached graph, and
+            attach a ``confirmation`` block. Costs one extra billed read.
         npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await morpher.morpher_tool(
-        api, get_brain_id(brain_id, npub), thought_id, new_parent_id, new_type_id
+        api, get_brain_id(brain_id, npub), thought_id, new_parent_id, new_type_id, confirm
     )
 
 

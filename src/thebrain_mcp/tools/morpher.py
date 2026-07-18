@@ -9,6 +9,8 @@ import logging
 from typing import Any
 
 from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
+from thebrain_mcp.tools.stats import change_confirmed, since_marker
+from thebrain_mcp.utils.constants import ModificationType
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +146,7 @@ async def morpher_tool(
     thought_id: str,
     new_parent_id: str | None = None,
     new_type_id: str | None = None,
+    confirm: bool = False,
 ) -> dict[str, Any]:
     """Reparent and/or retype a thought in a single orchestrated operation.
 
@@ -166,6 +169,9 @@ async def morpher_tool(
             "success": False,
             "error": "At least one of new_parent_id or new_type_id must be provided.",
         }
+
+    # Marker for an optional change-log confirmation, captured before any write.
+    since = since_marker() if confirm else None
 
     try:
         graph = await api.get_thought_graph(brain_id, thought_id)
@@ -204,5 +210,23 @@ async def morpher_tool(
                 f"{old_type_id!r} after a request to set {new_type_id!r}. TheBrain "
                 "accepted the request but did not apply the type change."
             )
+
+    # Optional: prove the link/type surgery against the authoritative change-log
+    # (the cached graph would hide these ops for hours-to-days).
+    if confirm and since is not None:
+        confirmation: dict[str, Any] = {}
+        if new_parent_id:
+            confirmation["reparent"] = await change_confirmed(
+                api, brain_id, thought_id,
+                [ModificationType.MOVED_LINK, ModificationType.CREATED,
+                 ModificationType.DELETED],
+                since, match_link_endpoints=True,
+            )
+        if new_type_id:
+            confirmation["retype"] = await change_confirmed(
+                api, brain_id, thought_id, [ModificationType.SET_TYPE], since
+            )
+        if confirmation:
+            result["confirmation"] = confirmation
 
     return result
