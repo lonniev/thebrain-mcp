@@ -1,4 +1,6 @@
-# Thin caller — cross-repo escalation. Fires when an agent labels an issue blocked/upstream.
+# Thin caller — cross-repo escalation. Fires when an agent labels an issue
+# blocked/upstream (forward: route to the home repo) or rejected/upstream
+# (reverse: route a target's decline back to the origin — the anti-ping-pong loop).
 name: Agentic Escalation
 
 on:
@@ -10,6 +12,6 @@ permissions:
 
 jobs:
   escalate:
-    if: github.event.label.name == 'blocked/upstream'
+    if: github.event.label.name == 'blocked/upstream' || github.event.label.name == 'rejected/upstream'
     uses: lonniev/dpyc-community/.github/workflows/escalation.yml@main
     secrets: inherit
