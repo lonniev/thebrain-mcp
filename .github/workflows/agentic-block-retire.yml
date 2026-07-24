@@ -1,0 +1,27 @@
+# Thin caller — funding-block retire. Fires when a PR/issue is CLOSED while it still
+# carries `awaiting-funds` — an outage-deferred item that shipped or was closed before
+# funds returned, so its deferred agentic pass never ran. Drops the label and retires
+# the FundingBlock to a historical record. The `if` guard keeps this a no-op on the vast
+# majority of closes (only items that were actually awaiting funds spawn the job).
+name: Agentic Block Retire
+
+on:
+  pull_request:
+    types: [closed]
+  issues:
+    types: [closed]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  retire:
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'awaiting-funds') ||
+      contains(github.event.issue.labels.*.name, 'awaiting-funds')
+    uses: lonniev/dpyc-community/.github/workflows/block-retire.yml@main
+    secrets: inherit
+    with:
+      number: ${{ github.event.pull_request.number || github.event.issue.number }}
+      kind: ${{ github.event.pull_request && 'pr' || 'issue' }}
