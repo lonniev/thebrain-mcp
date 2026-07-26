@@ -10,7 +10,7 @@ install: pip install -e .
 # Command to run the server
 command: python -m thebrain_mcp.server
 
-# Environment variables (these should be set in FastMCP Cloud UI)
+# Environment variables (these should be set in Horizon UI)
 environment:
   THEBRAIN_API_KEY: ${THEBRAIN_API_KEY}
   THEBRAIN_DEFAULT_BRAIN_ID: ${THEBRAIN_DEFAULT_BRAIN_ID}
