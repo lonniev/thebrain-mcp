@@ -43,7 +43,7 @@ mcp = FastMCP(
         "TheBrain MCP Server — AI agent access to a personal knowledge graph "
         "powered by TheBrain.\n\n"
         "## Zero-Config Connectivity\n\n"
-        "This server runs on FastMCP Cloud over a remote SSE endpoint. "
+        "This server runs on Horizon over a remote SSE endpoint. "
         "No environment variables, no local install, just connect.\n\n"
         "## Getting Started\n\n"
         "1. Call `session_status` to check your current session.\n"
