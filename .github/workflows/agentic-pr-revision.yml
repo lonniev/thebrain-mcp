@@ -1,0 +1,43 @@
+# Thin caller — PR Revision. Fires when the repository OWNER sends a PR back for
+# changes, so the Journeyman can return to the bench and make them.
+#
+# Two entry points, both owner-only: GitHub's native "Request changes" review (the
+# ergonomic path — the platform already distinguishes a question from a change order),
+# and an explicit "@journeyman revise" comment for a quick note. A plain "@journeyman"
+# still reaches the READ-ONLY PR Dialogue, which anyone may summon.
+name: Agentic PR Revision
+
+on:
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  revise:
+    # SECURITY BOUNDARY — read this as carefully as a token scope. This is the only role
+    # that is both human-triggered and write-capable, so the author_association == 'OWNER'
+    # test is what stands in for pr-dialogue's "no write tools, read-only tokens". The
+    # precedent is approval-merge.yml, which gates the merge on the same association.
+    # The bot guard stops the Journeyman's own comment from summoning it again.
+    if: >-
+      github.event.sender.login != 'dpyc-agentic-desk[bot]' &&
+      (
+        (github.event_name == 'pull_request_review' &&
+         github.event.review.state == 'changes_requested' &&
+         github.event.review.author_association == 'OWNER') ||
+        (github.event_name == 'issue_comment' &&
+         github.event.issue.pull_request != null &&
+         contains(github.event.comment.body, '@journeyman revise') &&
+         github.event.comment.author_association == 'OWNER')
+      )
+    uses: lonniev/dpyc-community/.github/workflows/pr-revision.yml@main
+    secrets: inherit
+    with:
+      pr_number: ${{ github.event.issue.number || github.event.pull_request.number }}
+      model: claude-opus-4-8

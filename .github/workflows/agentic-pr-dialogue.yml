@@ -19,12 +19,18 @@ jobs:
   answer:
     # Only on PRs, only when the Journeyman is summoned, and never on the bot's own
     # comments — that last guard is what stops an answer from re-triggering the workflow.
+    #
+    # YIELDS TO PR REVISION. Dialogue explains; Revision changes code. Both are summoned
+    # by "@journeyman", so this guard hands the two unambiguous change-order forms to
+    # agentic-pr-revision.yml and keeps only the questions: a comment carrying the
+    # "@journeyman revise" verb, and a changes-requested review, are Revision's. Without
+    # these negatives BOTH roles would fire on the same event.
     if: >-
       github.event.sender.login != 'dpyc-agentic-desk[bot]' &&
       (
-        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '@journeyman')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@journeyman')) ||
-        (github.event_name == 'pull_request_review' && github.event.review.body != null && contains(github.event.review.body, '@journeyman'))
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '@journeyman') && !contains(github.event.comment.body, '@journeyman revise')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@journeyman') && !contains(github.event.comment.body, '@journeyman revise')) ||
+        (github.event_name == 'pull_request_review' && github.event.review.state != 'changes_requested' && github.event.review.body != null && contains(github.event.review.body, '@journeyman') && !contains(github.event.review.body, '@journeyman revise'))
       )
     uses: lonniev/dpyc-community/.github/workflows/pr-dialogue.yml@main
     secrets: inherit
