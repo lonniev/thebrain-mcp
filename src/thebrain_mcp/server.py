@@ -244,6 +244,26 @@ _SESSION_GUIDANCE: dict[str, str] = {
         "Action: call request_patron_credentials to deliver fresh "
         "credentials via Secure Courier."
     ),
+    "secure_courier_unavailable": (
+        "The Secure Courier isn't available yet, so the credential vault "
+        "can't be reached. Your stored credentials are unaffected. "
+        "Action: repeat your request shortly — no re-onboarding needed."
+    ),
+    # The two that will NOT clear by waiting. Handing these the cold-start
+    # wording would park a patron on an outage that never ends.
+    "persistence_quota_exceeded": (
+        "The operator's database has reached its provider quota, so stored "
+        "credentials cannot be read right now. Retrying will not help and "
+        "your credentials are unaffected. "
+        "Action: notify the operator — capacity is restored by their "
+        "Authority, not by retrying."
+    ),
+    "persistence_misconfigured": (
+        "The operator's credential store rejected the read with a permanent "
+        "error. This will not resolve by retrying and your credentials are "
+        "unaffected. "
+        "Action: notify the operator — this needs an operator-side repair."
+    ),
 }
 
 
@@ -266,12 +286,20 @@ async def _ensure_session(npub: str) -> TheBrainAPI:
     if session:
         return session.api_client
 
-    # Try vault restore
+    # Try vault restore. The wheel hands back (creds, situation): a situation
+    # means the vault could not be read at all, which is emphatically not the
+    # same as a patron who has never onboarded — that guidance would send them
+    # to re-deliver credentials that are sitting in the vault. This used to be a
+    # try/except that could never fire, because the read swallowed its own
+    # failures and returned nothing (tollbooth-dpyc 0.75.0 makes it speak).
     situation = "no_credentials"
-    try:
-        creds = await runtime.load_patron_session(npub)
-    except Exception:
-        raise ValueError(_SESSION_GUIDANCE["vault_bootstrapping"])
+    creds, vault_situation = await runtime.load_patron_session(npub)
+    if vault_situation:
+        raise ValueError(
+            _SESSION_GUIDANCE.get(
+                vault_situation, _SESSION_GUIDANCE["vault_bootstrapping"],
+            ),
+        )
 
     if creds and "api_key" in creds:
         try:
