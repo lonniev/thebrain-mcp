@@ -1,5 +1,7 @@
 # thebrain-mcp v1.16.3
 
+[![MCP Queen operational grade](https://mcpqueen.com/badge/io.github.lonniev/personalbrain-mcp.svg)](https://mcpqueen.com/s/io.github.lonniev/personalbrain-mcp)
+
 **The first city on the Lightning Turnpike.**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
