@@ -18,7 +18,11 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           # Extract the section for this version from CHANGELOG.md
-          NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
+          # The heading is matched in EITHER style — "## [1.2.3]" or "## 1.2.3 — date".
+          # Dots are escaped so 1.2.3 cannot match "1x2x3"; the bracket-expression
+          # form ([[] / []]) behaves the same under mawk, gawk and BSD awk.
+          VERSION_RE=$(printf '%s' "$VERSION" | sed 's/\./\\./g')
+          NOTES=$(awk "/^## [[]?${VERSION_RE}[]]?([ ]|\$)/{found=1; next} /^## [[]?[0-9]/{if(found) exit} found{print}" CHANGELOG.md)
           if [ -z "$NOTES" ]; then
             NOTES="Release $VERSION"
           fi

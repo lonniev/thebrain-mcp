@@ -3,6 +3,39 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 1.17.0 — 2026-08-10
+
+### Fixed — a reparent that half-succeeded reported success
+
+`morph_thought` reparented in steps that could stop partway, and reported success from the
+call rather than from the resulting state. A thought could end up attached to neither parent
+while the caller was told it had moved. The reparent is atomic now, and a retype that does
+not persist is detected and reported instead of being assumed.
+
+### Fixed — an unreadable vault said "you never onboarded"
+
+A cold or unreadable vault surfaced to the patron as though they had never delivered
+credentials, which invites re-onboarding that cannot help and quietly discards a session that
+was fine. The situation now says the vault could not be read, which is a different problem
+with a different remedy.
+
+### Added — the modifications change-log as a write confirmation
+
+Writes can be confirmed against TheBrain's own modifications log rather than re-read through
+a cached index. Cached and indexed endpoints are now labelled non-authoritative in the docs,
+because a search miss is not proof of absence — verify a write by ID.
+
+### Changed — track tollbooth-dpyc 0.85.0
+
+Picks up `check_authority_balance`, dead for every operator, and the shared param-default
+binding.
+
+### Changed — CI runs the check the deploy runs
+
+`ci.yml` inspects the deploy entrypoint, as Horizon does at build time — the gap that cost
+optionality-mcp four days stale behind a green suite. `release.yml` notes extraction accepts
+this CHANGELOG's heading style rather than publishing a 16-byte body.
+
 ## 1.16.3 — 2026-07-16
 
 ### Changed — track tollbooth-dpyc 0.63.3
