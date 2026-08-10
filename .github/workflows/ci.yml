@@ -46,3 +46,15 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v
+
+      - name: Entrypoint inspects (the check Horizon performs at build time)
+        run: |
+          [ -f fastmcp.json ] || { echo "no fastmcp.json — not a FastMCP deployment; skipping"; exit 0; }
+          ENTRY=$(python -c "import json;print(json.load(open('fastmcp.json'))['server'])")
+          case "$ENTRY" in *:*) TARGET="$ENTRY";; *) TARGET="$ENTRY:mcp";; esac
+          echo "inspecting $TARGET"
+          if [ -f uv.lock ] && command -v uv >/dev/null 2>&1; then
+            uv run fastmcp inspect -f fastmcp -o /tmp/server-info.json "$TARGET"
+          else
+            fastmcp inspect -f fastmcp -o /tmp/server-info.json "$TARGET"
+          fi
