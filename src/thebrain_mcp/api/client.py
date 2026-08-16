@@ -26,6 +26,10 @@ _UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Characters TheBrain's POST /thoughts path HTML-entity-encodes in name/label.
+# PATCH does not encode them — see issue #207 and docs/upstream-limitations.md.
+_HTML_ENTITY_CHARS = frozenset("&<>\"'")
+
 
 def _validate_uuid(value: str, param_name: str) -> str:
     """Validate that value is a well-formed UUID. Returns the value unchanged."""
@@ -35,6 +39,11 @@ def _validate_uuid(value: str, param_name: str) -> str:
             f"TheBrain requires full UUIDs (e.g., '9e115e02-fedb-4254-a1ae-39cce16c63e6')."
         )
     return value
+
+
+def _field_needs_entity_repair(value: str) -> bool:
+    """True if value contains characters TheBrain's create path HTML-escapes."""
+    return any(ch in value for ch in _HTML_ENTITY_CHARS)
 
 
 class TheBrainAPIError(Exception):
@@ -212,9 +221,30 @@ class TheBrainAPI:
 
         Returns a dict with at least 'id' field. The API may return minimal data,
         so we return the raw response instead of validating as a full Thought.
+
+        Upstream quirk (issue #207): POST /thoughts HTML-entity-encodes ``name``
+        and ``label`` (``&`` becomes the HTML entity for ampersand, etc.) while
+        PATCH does not. When the caller supplies those characters we immediately
+        re-PATCH the verbatim values so the thought round-trips the same way
+        ``update_thought`` does.
         """
         _validate_uuid(brain_id, "brain_id")
         data = await self._request("POST", f"/thoughts/{brain_id}", json_data=thought_data)
+
+        thought_id = data.get("id") if isinstance(data, dict) else None
+        if thought_id:
+            repairs: dict[str, Any] = {}
+            for key in ("name", "label"):
+                value = thought_data.get(key)
+                if isinstance(value, str) and _field_needs_entity_repair(value):
+                    repairs[key] = value
+            if repairs:
+                await self.update_thought(brain_id, thought_id, repairs)
+                # Prefer the caller-supplied (unescaped) fields in the return value
+                # so create responses match what get_thought will now return.
+                if isinstance(data, dict):
+                    data = {**data, **repairs}
+
         return data
 
     async def get_thought(self, brain_id: str, thought_id: str) -> Thought:

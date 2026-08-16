@@ -79,6 +79,24 @@ cannot be removed, so the move cannot persist.
   store, but the visible/graph type is governed by the type-**link**, so a desktop-origin
   thought's type will not change via PATCH regardless.
 
+
+## 4. POST create HTML-entity-encodes thought name/label; PATCH does not
+
+`POST /thoughts/{brainId}` HTML-entity-encodes characters in the standard HTML
+entity set (`&`, `<`, `>`, `"`, `'`) when persisting `name` and `label`.
+`PATCH /thoughts/{brainId}/{thoughtId}` (JSON Patch) stores the same characters
+verbatim. Observed 2026-07-31 (issue #207): creating `Growth & Adoption Strategy`
+persisted `Growth &amp; Adoption Strategy`; a subsequent update with the clean
+name fixed it.
+
+### Mitigation
+
+`TheBrainAPI.create_thought` detects HTML-sensitive characters in the requested
+`name`/`label` and immediately re-PATCHes the verbatim values after a successful
+create. All create callers (the `create_thought` tool and BrainQuery CREATE/MERGE)
+go through this client method, so the repair is shared. Clean names incur no
+extra request.
+
 ## Reliable-change tactic (for agents mutating the graph)
 
 Prefer **create-new + link-in-place + retire-old**, expressing the desired parent/type as
