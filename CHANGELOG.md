@@ -50,6 +50,15 @@ this CHANGELOG's heading style rather than publishing a 16-byte body.
 
 ## [Unreleased]
 
+## [1.17.2] — 2026-08-22
+
+### Changed — track tollbooth-dpyc 0.87.1
+
+Picks up the relay-reliability work: `COURIER_RELAY_UNREACHABLE` so an
+unreachable pinned rendezvous is no longer reported as the patron never
+replying, relay-failure reporting to the Oracle, and a publish that counts
+only when the relay acknowledges that exact event.
+
 ## [1.16.2] — 2026-07-10
 
 ### Removed
