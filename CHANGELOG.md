@@ -50,6 +50,15 @@ this CHANGELOG's heading style rather than publishing a 16-byte body.
 
 ## [Unreleased]
 
+## [1.17.3] — 2026-08-22
+
+### Changed — track tollbooth-dpyc 0.87.2
+
+An object argument a client serialised as a JSON string is now parsed
+rather than refused as `dict_type`. Fixes `update_post` rejecting a
+large patch and `update_design_text` rejecting a multi-key edits
+object.
+
 ## [1.17.2] — 2026-08-22
 
 ### Changed — track tollbooth-dpyc 0.87.1
