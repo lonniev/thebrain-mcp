@@ -1652,7 +1652,7 @@ wheels = [
 
 [[package]]
 name = "thebrain-mcp"
-version = "1.17.2"
+version = "1.17.3"
 source = { editable = "." }
 dependencies = [
     { name = "cachetools" },
@@ -1692,7 +1692,7 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.8.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
-    { name = "tollbooth-dpyc", extras = ["nostr"], specifier = "==0.87.1" },
+    { name = "tollbooth-dpyc", extras = ["nostr"], specifier = "==0.87.2" },
 ]
 provides-extras = ["dev"]
 
@@ -1704,16 +1704,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/bb/89/6df40b0c5fd9a1c30
 
 [[package]]
 name = "tollbooth-dpyc"
-version = "0.87.1"
+version = "0.87.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
     { name = "pynostr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/39/bd/ecaf7451c38113c46eb2ae982c656921403f2d0ed6c649aeb2fd73eb73a1/tollbooth_dpyc-0.87.1.tar.gz", hash = "sha256:d7a34b757d358af72a7b570303c2406e735c1260ae5373f9a20bc8da27f2da93", size = 2753586, upload-time = "2026-08-22T14:08:04.94Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/08/04e5615dd4c71291659eebe2d42ba698aa92f1bd59cb13776c2fbd784451/tollbooth_dpyc-0.87.2.tar.gz", hash = "sha256:f166c6b836f8e15ee8f71856e91b452165811c1209f4e571aeec52a1893f4604", size = 2758514, upload-time = "2026-08-22T20:14:14.636Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/3a/18d78e60664b491329e13b5760134df0cd2690d912d80f9b4c3fab9c32bd/tollbooth_dpyc-0.87.1-py3-none-any.whl", hash = "sha256:20ac3b5d9892c5e80b60f2996995460da397c8d331df46062c30cbf719ed4592", size = 439753, upload-time = "2026-08-22T14:08:03.297Z" },
+    { url = "https://files.pythonhosted.org/packages/16/85/e11f6b7a33e130c8398f733d379fc5d0dee7ee7f865a97ffd91da8b2f0c0/tollbooth_dpyc-0.87.2-py3-none-any.whl", hash = "sha256:d90bab854f3e6fabc2dbd554cc762bfd9ee1d73c9ac1ca52cc440a19fe1e48aa", size = 442581, upload-time = "2026-08-22T20:14:12.864Z" },
 ]
 
 [package.optional-dependencies]
