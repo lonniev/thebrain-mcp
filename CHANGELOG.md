@@ -50,6 +50,16 @@ this CHANGELOG's heading style rather than publishing a 16-byte body.
 
 ## [Unreleased]
 
+## [1.17.4] — 2026-08-22
+
+### Changed — track tollbooth-dpyc 0.87.3
+
+Recovering an orphaned job now uses the detached executor it was
+dispatched to. The recovery path never resolved the executor, so a
+job orphaned by a container recycle was retried in-process on the
+new front — bypassing the detached runner precisely when it was
+the point.
+
 ## [1.17.3] — 2026-08-22
 
 ### Changed — track tollbooth-dpyc 0.87.2
