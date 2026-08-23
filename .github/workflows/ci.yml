@@ -18,40 +18,42 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Two things went wrong here on 2026-08-22 and both are fixed below.
+      # Poll the SIMPLE index, because that is what pip resolves from.
       #
-      # It polled `pip index versions`, which reads the CDN-cached simple index.
-      # That view lagged: 0.87.2 was visible on PyPI's JSON API within seconds of
-      # publish and still absent from pip's view five minutes later.
-      #
-      # Worse, on exhausting its attempts the step fell through and exited
-      # SUCCESS, letting `Install dependencies` fail two seconds later with
-      # "no matching distribution" and a 300-version list. A step whose only job
-      # is to prevent that failure must not stay silent when it cannot.
+      # Three shapes of this step have been wrong, each differently. It first
+      # polled the simple index but exited SUCCESS on exhaustion, so a real
+      # lag surfaced as a confusing install failure. Fixing that moved it to
+      # the JSON API and made it fail loudly — but the JSON API publishes
+      # seconds ahead of the simple index, so on 0.88.0 the step passed on
+      # attempt 1 and `pip install` failed anyway. A gate is only a gate if
+      # it waits on the thing the next step actually needs.
       - name: Wait for tollbooth-dpyc on PyPI
         run: |
-          set -euo pipefail
-          REQUIRED=$(grep -oE 'tollbooth-dpyc(\[[a-z,]+\])?==[0-9.]+' pyproject.toml \
-                     | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-          if [ -z "$REQUIRED" ]; then
-            echo "No pinned tollbooth-dpyc version found; nothing to wait for."
-            exit 0
-          fi
-          echo "Waiting for tollbooth-dpyc==$REQUIRED on PyPI..."
-          for i in $(seq 1 30); do
-            # The JSON API, not the cached simple index pip reads.
-            if curl -sf "https://pypi.org/pypi/tollbooth-dpyc/$REQUIRED/json" \
-                 -o /dev/null; then
-              echo "Found tollbooth-dpyc==$REQUIRED on PyPI (attempt $i)"
+            set -euo pipefail
+            REQUIRED=$(grep -oE 'tollbooth-dpyc(\[[a-z,]+\])?==[0-9.]+' pyproject.toml \
+                       | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+            if [ -z "$REQUIRED" ]; then
+              echo "No pinned tollbooth-dpyc version found; nothing to wait for."
               exit 0
             fi
-            echo "Attempt $i/30 — not yet available, waiting 10s..."
-            sleep 10
-          done
-          echo "::error::tollbooth-dpyc==$REQUIRED never appeared on PyPI after 5 minutes."
-          echo "The pin references a version that is not published. Check that the"
-          echo "release workflow's PyPI publish succeeded before re-running this."
-          exit 1
+            echo "Waiting for tollbooth-dpyc==$REQUIRED on the PyPI simple index..."
+            ESCAPED=${REQUIRED//./\\.}
+            for i in $(seq 1 30); do
+              # Distribution filenames carry the version; match the dash-delimited
+              # form so 0.88.0 cannot be satisfied by 0.88.01.
+              if curl -sf "https://pypi.org/simple/tollbooth-dpyc/" \
+                   | grep -qE "tollbooth[_-]dpyc-$ESCAPED[-.]"; then
+                echo "Found tollbooth-dpyc==$REQUIRED on the simple index (attempt $i)"
+                exit 0
+              fi
+              echo "Attempt $i/30 — not yet resolvable by pip, waiting 10s..."
+              sleep 10
+            done
+            echo "::error::tollbooth-dpyc==$REQUIRED never reached the PyPI simple index after 5 minutes."
+            echo "pip resolves from that index, so the install below would fail. Check"
+            echo "that the release workflow PyPI publish succeeded before re-running."
+            exit 1
+
 
       - name: Install dependencies
         run: |
