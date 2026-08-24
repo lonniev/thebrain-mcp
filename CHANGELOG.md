@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 1.17.6 — 2026-08-24
+
+### Security — track tollbooth-dpyc 0.88.1 (cryptography floor raised to >=49.0.0)
+
+Picks up the SDK's fix for GHSA-m2h6-j472-rp4c: the X.509 verifier accepted wildcard DNS SANs, escaping `permittedSubtrees`. The advisory is fixed in cryptography 49.0.0, and the SDK previously declared a floor of `>=46.0.5` — which admitted every affected release.
+
+No install here was exposed: the resolved lock already carried a patched cryptography. What changes is what a fresh resolve is *allowed* to land on. See tollbooth-dpyc v0.88.1.
+
 ## 1.17.1 — 2026-08-17
 
 ### Changed — track tollbooth-dpyc 0.86.0 (GitHub-free bootstrap)
