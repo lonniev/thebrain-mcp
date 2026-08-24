@@ -48,6 +48,19 @@ this CHANGELOG's heading style rather than publishing a 16-byte body.
 
 - Bumped the pinned SDK to 0.63.3 (npub-proof challenge DM now stamps the request time). Also cuts a release for changes accumulated since the last tag.
 
+## [1.17.6] — 2026-08-24
+
+### Security — track tollbooth-dpyc 0.88.1 (cryptography floor raised to >=49.0.0)
+
+Picks up the SDK's fix for GHSA-m2h6-j472-rp4c: the X.509 verifier accepted
+wildcard DNS SANs, escaping `permittedSubtrees`. The advisory is fixed in
+cryptography 49.0.0, and the SDK previously declared a floor of `>=46.0.5` —
+which admitted every affected release.
+
+No install here was exposed: the resolved lock already carried a patched
+cryptography. What changes is what a fresh resolve is *allowed* to land on.
+See tollbooth-dpyc v0.88.1.
+
 ## [Unreleased]
 
 ## [1.17.5] — 2026-08-22
