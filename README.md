@@ -1,4 +1,4 @@
-# thebrain-mcp v1.16.3
+# thebrain-mcp
 
 **The first city on the Lightning Turnpike.**
 
