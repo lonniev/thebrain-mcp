@@ -1,3 +1,6 @@
+# Thin caller — cuts the GitHub Release whose body is this tag's CHANGELOG section.
+# The logic lives once in dpyc-community/.github/workflows/github-release.yml; that
+# file explains why (18 copies, 8 of them divergent, two silent extractor bugs).
 name: Release
 
 on:
@@ -9,31 +12,5 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Extract release notes from CHANGELOG
-        id: notes
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # Extract the section for this version from CHANGELOG.md
-          # The heading is matched in EITHER style — "## [1.2.3]" or "## 1.2.3 — date".
-          # Dots are escaped so 1.2.3 cannot match "1x2x3"; the bracket-expression
-          # form ([[] / []]) behaves the same under mawk, gawk and BSD awk.
-          VERSION_RE=$(printf '%s' "$VERSION" | sed 's/\./\\./g')
-          NOTES=$(awk "/^## [[]?${VERSION_RE}[]]?([ ]|\$)/{found=1; next} /^## [[]?[0-9]/{if(found) exit} found{print}" CHANGELOG.md)
-          if [ -z "$NOTES" ]; then
-            NOTES="Release $VERSION"
-          fi
-          # Write to file to preserve newlines
-          echo "$NOTES" > /tmp/release-notes.md
-
-      - name: Create GitHub Release
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file /tmp/release-notes.md
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+    uses: lonniev/dpyc-community/.github/workflows/github-release.yml@main
+    secrets: inherit
