@@ -73,7 +73,12 @@ jobs:
           # This read json['server'] — a key not in the schema at all — so it mirrored
           # a format the platform had stopped accepting and could not fail for the real
           # reason. Parsing with MCPServerConfig validates the file as a side effect.
-          TARGET=$(uv run python -c "
+          # Not every repo in the fleet installs with uv — most use `pip install -e`.
+          # Hard-coding `uv run` made this guard fail with `uv: command not found`
+          # on all of them, which is the same mistake in a new costume: a check
+          # that cannot run is not a check.
+          if command -v uv >/dev/null 2>&1 && [ -f uv.lock ]; then PY="uv run python"; else PY="python"; fi
+          TARGET=$($PY -c "
           import json
           from fastmcp.utilities.mcp_server_config import MCPServerConfig
           c = MCPServerConfig.model_validate(json.load(open('fastmcp.json')))
@@ -82,7 +87,7 @@ jobs:
           # The environment block is what makes the builder install this project.
           # Without it UVEnvironment.project is None, nothing installs, and the build
           # dies on a preflight import blaming your dependency list.
-          uv run python -c "
+          $PY -c "
           import json, sys
           from fastmcp.utilities.mcp_server_config import MCPServerConfig
           c = MCPServerConfig.model_validate(json.load(open('fastmcp.json')))
