@@ -5,7 +5,7 @@ live Horizon service: the wheel must import, the FastMCP app must fully
 construct with its standard + domain tools registered, and the package must
 report the same version as ``pyproject.toml``. A regression in any of these
 manifests to deploy-verify as an "unreachable" service or a served-version
-mismatch (see issue #172).
+mismatch (see issues #172, #234).
 """
 
 import asyncio
