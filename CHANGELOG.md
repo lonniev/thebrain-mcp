@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 1.17.7 — 2026-09-01
+
+### Fixed — force Horizon off the stale 836baf49 wheel
+
+Live `brain_service_status` still reported
+`build_info.fastmcp_cloud_git_commit_sha = 836baf49…` after main moved through
+`1be1ea3c` and the #234 touch-commit `adbf77b8`. No code defect — the artifact
+imports, tools register, and `__version__` matches pyproject. Bump the package
+version and `.deploy-trigger` so Horizon must rebuild from HEAD (the pure
+trigger alone did not move the served sha).
+
 ## 1.17.6 — 2026-08-24
 
 ### Security — track tollbooth-dpyc 0.88.1 (cryptography floor raised to >=49.0.0)

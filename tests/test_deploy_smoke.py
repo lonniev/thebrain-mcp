@@ -5,7 +5,12 @@ live Horizon service: the wheel must import, the FastMCP app must fully
 construct with its standard + domain tools registered, and the package must
 report the same version as ``pyproject.toml``. A regression in any of these
 manifests to deploy-verify as an "unreachable" service or a served-version
-mismatch (see issues #172, #234).
+mismatch (see issues #172, #234, #236).
+
+When Horizon is serving a lagging ``fastmcp_cloud_git_commit_sha`` despite a
+green suite, the defect is a stale wheel — not these guards. The remedy is a
+fresh rebuild (``.deploy-trigger`` + package version bump when a pure trigger
+does not move the served sha).
 """
 
 import asyncio
