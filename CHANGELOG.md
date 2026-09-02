@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 1.17.8 — 2026-09-02
+
+### Fixed — force Horizon off the stale 836baf49 wheel again
+
+Live `brain_service_status` still reported
+`build_info.fastmcp_cloud_git_commit_sha = 836baf49…` and `version = 1.17.6`
+after main moved to `562f5ee1` (the #236 version-bump fix). No code defect —
+the artifact imports, tools register, and local `__version__` matches
+pyproject `1.17.7`. Horizon never rebuilt; bump again to `1.17.8` and retouch
+`.deploy-trigger` so a fresh wheel must land.
+
 ## 1.17.7 — 2026-09-01
 
 ### Fixed — force Horizon off the stale 836baf49 wheel
