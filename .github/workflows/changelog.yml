@@ -1,0 +1,16 @@
+# Thin caller — a PR adds changelog.d/<kind>-<slug>.md, never a line to CHANGELOG.md.
+# The logic lives once in dpyc-community/.github/workflows/changelog-guard.yml; that
+# file explains why. Canonical copy: dpyc-community/scripts/changelog-fragments/.
+name: Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard:
+    uses: lonniev/dpyc-community/.github/workflows/changelog-guard.yml@main

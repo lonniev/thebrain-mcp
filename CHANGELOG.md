@@ -3,6 +3,8 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+Changes not yet released live in `changelog.d/`, one file per change — see the README there for why, and `scripts/changelog.py` for what folds them in at release time.
+
 ## 1.17.8 — 2026-09-02
 
 ### Fixed — force Horizon off the still-stale 836baf49 wheel (#241)
@@ -78,8 +80,6 @@ this CHANGELOG's heading style rather than publishing a 16-byte body.
 ### Changed — track tollbooth-dpyc 0.63.3
 
 - Bumped the pinned SDK to 0.63.3 (npub-proof challenge DM now stamps the request time). Also cuts a release for changes accumulated since the last tag.
-
-## [Unreleased]
 
 ## [1.17.5] — 2026-08-22
 
@@ -809,4 +809,3 @@ Picks up the wheel's runtime-name + DRY pass:
 - Fix critical bug: Authorization header was being overwritten by custom headers
 - Fix MCP tool result format - use direct string in text field, not nested object
 - Initial commit: TheBrain MCP Server v1.0.0
-
