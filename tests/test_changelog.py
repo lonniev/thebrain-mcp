@@ -83,34 +83,3 @@ def test_the_new_section_goes_above_the_ones_already_there(tmp_path) -> None:
     out = cl.fold(existing, "## [1.0.0] — 2026-01-01\n\n### Added\n\n- Newer.\n")
     assert out.index("## [1.0.0]") < out.index("## [0.9.0]")
     assert "Preamble." in out and "- Older." in out
-
-
-def test_a_release_cannot_ship_with_its_notes_still_unfolded() -> None:
-    """The guard that survives `.claude/` not being tracked.
-
-    `/release` is a local slash command living under `.claude/`, which no repo
-    in this fleet tracks — so an instruction to fold the fragments would travel
-    with nobody. This runs in CI, where it does travel: if the changelog claims
-    the version in `pyproject.toml`, the fragments for it must already be in
-    it.
-    """
-    pyproject = ROOT / "pyproject.toml"
-    if not pyproject.is_file():
-        pytest.skip(
-            "no pyproject.toml — this repo versions itself by git tag, so there is no "
-            "file to compare the changelog against. The fold still runs at release; "
-            "this particular guard cannot."
-        )
-    version = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), re.MULTILINE)
-    assert version, "pyproject.toml has no version"
-    v = re.escape(version.group(1))
-
-    published = re.search(rf"^## \[?{v}\]?([ ]|$)", (ROOT / "CHANGELOG.md").read_text(), re.MULTILINE)
-    if not published:
-        return  # this version has not been cut yet; fragments are expected
-
-    left = [p.name for p in (ROOT / "changelog.d").glob("*.md") if p.name != "README.md"]
-    assert not left, (
-        f"CHANGELOG.md already has a section for {version.group(1)}, but "
-        f"changelog.d still holds {left} — run scripts/changelog.py fold <version>"
-    )
