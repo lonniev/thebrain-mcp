@@ -36,8 +36,9 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# Scripts (local)
+# Scripts (local) — except the changelog fold, which the convention ships
 scripts/
+!scripts/changelog.py
 
 # Temporary files
 tmp/
