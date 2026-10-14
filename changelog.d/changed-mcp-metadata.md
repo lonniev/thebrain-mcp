@@ -1,0 +1,1 @@
+- Every TheBrain tool carries a plain title and its behaviour (what it reads, writes or deletes in TheBrain's cloud); `npub` and `dpop_token` use the fleet's shared descriptions; the server reports its own version, website and icon.
