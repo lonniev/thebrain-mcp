@@ -7,11 +7,12 @@ tollbooth-dpyc wheel. Only domain-specific TheBrain tools are defined here.
 
 import logging
 import sys
-from typing import Annotated, Any
+from typing import Any
 
 from fastmcp import FastMCP
-from pydantic import Field
+from mcp.types import Icon
 from tollbooth.credential_templates import CredentialTemplate, FieldSpec
+from tollbooth.params import DpopToken, PatronNpub
 from tollbooth.runtime import OperatorRuntime, register_standard_tools
 from tollbooth.tool_identity import STANDARD_IDENTITIES, capability_uuid
 
@@ -39,6 +40,9 @@ logger = logging.getLogger(__name__)
 # Initialize FastMCP server (don't load settings yet - wait until runtime)
 mcp = FastMCP(
     "thebrain-mcp",
+    version=__version__,
+    website_url="https://github.com/lonniev/thebrain-mcp",
+    icons=[Icon(src="https://tollbooth-dpyc.com/dpyc-logo.png", mimeType="image/png")],
     instructions=(
         "TheBrain MCP Server — AI agent access to a personal knowledge graph "
         "powered by TheBrain.\n\n"
@@ -354,12 +358,8 @@ _INTERNAL_BRAIN_PATTERNS = {"credential vault", "mcp vault", "operator vault"}
 
 @tool
 @runtime.paid_tool(capability_uuid("list_knowledge_bases"), catch_errors=False)
-async def list_brains(npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
-    """List available brains.
-
-    Args:
-        npub: Required. Your Nostr public key (npub1...).
-    """
+async def list_brains(npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
+    """List available brains."""
     api = await _ensure_session(npub)
     result = await brains.list_brains_tool(api)
     # Filter out internal/operator brains
@@ -384,12 +384,11 @@ async def list_brains(npub: Annotated[str, Field(description="Required. Your Nos
 
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_base"), catch_errors=False)
-async def get_brain(brain_id: str, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def get_brain(brain_id: str, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Get details about a specific brain. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await brains.get_brain_tool(api, brain_id)
@@ -397,12 +396,11 @@ async def get_brain(brain_id: str, npub: Annotated[str, Field(description="Requi
 
 @tool
 @runtime.paid_tool(capability_uuid("set_active_knowledge_base"), catch_errors=False)
-async def set_active_brain(brain_id: str, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def set_active_brain(brain_id: str, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Set the active brain for subsequent operations. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain to set as active
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     result = await brains.set_active_brain_tool(api, brain_id)
@@ -415,12 +413,11 @@ async def set_active_brain(brain_id: str, npub: Annotated[str, Field(description
 
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_base_stats"), catch_errors=False)
-async def get_brain_stats(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def get_brain_stats(brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Get statistics about a brain. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await brains.get_brain_stats_tool(api, get_brain_id(brain_id, npub))
@@ -442,7 +439,7 @@ async def create_thought(
     source_thought_id: str | None = None,
     relation: int | None = None,
     ac_type: int = 0,
-    npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Create a new thought with optional type, color, label, and parent link. Requires npub for credit billing.
 
@@ -460,7 +457,6 @@ async def create_thought(
         source_thought_id: ID of the source thought to link from
         relation: Relation type if linking (1=Child, 2=Parent, 3=Jump, 4=Sibling)
         ac_type: Access type (0=Public, 1=Private)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.create_thought_tool(
@@ -472,13 +468,12 @@ async def create_thought(
 
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_node"), catch_errors=False)
-async def get_thought(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def get_thought(thought_id: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Get details about a specific thought. Requires npub for credit billing.
 
     Args:
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.get_thought_tool(api, get_brain_id(brain_id, npub), thought_id)
@@ -487,7 +482,7 @@ async def get_thought(thought_id: str, brain_id: str | None = None, npub: Annota
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_node_by_name"), catch_errors=False)
 async def get_thought_by_name(
-    name_exact: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    name_exact: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Exact name lookup — returns the first thought matching the name exactly. Requires npub for credit billing.
 
@@ -500,7 +495,6 @@ async def get_thought_by_name(
     Args:
         name_exact: The exact name to match (case-sensitive)
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.get_thought_by_name_tool(
@@ -515,7 +509,7 @@ async def update_thought(
     label: str | None = None, foreground_color: str | None = None,
     background_color: str | None = None, kind: int | None = None,
     ac_type: int | None = None, type_id: str | None = None,
-    new_parent_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    new_parent_id: str | None = None, confirm: bool = False, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Update a thought's properties and/or its parent in one call. Requires npub for credit billing.
 
@@ -537,7 +531,6 @@ async def update_thought(
         confirm: If True, verify type/parent changes against the authoritative
             change-log (SET_TYPE / MOVED_LINK) instead of the cached graph, and
             attach a ``confirmation`` block. Costs one extra billed read.
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.update_thought_tool(
@@ -549,7 +542,7 @@ async def update_thought(
 
 @tool
 @runtime.paid_tool(capability_uuid("delete_knowledge_node"), catch_errors=False)
-async def delete_thought(thought_id: str, brain_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def delete_thought(thought_id: str, brain_id: str | None = None, confirm: bool = False, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Permanently delete a thought by ID. Cannot be undone. Requires npub for credit billing.
 
     Args:
@@ -559,7 +552,6 @@ async def delete_thought(thought_id: str, brain_id: str | None = None, confirm: 
             (a logged DELETED entry) and attach a ``confirmation`` block. The
             command store already 404s a deleted thought; this adds an audit-grade
             log proof. Costs one extra billed read.
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.delete_thought_tool(
@@ -571,7 +563,7 @@ async def delete_thought(thought_id: str, brain_id: str | None = None, confirm: 
 @runtime.paid_tool(capability_uuid("search_knowledge_nodes"), catch_errors=False)
 async def search_thoughts(
     query_text: str, brain_id: str | None = None, max_results: int = 30,
-    only_search_thought_names: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    only_search_thought_names: bool = False, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Full-text search across thought names and content. Requires npub for credit billing.
 
@@ -586,7 +578,6 @@ async def search_thoughts(
         brain_id: The ID of the brain (uses active brain if not specified)
         max_results: Maximum number of results
         only_search_thought_names: Only search in thought names (not content)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.search_thoughts_tool(
@@ -597,7 +588,7 @@ async def search_thoughts(
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_graph"), catch_errors=False)
 async def get_thought_graph(
-    thought_id: str, brain_id: str | None = None, include_siblings: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    thought_id: str, brain_id: str | None = None, include_siblings: bool = False, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Get a thought's full connection graph. Requires npub for credit billing.
 
@@ -614,7 +605,6 @@ async def get_thought_graph(
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
         include_siblings: Include sibling thoughts in the graph
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.get_thought_graph_tool(
@@ -627,7 +617,7 @@ async def get_thought_graph(
 async def get_thought_graph_paginated(
     thought_id: str, page_size: int = 10, cursor: str | None = None,
     direction: str = "older", relation_filter: str | None = None,
-    brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Cursor-based paginated traversal of a thought's connections. Requires npub for credit billing.
 
@@ -643,7 +633,6 @@ async def get_thought_graph_paginated(
         direction: "older" (newest first) or "newer" (oldest first)
         relation_filter: Filter by relation: "child", "parent", "jump", "sibling"
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.get_thought_graph_paginated_tool(
@@ -654,12 +643,11 @@ async def get_thought_graph_paginated(
 
 @tool
 @runtime.paid_tool(capability_uuid("list_knowledge_node_types"), catch_errors=False)
-async def get_types(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def get_types(brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """List all thought types defined in the brain. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.get_types_tool(api, get_brain_id(brain_id, npub))
@@ -667,12 +655,11 @@ async def get_types(brain_id: str | None = None, npub: Annotated[str, Field(desc
 
 @tool
 @runtime.paid_tool(capability_uuid("list_knowledge_node_tags"), catch_errors=False)
-async def get_tags(brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def get_tags(brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Get all tags in a brain. Requires npub for credit billing.
 
     Args:
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await thoughts.get_tags_tool(api, get_brain_id(brain_id, npub))
@@ -687,7 +674,7 @@ async def create_link(
     thought_id_a: str, thought_id_b: str, relation: int,
     brain_id: str | None = None, name: str | None = None,
     color: str | None = None, thickness: int | None = None,
-    direction: int | None = None, type_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    direction: int | None = None, type_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Create a relationship between two thoughts by ID. Requires npub for credit billing.
 
@@ -701,7 +688,6 @@ async def create_link(
         thickness: Link thickness (1-10)
         direction: Direction flags
         type_id: ID of link type
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await links.create_link_tool(
@@ -715,7 +701,7 @@ async def create_link(
 async def update_link(
     link_id: str, brain_id: str | None = None, name: str | None = None,
     color: str | None = None, thickness: int | None = None,
-    direction: int | None = None, relation: int | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    direction: int | None = None, relation: int | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Update link properties. Requires npub for credit billing.
 
@@ -727,7 +713,6 @@ async def update_link(
         thickness: New thickness (1-10)
         direction: New direction flags
         relation: New relation type
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await links.update_link_tool(
@@ -737,13 +722,12 @@ async def update_link(
 
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_link"), catch_errors=False)
-async def get_link(link_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def get_link(link_id: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Get details about a specific link. Requires npub for credit billing.
 
     Args:
         link_id: The ID of the link
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await links.get_link_tool(api, get_brain_id(brain_id, npub), link_id)
@@ -751,13 +735,12 @@ async def get_link(link_id: str, brain_id: str | None = None, npub: Annotated[st
 
 @tool
 @runtime.paid_tool(capability_uuid("delete_knowledge_link"), catch_errors=False)
-async def delete_link(link_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def delete_link(link_id: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Permanently delete a link by ID. Cannot be undone. Requires npub for credit billing.
 
     Args:
         link_id: The ID of the link
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await links.delete_link_tool(api, get_brain_id(brain_id, npub), link_id)
@@ -770,7 +753,7 @@ async def delete_link(link_id: str, brain_id: str | None = None, npub: Annotated
 @runtime.paid_tool(capability_uuid("attach_file_to_knowledge_node"), catch_errors=False)
 async def add_file_attachment(
     thought_id: str, file_path: str, brain_id: str | None = None,
-    file_name: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    file_name: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Add a file attachment to a thought. Requires npub for credit billing.
 
@@ -779,7 +762,6 @@ async def add_file_attachment(
         file_path: Path to the file to attach
         brain_id: The ID of the brain (uses active brain if not specified)
         file_name: Name for the attachment (optional)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await attachments.add_file_attachment_tool(
@@ -791,7 +773,7 @@ async def add_file_attachment(
 @tool
 @runtime.paid_tool(capability_uuid("attach_url_to_knowledge_node"), catch_errors=False)
 async def add_url_attachment(
-    thought_id: str, url: str, brain_id: str | None = None, name: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    thought_id: str, url: str, brain_id: str | None = None, name: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Add a URL attachment to a thought. Requires npub for credit billing.
 
@@ -800,7 +782,6 @@ async def add_url_attachment(
         url: The URL to attach
         brain_id: The ID of the brain (uses active brain if not specified)
         name: Name for the URL attachment (auto-fetched if not provided)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await attachments.add_url_attachment_tool(
@@ -810,13 +791,12 @@ async def add_url_attachment(
 
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_attachment"), catch_errors=False)
-async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Get metadata about an attachment. Requires npub for credit billing.
 
     Args:
         attachment_id: The ID of the attachment
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await attachments.get_attachment_tool(api, get_brain_id(brain_id, npub), attachment_id)
@@ -825,7 +805,7 @@ async def get_attachment(attachment_id: str, brain_id: str | None = None, npub: 
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_attachment_content"), catch_errors=False)
 async def get_attachment_content(
-    attachment_id: str, brain_id: str | None = None, save_to_path: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    attachment_id: str, brain_id: str | None = None, save_to_path: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Get the binary content of an attachment. Requires npub for credit billing.
 
@@ -833,7 +813,6 @@ async def get_attachment_content(
         attachment_id: The ID of the attachment
         brain_id: The ID of the brain (uses active brain if not specified)
         save_to_path: Optional path to save the file locally
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await attachments.get_attachment_content_tool(
@@ -844,13 +823,12 @@ async def get_attachment_content(
 
 @tool
 @runtime.paid_tool(capability_uuid("delete_knowledge_attachment"), catch_errors=False)
-async def delete_attachment(attachment_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def delete_attachment(attachment_id: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """Delete an attachment. Requires npub for credit billing.
 
     Args:
         attachment_id: The ID of the attachment
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await attachments.delete_attachment_tool(
@@ -860,13 +838,12 @@ async def delete_attachment(attachment_id: str, brain_id: str | None = None, npu
 
 @tool
 @runtime.paid_tool(capability_uuid("list_knowledge_attachments"), catch_errors=False)
-async def list_attachments(thought_id: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "") -> dict[str, Any]:
+async def list_attachments(thought_id: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "") -> dict[str, Any]:
     """List all attachments for a thought. Requires npub for credit billing.
 
     Args:
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await attachments.list_attachments_tool(
@@ -880,7 +857,7 @@ async def list_attachments(thought_id: str, brain_id: str | None = None, npub: A
 @tool
 @runtime.paid_tool(capability_uuid("get_knowledge_node_note"), catch_errors=False)
 async def get_note(
-    thought_id: str, brain_id: str | None = None, format: str = "markdown", npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    thought_id: str, brain_id: str | None = None, format: str = "markdown", npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Get the note content for a thought. Requires npub for credit billing.
 
@@ -888,7 +865,6 @@ async def get_note(
         thought_id: The ID of the thought
         brain_id: The ID of the brain (uses active brain if not specified)
         format: Output format (markdown, html, or text)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await notes.get_note_tool(api, get_brain_id(brain_id, npub), thought_id, format)
@@ -897,7 +873,7 @@ async def get_note(
 @tool
 @runtime.paid_tool(capability_uuid("upsert_knowledge_node_note"), catch_errors=False)
 async def create_or_update_note(
-    thought_id: str, markdown: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    thought_id: str, markdown: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Create or update a note with markdown content. Requires npub for credit billing.
 
@@ -908,7 +884,6 @@ async def create_or_update_note(
         thought_id: The ID of the thought
         markdown: Markdown content for the note
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await notes.create_or_update_note_tool(
@@ -919,7 +894,7 @@ async def create_or_update_note(
 @tool
 @runtime.paid_tool(capability_uuid("append_knowledge_node_note"), catch_errors=False)
 async def append_to_note(
-    thought_id: str, markdown: str, brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    thought_id: str, markdown: str, brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Append content to an existing note. Requires npub for credit billing.
 
@@ -930,7 +905,6 @@ async def append_to_note(
         thought_id: The ID of the thought
         markdown: Markdown content to append
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await notes.append_to_note_tool(
@@ -947,7 +921,7 @@ async def get_modifications(
     brain_id: str | None = None, max_logs: int = 100,
     start_time: str | None = None, end_time: str | None = None,
     source_id: str | None = None, source_type: int | None = None,
-    mod_types: list[int] | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    mod_types: list[int] | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """The brain's authoritative, uncached change-log. Requires npub for credit billing.
 
@@ -976,7 +950,6 @@ async def get_modifications(
         source_id: Only return entries for this thought/link ID
         source_type: Only return entries of this SourceType (2=Thought, 3=Link)
         mod_types: Only return entries whose modType is in this list (e.g. [102] for deletes)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await stats.get_modifications_tool(
@@ -991,7 +964,7 @@ async def get_modifications(
 @tool
 @runtime.paid_tool(capability_uuid("query_knowledge_base"), catch_errors=False)
 async def brain_query(
-    query: str, brain_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    query: str, brain_id: str | None = None, confirm: bool = False, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Primary tool for pattern-based operations on TheBrain. Requires npub for credit billing.
 
@@ -1009,7 +982,6 @@ async def brain_query(
         query: A BrainQuery string (Cypher subset).
         brain_id: The ID of the brain (uses active brain if not specified)
         confirm: Set to true to confirm and execute a DELETE operation.
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     from thebrain_mcp.brainquery import execute, parse
 
@@ -1032,7 +1004,7 @@ async def brain_query(
 @runtime.paid_tool(capability_uuid("morph_knowledge_node"), catch_errors=False)
 async def morph_thought(
     thought_id: str, brain_id: str | None = None,
-    new_parent_id: str | None = None, new_type_id: str | None = None, confirm: bool = False, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    new_parent_id: str | None = None, new_type_id: str | None = None, confirm: bool = False, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Atomically reparent and/or retype a thought in one operation. Requires npub for credit billing.
 
@@ -1048,7 +1020,6 @@ async def morph_thought(
         confirm: If True, verify the reparent/retype against the authoritative
             change-log (MOVED_LINK / SET_TYPE) instead of the cached graph, and
             attach a ``confirmation`` block. Costs one extra billed read.
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await morpher.morpher_tool(
@@ -1063,7 +1034,7 @@ async def morph_thought(
 @runtime.paid_tool(capability_uuid("scan_orphan_knowledge_nodes"), catch_errors=False)
 async def scan_orphans(
     brain_id: str | None = None, dry_run: bool = True, batch_size: int = 50,
-    orphanage_name: str = "Orphanage", npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    orphanage_name: str = "Orphanage", npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Scan for orphaned thoughts with zero connections and optionally rescue them. Requires npub for credit billing.
 
@@ -1072,7 +1043,6 @@ async def scan_orphans(
         dry_run: If true, only report orphans without rescuing them
         batch_size: Number of orphans to process per batch
         orphanage_name: Name of the orphanage thought to rescue orphans under
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await orphanage.scan_orphans_tool(
@@ -1087,7 +1057,7 @@ async def scan_orphans(
 @runtime.paid_tool(capability_uuid("get_person_event"), catch_errors=False)
 async def event_for_person(
     date: str, person: str, event_name: str | None = None, notes: str | None = None,
-    brain_id: str | None = None, npub: Annotated[str, Field(description="Required. Your Nostr public key (npub1...) for credit billing.")] = "", dpop_token: str = "",
+    brain_id: str | None = None, npub: PatronNpub = "", dpop_token: DpopToken = "",
 ) -> dict[str, Any]:
     """Create an Event+Person+Day in one action. Requires npub for credit billing.
 
@@ -1097,7 +1067,6 @@ async def event_for_person(
         event_name: Custom event name (auto-generated if omitted)
         notes: Optional markdown note for the Event
         brain_id: The ID of the brain (uses active brain if not specified)
-        npub: Your DPYC patron Nostr public key (npub1...) for credit attribution.
     """
     api = await _ensure_session(npub)
     return await whowhen.event_for_person_tool(
