@@ -175,6 +175,9 @@ runtime = OperatorRuntime(
         "credential channel."
     ),
     on_forget=lambda service, npub: _on_credentials_forgotten(service, npub),
+    # Connections authenticate as holders: each npub proven through one stays
+    # with it, so tool calls pass only the npub.
+    holder_auth_url="https://personal-brain.fastmcp.app",
 )
 
 
