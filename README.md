@@ -34,20 +34,20 @@ Connect any MCP-compatible client (Claude Desktop, Cursor, your own agent) to th
 https://personal-brain.fastmcp.app/mcp
 ```
 
-No configuration needed — Horizon OAuth handles authentication automatically.
+No configuration needed. Your client connects with OAuth; the connection holds no npub until you prove one into it by answering a Nostr DM (`request_npub_proof`, then `receive_npub_proof`). A client that holds your nsec signs each request instead (NIP-98) and needs no DM. Tools then take only `npub`.
 
 ### First Connection Walkthrough
 
 1. **`session_status`** — Check your current session state.
 2. Get your **patron npub** from the dpyc-oracle's `how_to_join()` tool — this is the npub you registered as a DPYC™ Citizen, your identity for credit operations.
 3. **Secure Courier onboarding:**
-   - Call `request_credential_channel(recipient_npub=<patron_npub>)` — opens a Secure Courier channel; sends a welcome DM to your Nostr client.
+   - Call `request_credential_channel(sender_npub=<patron_npub>, service=<service>)` — opens a Secure Courier channel, sends a welcome DM to your Nostr client, and returns the channel's `nonce`.
    - Reply via your Nostr client with your credentials in JSON: `{"api_key": "...", "brain_id": "..."}`
-   - Call `receive_credentials(sender_npub=<patron_npub>)` — vaults your credentials and activates the session. A seed balance is granted automatically.
+   - Call `receive_credentials(sender_npub=<patron_npub>, service=<service>, nonce=<that nonce>)` — vaults your credentials and activates the session. A seed balance is granted automatically.
 4. **`list_brains`** → **`set_active_brain`** — Select which brain to work with.
 5. **`brain_query`** — Start exploring your knowledge graph.
 
-**Returning users:** call `receive_credentials(sender_npub=<patron_npub>)` — vault-first lookup activates instantly, no relay I/O needed.
+**Returning users** do not re-run this flow: the session restores from the vault on first use.
 
 ### Secure Courier
 
@@ -150,7 +150,7 @@ topology (Operator / Authority / Oracle):
 | Hot (local ledger) | `check_balance`, `account_statement`, `account_statement_infographic`, `restore_credits`, `service_status` | Implemented — delegates to server.py |
 | Hot (Secure Courier) | `session_status`, `request_credential_channel`, `receive_credentials`, `forget_credentials` | Implemented — Nostr credential delivery with credential card DM |
 | Delegation (Authority) | `purchase_credits`, `check_payment` | Implemented — auto-certifies via MCP-to-MCP |
-| Delegation (Authority) | `certify_credits`, `register_operator`, `operator_status` | Stub — connect to the Authority MCP directly |
+| Delegation (Authority) | `certify_credits`, `operator_status` | Stub — connect to the Authority MCP directly |
 | Delegation (Oracle) | `lookup_member`, `how_to_join`, `get_tax_rate`, `about`, `network_advisory` | Implemented — MCP-to-MCP via OracleClient |
 
 Payment processing auto-certifies via the Authority (server-to-server OAuth). Secure Courier delivers encrypted credentials via Nostr DMs with automatic credential card (`ncred1...`) DM-back on first receipt. Oracle community tools route directly to the DPYC™ Oracle — free and unauthenticated.
