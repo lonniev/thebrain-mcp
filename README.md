@@ -43,7 +43,7 @@ No configuration needed. Your client connects with OAuth; the connection holds n
 3. **Secure Courier onboarding:**
    - Call `request_credential_channel(sender_npub=<patron_npub>, service=<service>)` — opens a Secure Courier channel, sends a welcome DM to your Nostr client, and returns the channel's `nonce`.
    - Reply via your Nostr client with your credentials in JSON: `{"api_key": "...", "brain_id": "..."}`
-   - Call `receive_credentials(sender_npub=<patron_npub>, service=<service>, nonce=<that nonce>)` — vaults your credentials and activates the session. A seed balance is granted automatically.
+   - Call `receive_credentials(sender_npub=<patron_npub>, service=<service>, nonce=<that nonce>)` — vaults your credentials and activates the session.
 4. **`list_brains`** → **`set_active_brain`** — Select which brain to work with.
 5. **`brain_query`** — Start exploring your knowledge graph.
 
@@ -64,15 +64,15 @@ Credentials are delivered via encrypted Nostr DMs — they never appear in the c
 | `write`  | 5 sats      | `create_thought`, `create_link`, `update_thought` |
 | `heavy`  | 10 sats     | `brain_query`, `get_modifications` |
 
-Actual prices are set dynamically by the operator's pricing model in Neon via `api_sats` per tool. Auth and balance tools are always free. First-time users receive a seed balance on onboarding — enough to explore without purchasing credits up front.
+Actual prices are set dynamically by the operator's pricing model in Neon via `api_sats` per tool. Auth and balance tools are always free.
 
 Credits are issued as tranches with a `tranche_lifetime` (TTL). Tranches are consumed FIFO; expired tranches are pruned automatically. Use `check_balance` to see your balance, active tranches, and usage history. Top up via `purchase_credits` with Bitcoin Lightning.
 
 ## Security
 
 - **Identity is a Nostr keypair** — users are identified by an `npub` (Nostr public key), not an email or username. The `nsec` (private key) stays with the patron — never shared, never sent to a service.
-- **Proof is a kind-27235 Schnorr-signed NIP-98 event** — every paid tool requires a `proof` parameter. The proof is a JSON-serialized Nostr event signed by the patron's nsec, binding their npub to the specific tool call.
-- **Human in the loop** — the patron must sign each proof via their Nostr client. Proofs are never auto-generated or cached by the agent. The proof cache (vault-backed since v0.9.2) stores verified proofs for ~1 hour; renewal requires a fresh request/receive cycle.
+- **Identity is on the connection** — a client that holds the nsec signs each HTTP request (NIP-98, kind 27235); an OAuth client proves the npub once into its connection by answering a Nostr DM (`request_npub_proof` → `receive_npub_proof`). Tools carry no proof argument.
+- **Human in the loop** — the patron approves each proof in their Nostr client and chooses how long it lasts, up to 30 days. When it lapses, a fresh request/receive cycle renews it.
 - **Credentials via Secure Courier** — TheBrain API keys and brain IDs are delivered via NIP-44 encrypted Nostr DMs, vaulted in Neon Postgres, and never exposed in the chat window.
 
 ## BrainQuery (BQL)
@@ -94,9 +94,9 @@ When a tool call fails, **read the response** — it tells you what happened and
 
 | Situation | What to do |
 |-----------|------------|
-| **proof is required** | Call `request_npub_proof` then `receive_npub_proof` — a fresh request/receive cycle. The cache expires after ~1 hour. |
+| **proof is required** | Call `request_npub_proof` then `receive_npub_proof` — a fresh request/receive cycle. The proof lasts as long as the patron chose when approving it (up to 30 days). |
 | **Insufficient credit balance** | Call `purchase_credits` to top up. |
-| **Cold start / session not ready** | Retry in 10-15 seconds. Inline retry is available in v0.13.5+. |
+| **Cold start / session not ready** | Retry in 10-15 seconds. |
 | **Credentials not found** | Follow the Secure Courier onboarding flow (step 3 above). |
 | **Upstream API error** | Only if the error explicitly mentions TheBrain API failure. Not a credential or billing issue. |
 
@@ -114,18 +114,7 @@ To run your own instance, set these environment variables:
 |----------|---------|
 | `TOLLBOOTH_NOSTR_OPERATOR_NSEC` | Operator's Nostr secret key -- the single bootstrap key for identity, Secure Courier DMs, and audit signing |
 
-This is the only env var required to start. Certified operators bootstrap their Neon database URL from the Authority via encrypted Nostr DM -- `NEON_DATABASE_URL` is not read from the environment.
-
-#### Optional Tuning
-
-| Variable | Purpose |
-|----------|---------|
-| `TOLLBOOTH_NOSTR_RELAYS` | Comma-separated relay URLs (overrides defaults) |
-| `THEBRAIN_API_URL` | TheBrain API base URL (default: `https://api.bra.in`) |
-| `SEED_BALANCE_SATS` | Free starter balance for new users (0 to disable) |
-| `CREDIT_TTL_SECONDS` | Tranche lifetime in seconds (default: 604800 = 7 days) |
-| `DPYC_REGISTRY_CACHE_TTL_SECONDS` | How long to cache the DPYC community registry (default: 300) |
-| `CONSTRAINTS_ENABLED` | `"true"` to enable constraint engine evaluation on tool calls |
+This is the only env var the server reads. Certified operators bootstrap their Neon database URL from the Authority via encrypted Nostr DM -- `NEON_DATABASE_URL` is not read from the environment. The relay set comes from the shared dpyc-community registry, and tranche lifetime and constraints come from the operator's pricing model -- none of them is an env var.
 
 #### Credentials via Secure Courier (NOT env vars)
 
@@ -149,9 +138,9 @@ topology (Operator / Authority / Oracle):
 |------|-------|--------|
 | Hot (local ledger) | `check_balance`, `account_statement`, `account_statement_infographic`, `restore_credits`, `service_status` | Implemented — delegates to server.py |
 | Hot (Secure Courier) | `session_status`, `request_credential_channel`, `receive_credentials`, `forget_credentials` | Implemented — Nostr credential delivery with credential card DM |
+| Identity | `request_npub_proof`, `receive_npub_proof`, `check_proof_status`, `held_identities` | Implemented — proves an npub into an OAuth connection |
 | Delegation (Authority) | `purchase_credits`, `check_payment` | Implemented — auto-certifies via MCP-to-MCP |
-| Delegation (Authority) | `certify_credits`, `operator_status` | Stub — connect to the Authority MCP directly |
-| Delegation (Oracle) | `lookup_member`, `how_to_join`, `get_tax_rate`, `about`, `network_advisory` | Implemented — MCP-to-MCP via OracleClient |
+| Delegation (Oracle) | `oracle_lookup_member`, `oracle_how_to_join`, `oracle_get_tax_rate`, `oracle_about`, `oracle_network_advisory` | Implemented — MCP-to-MCP via OracleClient |
 
 Payment processing auto-certifies via the Authority (server-to-server OAuth). Secure Courier delivers encrypted credentials via Nostr DMs with automatic credential card (`ncred1...`) DM-back on first receipt. Oracle community tools route directly to the DPYC™ Oracle — free and unauthenticated.
 
@@ -222,6 +211,11 @@ The author reserves all rights to seek patent protection for the novel methods a
 - [optionality-mcp](https://github.com/lonniev/optionality-mcp) — Options analytics (brokerage-data operator)
 - [tollbooth-oauth2-collector](https://github.com/lonniev/tollbooth-oauth2-collector) — OAuth2 callback handler (advocate service)
 - [tollbooth-shortlinks](https://github.com/lonniev/tollbooth-shortlinks) — URL shortener utility
+- [goodearth-mcp](https://github.com/lonniev/goodearth-mcp) — Climate analytics for small specialty-crop farms
+- [beesknees-mcp](https://github.com/lonniev/beesknees-mcp) — The Bee's Knees race game
+- [roastify-mcp](https://github.com/lonniev/roastify-mcp) — Roastify coffee catalog and packaging artwork
+- [ChartRemotely-mcp](https://github.com/lonniev/ChartRemotely-mcp) — Puts a security on a desktop chart, by voice or tool call
+- [tollbooth-web](https://github.com/lonniev/tollbooth-web) — Shared browser SDK for DPYC™ operator front ends
 
 ## Further Reading
 
