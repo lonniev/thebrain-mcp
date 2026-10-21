@@ -1,0 +1,1 @@
+- The README matches the code: identity is on the connection (no per-call `proof`; a proof lasts as long as the patron chose, up to 30 days), the unread tuning env vars are gone, the nonexistent `certify_credits`/`operator_status` stub row is dropped, Oracle tools carry their `oracle_` names, and the ecosystem list names the newer operators.
