@@ -1,1 +1,0 @@
-- The server instructions name `request_credential_channel`'s real argument, `sender_npub`, and pass its `nonce` to `receive_credentials`.

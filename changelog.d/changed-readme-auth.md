@@ -1,1 +1,0 @@
-- The README describes identity on the connection (OAuth holder or signed request) and the courier calls with `sender_npub` and the returned `nonce`; returning users need no call, and `register_operator` is gone.

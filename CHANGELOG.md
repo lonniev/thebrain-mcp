@@ -5,6 +5,34 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Changes not yet released live in `changelog.d/`, one file per change — see the README there for why, and `scripts/changelog.py` for what folds them in at release time.
 
+## [1.18.0] — 2026-10-21
+
+### Changed
+
+- Connections authenticate as holders (tollbooth-dpyc 0.101.1 holder bearer): connecting from Claude.ai is an Authorization Code flow with no login page, each npub proven through a connection stays with it, and tool calls pass only `npub`.
+
+- Every TheBrain tool carries a plain title and its behaviour (what it reads, writes or deletes in TheBrain's cloud); `npub` and `dpop_token` use the fleet's shared descriptions; the server reports its own version, website and icon.
+
+- Pins tollbooth-dpyc 0.102.0: a request signed with an npub's own key (NIP-98) acts as that npub with no grant.
+
+- Pins tollbooth-dpyc 0.102.1: a request signed with an npub's own key (NIP-98) acts as that npub with no grant.
+
+- The README describes identity on the connection (OAuth holder or signed request) and the courier calls with `sender_npub` and the returned `nonce`; returning users need no call, and `register_operator` is gone.
+
+- The README matches the code: identity is on the connection (no per-call `proof`; a proof lasts as long as the patron chose, up to 30 days), the unread tuning env vars are gone, the nonexistent `certify_credits`/`operator_status` stub row is dropped, Oracle tools carry their `oracle_` names, and the ecosystem list names the newer operators.
+
+- Dependencies refreshed to current releases (mcp/fastmcp 1.27.1/3.4.7 → 2.3.0/4.1.0; frontend minor/patch). No service stays on old transitive versions.
+
+- Tools take only `npub`; the connection proves it (a request signed with the npub's key, or an OAuth connection that holds it after the DM). The `dpop_token` argument is gone, and the Courier phrase is `nonce`. Pins tollbooth-dpyc 0.103.0.
+
+### Removed
+
+- No seed balance: the unread `seed_balance_sats` setting, its `SEED_BALANCE_SATS` example, and the "Starter Credits" promise in the server instructions and README are removed. New patrons start at zero and fund with `purchase_credits`.
+
+### Fixed
+
+- The server instructions name `request_credential_channel`'s real argument, `sender_npub`, and pass its `nonce` to `receive_credentials`.
+
 ## 1.17.8 — 2026-09-02
 
 ### Fixed — force Horizon off the still-stale 836baf49 wheel (#241)

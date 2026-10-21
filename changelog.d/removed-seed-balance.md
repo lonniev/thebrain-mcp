@@ -1,1 +1,0 @@
-- No seed balance: the unread `seed_balance_sats` setting, its `SEED_BALANCE_SATS` example, and the "Starter Credits" promise in the server instructions and README are removed. New patrons start at zero and fund with `purchase_credits`.
