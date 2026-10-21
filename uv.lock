@@ -1966,7 +1966,7 @@ wheels = [
 
 [[package]]
 name = "thebrain-mcp"
-version = "1.17.8"
+version = "1.18.0"
 source = { editable = "." }
 dependencies = [
     { name = "cachetools" },
@@ -2025,6 +2025,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pynostr" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/5b/96/aa0a6cf5d323a62efc75b11464a8ef53ea8819addf1c1be89c2d6b25f5af/tollbooth_dpyc-0.105.1.tar.gz", hash = "sha256:154c848281b70107a22e881ca97a9b16c79164499fcf79bd63a96407f52afcd6", size = 2900812, upload-time = "2026-10-21T13:36:04.828Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/07/ac/3f13641c834b5fdf8787d67010aa2fdd8b9136efb8575063f6332dd5cbef/tollbooth_dpyc-0.105.1-py3-none-any.whl", hash = "sha256:cff4526dea38f1d7d704f80dee2a788dbaa1d059a686ce3b664b1670292be537", size = 479619, upload-time = "2026-10-21T13:36:02.751Z" },
 ]
