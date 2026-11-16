@@ -204,3 +204,56 @@ class TestErrorPaths:
         assert result["success"] is False
         assert "stuck-link" in result["error"]
         api.create_link.assert_not_called()
+
+
+class TestMoveKeepsType:
+    """TheBrain lists a thought's type among its parents (a child-link from the
+    type thought). Moving the thought must not delete that link."""
+
+    @pytest.mark.asyncio
+    async def test_retype_and_move_in_one_call_keeps_the_new_type(self):
+        done_type = _thought("type-done", "Done Task")
+        column = _thought("col-in-progress", "In-Progress")
+        card = _thought("card-1", "Task 4", type_id="type-done")
+        graph = _graph(
+            card,
+            parents=[column, done_type],
+            links=[
+                _link("link-column", "col-in-progress", "card-1"),
+                _link("link-type", "type-done", "card-1"),
+            ],
+        )
+        api = _mock_api(graph)
+        api.get_thought = AsyncMock(return_value=card)
+
+        result = await update_thought_tool(
+            api, BRAIN, "card-1", type_id="type-done", new_parent_id="col-done",
+        )
+
+        assert result["success"] is True
+        api.delete_link_verified.assert_called_once_with(BRAIN, "link-column")
+        assert [p["id"] for p in result["reparent"]["old_parents"]] == ["col-in-progress"]
+
+    @pytest.mark.asyncio
+    async def test_type_the_cached_graph_has_not_caught_up_on_is_kept(self):
+        """The graph is read after the PATCH and may still show no type; the
+        type just set is kept all the same."""
+        done_type = _thought("type-done", "Done Task")
+        column = _thought("col-in-progress", "In-Progress")
+        card_before = _thought("card-1", "Task 4")
+        graph = _graph(
+            card_before,
+            parents=[column, done_type],
+            links=[
+                _link("link-column", "col-in-progress", "card-1"),
+                _link("link-type", "type-done", "card-1"),
+            ],
+        )
+        api = _mock_api(graph)
+        api.get_thought = AsyncMock(return_value=_thought("card-1", "Task 4", type_id="type-done"))
+
+        await update_thought_tool(
+            api, BRAIN, "card-1", type_id="type-done", new_parent_id="col-done",
+        )
+
+        api.delete_link_verified.assert_called_once_with(BRAIN, "link-column")

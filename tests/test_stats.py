@@ -221,3 +221,12 @@ async def test_morph_retype_confirm_true():
     out = await morpher_tool(api, BRAIN, THOUGHT, new_type_id="type-done", confirm=True)
     assert out["success"] is True
     assert out["confirmation"]["retype"]["confirmed"] is True
+
+
+@pytest.mark.asyncio
+async def test_change_confirmed_asks_for_a_bounded_log():
+    """TheBrain answers 400 without maxLogs; the confirmation must send one."""
+    api = AsyncMock()
+    api.get_brain_modifications = AsyncMock(return_value=[])
+    await change_confirmed(api, BRAIN, THOUGHT, [ModificationType.DELETED], since_marker(), retries=1)
+    assert api.get_brain_modifications.await_args.kwargs["max_logs"] > 0

@@ -16,6 +16,10 @@ from thebrain_mcp.api.client import TheBrainAPI, TheBrainAPIError
 from thebrain_mcp.api.models import Modification
 from thebrain_mcp.utils.formatters import get_modification_type_name, get_source_type_name
 
+# How many change-log entries a confirmation reads back. TheBrain requires
+# maxLogs; a write's own entries are among the newest few.
+CONFIRM_MAX_LOGS = 500
+
 
 def since_marker(skew_seconds: int = 5) -> str:
     """An ISO timestamp to hand a mutating call *before* it writes.
@@ -94,7 +98,9 @@ async def change_confirmed(
 
     for attempt in range(max(1, retries)):
         try:
-            mods = await api.get_brain_modifications(brain_id, start_time=since)
+            mods = await api.get_brain_modifications(
+                brain_id, max_logs=CONFIRM_MAX_LOGS, start_time=since
+            )
         except TheBrainAPIError as e:
             last_error = str(e)
             mods = []

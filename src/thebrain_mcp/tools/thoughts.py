@@ -274,7 +274,7 @@ async def update_thought_tool(
         if new_parent_id is not None:
             graph = await api.get_thought_graph(brain_id, thought_id)
             result["reparent"] = await reparent_thought(
-                api, brain_id, thought_id, new_parent_id, graph
+                api, brain_id, thought_id, new_parent_id, graph, type_id=type_id
             )
 
         # Optional: prove the type/parent changes against the authoritative

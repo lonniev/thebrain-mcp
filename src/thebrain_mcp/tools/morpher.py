@@ -21,6 +21,7 @@ async def reparent_thought(
     thought_id: str,
     new_parent_id: str,
     graph: Any,
+    type_id: str | None = None,
 ) -> dict[str, Any]:
     """Replace a thought's parent link(s) with a single new parent.
 
@@ -28,12 +29,18 @@ async def reparent_thought(
     new child-link from ``new_parent_id``. This *replaces* the parent — it
     does not add an additional one.
 
+    TheBrain records a thought's type as a child-link from the type thought,
+    so the type shows up among the graph's parents. That link is left alone:
+    moving a thought never clears its type.
+
     Args:
         api: TheBrain API client
         brain_id: The ID of the brain
         thought_id: The thought to reparent
         new_parent_id: The new parent thought ID
         graph: The thought's already-fetched graph (parents + links)
+        type_id: A type just set on the thought, which the fetched graph may
+            not show yet; its link is kept like the graph's own type
 
     Returns:
         Reparent-info dict: ``old_parents``, ``new_parent_id``,
@@ -47,8 +54,16 @@ async def reparent_thought(
             thought is left with its original parent rather than in a
             half-moved state that reads back as unchanged.
     """
-    old_parents = [{"id": p.id, "name": p.name} for p in (graph.parents or [])]
-    parent_ids = {p.id for p in (graph.parents or [])}
+    type_ids = {
+        t for t in (
+            type_id,
+            graph.active_thought.type_id,
+            graph.type.id if getattr(graph, "type", None) else None,
+        ) if t
+    }
+    parents = [p for p in (graph.parents or []) if p.id not in type_ids]
+    old_parents = [{"id": p.id, "name": p.name} for p in parents]
+    parent_ids = {p.id for p in parents}
 
     # Find parent links: relation==1 (Child), thoughtIdA is a parent, thoughtIdB is our thought
     parent_links = [

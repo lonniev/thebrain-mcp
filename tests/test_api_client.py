@@ -56,3 +56,18 @@ def test_format_http_error_empty_body_4xx_labels_emptiness() -> None:
     msg = _format_http_error("POST", "/search/brain", _http_status_error(405, ""))
     assert "405" in msg
     assert "empty body" in msg.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_brain_modifications_always_sends_max_logs(mock_api_key: str, monkeypatch) -> None:
+    """TheBrain answers 400 when maxLogs is missing."""
+    api = TheBrainAPI(mock_api_key)
+    seen: dict = {}
+
+    async def fake_request(method, path, params=None, **_):
+        seen.update(params or {})
+        return []
+
+    monkeypatch.setattr(api, "_request", fake_request)
+    await api.get_brain_modifications("00000000-0000-0000-0000-000000000001", start_time="2026-11-16T00:00:00Z")
+    assert seen["maxLogs"] == 100
