@@ -413,3 +413,26 @@ class TestUndeletableLinks:
             "thoughtIdB": "child-1",
             "relation": 1,
         })
+
+
+class TestMoveKeepsType:
+    @pytest.mark.asyncio
+    async def test_move_only_keeps_the_existing_type(self):
+        """A plain move of a typed card deletes the column link and nothing else."""
+        proposed_type = _thought("type-proposed", "Proposed Task")
+        column = _thought("col-proposed", "Proposed")
+        card = _thought("card-1", "Task 6", type_id="type-proposed")
+        graph = _graph(
+            card,
+            parents=[column, proposed_type],
+            links=[
+                _link("link-column", "col-proposed", "card-1"),
+                _link("link-type", "type-proposed", "card-1"),
+            ],
+        )
+        api = _mock_api(graph)
+
+        result = await morpher_tool(api, BRAIN, "card-1", new_parent_id="col-done")
+
+        assert result["success"] is True
+        api.delete_link_verified.assert_called_once_with(BRAIN, "link-column")

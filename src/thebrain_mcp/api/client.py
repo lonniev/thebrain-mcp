@@ -197,15 +197,16 @@ class TheBrainAPI:
     async def get_brain_modifications(
         self,
         brain_id: str,
-        max_logs: int | None = None,
+        max_logs: int = 100,
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> list[Modification]:
-        """Get brain modification history."""
+        """Get brain modification history.
+
+        TheBrain answers 400 when ``maxLogs`` is missing, so it is always sent.
+        """
         _validate_uuid(brain_id, "brain_id")
-        params = {}
-        if max_logs:
-            params["maxLogs"] = max_logs
+        params: dict[str, Any] = {"maxLogs": max_logs}
         if start_time:
             params["startTime"] = start_time
         if end_time:
