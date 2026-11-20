@@ -1,7 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.lonniev/personalbrain-mcp",
+  "title": "Personal Brain",
   "description": "FastMCP server for TheBrain API \u2014 AI access to a personal knowledge graph, Tollbooth-monetized",
+  "websiteUrl": "https://cafe.tollbooth-dpyc.com/products/personal-brain-mcp",
   "version": "1.18.0",
   "repository": {
     "url": "https://github.com/lonniev/thebrain-mcp",
