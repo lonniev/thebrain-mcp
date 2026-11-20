@@ -5,6 +5,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Changes not yet released live in `changelog.d/`, one file per change — see the README there for why, and `scripts/changelog.py` for what folds them in at release time.
 
+## [1.18.1] — 2026-11-19
+
+### Changed
+
+- The MCP Registry listing carries a title (Personal Brain) and a link to https://cafe.tollbooth-dpyc.com/products/personal-brain-mcp.
+
+### Fixed
+
+- Moving a thought (`update_thought` or `morph_thought` with a new parent) keeps its type. TheBrain records the type as a parent link, and a move used to delete it.
+- `confirm=True` works again: its change-log check now sends the `maxLogs` TheBrain requires, and so does every other read of the change log.
+
 ## [1.18.0] — 2026-10-21
 
 ### Changed
