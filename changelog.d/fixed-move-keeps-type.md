@@ -1,2 +1,0 @@
-- Moving a thought (`update_thought` or `morph_thought` with a new parent) keeps its type. TheBrain records the type as a parent link, and a move used to delete it.
-- `confirm=True` works again: its change-log check now sends the `maxLogs` TheBrain requires, and so does every other read of the change log.
