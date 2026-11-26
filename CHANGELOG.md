@@ -5,6 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Changes not yet released live in `changelog.d/`, one file per change — see the README there for why, and `scripts/changelog.py` for what folds them in at release time.
 
+## [1.18.3] — 2026-11-25
+
+### Changed
+
+- Refreshed dependencies (Renovate lock-file maintenance and package updates).
+
 ## [1.18.2] — 2026-11-22
 
 ### Changed

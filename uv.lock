@@ -1902,7 +1902,7 @@ wheels = [
 
 [[package]]
 name = "thebrain-mcp"
-version = "1.18.2"
+version = "1.18.3"
 source = { editable = "." }
 dependencies = [
     { name = "cachetools" },
