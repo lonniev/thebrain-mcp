@@ -5,6 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Changes not yet released live in `changelog.d/`, one file per change — see the README there for why, and `scripts/changelog.py` for what folds them in at release time.
 
+## [1.18.4] — 2026-11-26
+
+### Changed
+
+- Runs on tollbooth-dpyc 0.131.1: patrons can sign in with a NIP-05 address (name@domain), and a mistyped one says which part to check.
+
 ## [1.18.3] — 2026-11-25
 
 ### Changed

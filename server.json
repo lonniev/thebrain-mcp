@@ -4,7 +4,7 @@
   "title": "Personal Brain",
   "description": "FastMCP server for TheBrain API — AI access to a personal knowledge graph, Tollbooth-monetized",
   "websiteUrl": "https://cafe.tollbooth-dpyc.com/products/personal-brain-mcp",
-  "version": "1.18.3",
+  "version": "1.18.4",
   "repository": {
     "url": "https://github.com/lonniev/thebrain-mcp",
     "source": "github"
